@@ -1,0 +1,574 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;hm;inl;inc;xsd</Extensions>
+    </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="webrtc">
+      <UniqueIdentifier>{63e01e14-6366-433a-8e6f-796192af2f8b}</UniqueIdentifier>
+      <Extensions>h</Extensions>
+    </Filter>
+    <Filter Include="webrtc\base">
+      <UniqueIdentifier>{7dd97861-2150-41f2-a918-e759641cd602}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="webrtc\p2p">
+      <UniqueIdentifier>{9f62daaa-e862-4240-974e-1a62b65572fc}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="webrtc\p2p\base">
+      <UniqueIdentifier>{08b84671-4591-4c59-91a8-17fef508d23a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="webrtc\p2p\client">
+      <UniqueIdentifier>{ae06b073-06a0-49d3-a2a5-dd29ffcb192c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\windows">
+      <UniqueIdentifier>{32bc662b-7cf3-468c-8092-4dd6e2a3eb58}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\windows">
+      <UniqueIdentifier>{6da57e10-038a-4a98-8858-dd09e51bb94f}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\include\peer_network.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\tapdev.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\tincan.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\tincan_control.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\tapdev_inf.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\tap_frame.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\call.h">
+      <Filter>webrtc</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\common_types.h">
+      <Filter>webrtc</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\config.h">
+      <Filter>webrtc</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\typedefs.h">
+      <Filter>webrtc</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\video_decoder.h">
+      <Filter>webrtc</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\video_encoder.h">
+      <Filter>webrtc</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\video_frame.h">
+      <Filter>webrtc</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\video_receive_stream.h">
+      <Filter>webrtc</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\video_send_stream.h">
+      <Filter>webrtc</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\array_view.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\asyncinvoker.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\asyncinvoker-inl.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\asyncpacketsocket.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\asyncsocket.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\asynctcpsocket.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\asyncudpsocket.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\autodetectproxy.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\base64.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\basictypes.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\bind.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\bitbuffer.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\buffer.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\bufferqueue.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\bytebuffer.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\checks.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\common.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\criticalsection.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\cryptstring.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\dscp.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\event.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\fakenetwork.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\fakesslidentity.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\filerotatingstream.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\fileutils.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\fileutils_mock.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\flags.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\gunit.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\gunit_prod.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\helpers.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\httpclient.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\httpcommon.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\httpcommon-inl.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\httpserver.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\ifaddrs-android.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\logging.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\logsinks.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\maccocoathreadhelper.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\macutils.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\mathutils.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\messagedigest.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\messagehandler.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\messagequeue.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\natserver.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\natsocketfactory.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\nattypes.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\network.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\networkmonitor.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\nullsocketserver.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\openssl.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\openssladapter.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\opensslidentity.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\opensslstreamadapter.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\optional.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\pathutils.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\physicalsocketserver.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\platform_file.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\platform_thread.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\proxydetect.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\proxyserver.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\ratelimiter.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\ratetracker.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\refcount.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\rollingaccumulator.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\rtccertificate.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\scoped_autorelease_pool.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\scoped_ref_ptr.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\scopedptrcollection.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\signalthread.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\sigslotrepeater.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\sigslottester.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\socket.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\socket_unittest.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\socketadapters.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\socketaddresspair.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\socketfactory.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\socketserver.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\socketstream.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\sslfingerprint.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\sslidentity.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\sslstreamadapter.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\stream.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\stringutils.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\task.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\taskparent.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\taskrunner.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\testbase64.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\testclient.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\testechoserver.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\testutils.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\thread.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\thread_annotations.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\thread_checker.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\timeutils.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\unixfilesystem.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\virtualsocketserver.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\win32filesystem.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\win32socketinit.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\win32socketserver.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\win32window.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\window.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\base\winping.h">
+      <Filter>webrtc\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\asyncstuntcpsocket.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\basicpacketsocketfactory.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\candidate.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\common.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\dtlstransportchannel.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\faketransportcontroller.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\p2ptransportchannel.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\packetsocketfactory.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\port.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\portallocator.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\portinterface.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\relayport.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\relayserver.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\session.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\sessiondescription.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\stun.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\stunport.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\stunrequest.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\stunserver.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\tcpport.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\testrelayserver.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\testturnserver.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\transport.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\transportchannel.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\transportchannelimpl.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\transportcontroller.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\transportdescription.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\transportdescriptionfactory.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\transportinfo.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\turnport.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\turnserver.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\base\udpport.h">
+      <Filter>webrtc\p2p\base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\client\basicportallocator.h">
+      <Filter>webrtc\p2p\client</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\external\include\webrtc\p2p\client\socketmonitor.h">
+      <Filter>webrtc\p2p\client</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\windows\tapdev_win.h">
+      <Filter>Header Files\windows</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\windows\win_exception.h">
+      <Filter>Header Files\windows</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\virtual_link.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\control_listener.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\control_dispatch.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\controller_handle.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\tincan_exception.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\async_io.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\peer_descriptor.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\tincan_base.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\tunnel_descriptor.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\single_link_tunnel.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\basic_tunnel.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\multi_link_tunnel.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\src\peer_network.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\tincan.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\tincan_control.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\tincan_main.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\windows\tapdev_win.cc">
+      <Filter>Source Files\windows</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\virtual_link.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\control_dispatch.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\control_listener.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\tap_frame.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\single_link_tunnel.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\basic_tunnel.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\multi_link_tunnel.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+</Project>
