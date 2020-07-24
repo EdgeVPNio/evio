@@ -827,12 +827,12 @@ class BoundedFlood(app_manager.RyuApp):
             self.add_flow(datapath, match, actions, priority=1, tblid=0,
                           idle=self.idle_timeout, hard_timeout=self.hard_timeout)
 
-        # need to send this join upstream to create tree, note that this also serves as reaffirming continued
-        # interest in the multicast transmission.
-        if netnode.multicast_groups.containsKey(req_dvmrp.grp_address):
-            for transmission in netnode.multicast_groups.get(req_dvmrp.grp_address):
-                if netnode.upstream_reception.containsKey(transmission):
-                    send_port = list(netnode.upstream_reception.get(transmission))[0]
+            # need to send this join upstream to create tree, note that this also serves as reaffirming continued
+            # interest in the multicast transmission.
+            if netnode.multicast_groups.containsKey(req_dvmrp.grp_address):
+                targetTransmission = (req_dvmrp.src_address, req_dvmrp.grp_address)
+                if netnode.upstream_reception.containsKey(targetTransmission):
+                    send_port = list(netnode.upstream_reception.get(targetTransmission))[0]
                     if send_port not in netnode.leaf_ports():
                         # send upstream
                         if msg.buffer_id == datapath.ofproto.OFP_NO_BUFFER:
