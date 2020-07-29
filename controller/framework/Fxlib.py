@@ -27,7 +27,7 @@ EVIO_VER_REL = "{0}.{1}.{2}".format(EVIO_VER_MJR, EVIO_VER_MNR, EVIO_VER_REV)
 CONFIG = {
     "CFx": {
         "NodeId": "",  # Single unique node Id for all overlays
-        "EvioVersion": EVIO_VER_REL,
+        "Version": EVIO_VER_REL,
         "Model": "Default",
         "RequestTimeout": 120,
     },

@@ -248,8 +248,8 @@ class CFX():
     def query_param(self, param_name=""):
         val = None
         try:
-            if param_name == "EvioVersion":
-                val = self._config["CFx"]["EvioVersion"]
+            if param_name == "Version":
+                val = self._config["CFx"]["Version"]
             elif param_name == "NodeId":
                 val = self._node_id
             elif param_name == "Overlays":
