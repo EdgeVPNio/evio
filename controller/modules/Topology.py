@@ -270,6 +270,17 @@ class Topology(ControllerModule, CFX):
             edge_cbt.set_response(edge_resp.data, False)
             self.complete_cbt(edge_cbt)
 
+    def req_handler_query_known_peers(self, cbt):
+        peer_list = {}
+        for olid in self._net_ovls:
+            if not olid in peer_list:
+                peer_list[olid] = []
+            for peer_id, peer in self._net_ovls[olid]["KnownPeers"].items():
+                if peer.is_available:
+                    peer_list[olid].append(peer_id)
+        cbt.set_response(peer_list, True)
+        self.complete_cbt(cbt)
+
     def resp_handler_auth_tunnel(self, cbt):
         """ Role B
             LNK auth completed, add the CE to Netbuilder and send response to initiator ie., Role A
@@ -326,6 +337,8 @@ class Topology(ControllerModule, CFX):
                     self.req_handler_req_ond_tunnel(cbt)
                 elif cbt.request.action == "TOP_NEGOTIATE_EDGE":
                     self.req_handler_negotiate_edge(cbt)
+                elif cbt.request.action == "TOP_QUERY_KNOWN_PEERS":
+                    self.req_handler_query_known_peers(cbt)
                 else:
                     self.req_handler_default(cbt)
             elif cbt.op_type == "Response":

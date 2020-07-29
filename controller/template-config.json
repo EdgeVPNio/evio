@@ -92,12 +92,11 @@
                 "Port": "6633"
             }
         }
-    },
-    "UsageReport": {
-      "Enabled": true,
-      "TimerInterval": 14400,
-      "WebServiceAddress": "",
-      "WebServiceLookup": ""
     }
+  },
+  "UsageReport": {
+    "Enabled": true,
+    "TimerInterval": 86400,
+    "WebService": "https://2zkan9566m.execute-api.us-west-2.amazonaws.com/default/PythonEndpointMicroservice"
   }
 }
