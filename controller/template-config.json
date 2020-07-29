@@ -97,6 +97,6 @@
   "UsageReport": {
     "Enabled": true,
     "TimerInterval": 86400,
-    "WebService": "https://2zkan9566m.execute-api.us-west-2.amazonaws.com/default/PythonEndpointMicroservice"
+    "WebService": "https://qdscz6pg37.execute-api.us-west-2.amazonaws.com/default/EvioUsageReport"
   }
 }
