@@ -12,7 +12,7 @@ The [EdgeVPNio](https://edgevpn.io/documentation/) website provides a quick star
 
 ## Contributing
 
-We welcome community participation and contributions. See [CONTRIBUTING.md](CONTRIBUTING.md) for more details.
+We welcome community participation and contributions. See [CONTRIBUTING](https://edgevpn.io/code/) for more details.
 
 ## License
 
