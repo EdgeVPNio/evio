@@ -19,6 +19,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+import asyncio
 import ssl
 import time
 import threading
@@ -29,12 +30,8 @@ try:
 except ImportError:
     import json
 import random
-import sleekxmpp
-from sleekxmpp.xmlstream.stanzabase import ElementBase, JID
-from sleekxmpp.xmlstream import register_stanza_plugin
-from sleekxmpp.xmlstream.handler.callback import Callback
-from sleekxmpp.xmlstream.matcher import StanzaPath
-from sleekxmpp.stanza.message import Message
+import slixmpp
+from slixmpp import ElementBase, register_stanza_plugin, Message, Callback, StanzaPath, JID
 from framework.ControllerModule import ControllerModule
 
 
@@ -76,9 +73,9 @@ class JidCache:
         return jid
 
 
-class XmppTransport(sleekxmpp.ClientXMPP):
+class XmppTransport(slixmpp.ClientXMPP):
     def __init__(self, jid, password, sasl_mech):
-        sleekxmpp.ClientXMPP.__init__(self, jid, password, sasl_mech=sasl_mech)
+        slixmpp.ClientXMPP.__init__(self, jid, password, sasl_mech=sasl_mech)
         self._overlay_id = None
         # self.overlay_descr = None
         self._sig = None
@@ -92,6 +89,8 @@ class XmppTransport(sleekxmpp.ClientXMPP):
         # TLS enabled by default.
         self._enable_tls = True
         self._enable_ssl = False
+        self.event_loop = None
+        self.xmpp_thread = None
 
     @staticmethod
     def factory(overlay_id, overlay_descr, cm_mod, presence_publisher, jid_cache,
@@ -162,10 +161,10 @@ class XmppTransport(sleekxmpp.ClientXMPP):
                                    self.presence_event_handler)
             # Register evio message with the server
             register_stanza_plugin(Message, EvioSignal)
-            self.registerHandler(
+            self.register_handler(
                 Callback("evio", StanzaPath("message/evio"), self.message_listener))
             # Get the friends list for the user
-            self.get_roster()
+            asyncio.ensure_future(self.get_roster(), loop=self.loop)
             # Send sign-on presence
             self.send_presence(pstatus="ident#" + self._node_id)
         except Exception as err:
@@ -262,19 +261,28 @@ class XmppTransport(sleekxmpp.ClientXMPP):
         msg["type"] = "chat"
         msg["evio"]["type"] = msg_type
         msg["evio"]["payload"] = payload
-        msg.send()
+        self.loop.call_soon_threadsafe(msg.send)
 
     def connect_to_server(self,):
         try:
-            if self.connect(address=(self._host, self._port),use_ssl=self._enable_ssl,use_tls=self._enable_tls):
-                self.process(block=False)
-                self._sig.sig_log("Starting overlay {0} connection to XMPP server {1}:{2}"
+            self.connect(address=(self._host, self._port))
+            self._sig.sig_log("Starting overlay {0} connection to XMPP server {1}:{2}"
                                   .format(self._overlay_id, self._host, self._port))
         except Exception as err:
             self._sig.sig_log("Failed to initialize XMPP transport instanace {}".format(str(err)),
                               "LOG_ERROR")
 
+    def start_process(self):
+        # Make sure all methods called on the transport instance are called in a thread safe manner.
+        self.event_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.event_loop)
+        self.loop.set_debug(enabled=False)  # Make it true if you want to debug the event loop
+        self.loop.run_forever()  # transport.process is calling the same so directly running the loop here
+
     def shutdown(self,):
+        self.loop.stop()
+        self.loop.close()
+        self.xmpp_thread.join()
         self.disconnect()
 
 
@@ -292,6 +300,7 @@ class Signal(ControllerModule):
         xport = XmppTransport.factory(overlay_id, overlay_descr, self, self._presence_publisher,
                                       jid_cache, outgoing_rem_acts)
         xport.connect_to_server()
+        self.xmpp_thread = threading.Thread(target=xport.start_process, daemon=True).start()
         return xport
 
     def initialize(self):
@@ -442,8 +451,9 @@ class Signal(ControllerModule):
             for overlay_id in self._circles:
                 anc = self._circles[overlay_id]["Announce"]
                 if time.time() >= anc:
-                    self._circles[overlay_id]["Transport"].send_presence(pstatus="ident#" +
-                                                                         self.node_id)
+                    self._circles[overlay_id]["Transport"].event_loop.call_soon_threadsafe(
+                        lambda: self._circles[overlay_id]["Transport"].send_presence(pstatus="ident#" +
+                                                                                             self.node_id))
                     self._circles[overlay_id]["Announce"] = time.time() + \
                         (int(self.config["PresenceInterval"]) * random.randint(2, 20))
                 self._circles[overlay_id]["JidCache"].scavenge()
