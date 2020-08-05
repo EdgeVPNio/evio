@@ -77,7 +77,7 @@
                 "IP4": "10.10.10.*",
                 "PrefixLen": 24,
                 "MTU": 1410,
-                "GuestBridge": {
+                "AppBridge": {
                    "AutoDelete": true,
                     "Type": "OVS",
                     "NamePrefix": "appbr",
