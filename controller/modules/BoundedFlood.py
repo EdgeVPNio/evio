@@ -173,7 +173,7 @@ class netNode():
         self.config = ryu_app.config
         self.addr = (datapath.address[0], self.config["ProxyListenPort"])
         self.node_id = None
-        self._leaf_prts = None
+        self._leaf_prts = set()
         self.port_state = None
         self.links = {} # maps port no to tuple (local_mac, peer_mac, peer_id)
         self.mac_local_to_peer = {}
