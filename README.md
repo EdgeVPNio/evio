@@ -2,7 +2,7 @@
 
 This repository maintains the evio controller and data plane source codes.
 
-## What is EdgeVPNio?
+## What is EdgeVPNio
 
 > EdgeVPNio is a research project to build networking for the fog, spanning the network continuum from the cloud to its edge. It builds networking cyber-infrastructure which supports emerging IoT era applications. Visit our [website](https://edgevpn.io/about/) to review our extensive documentation and publications and discover how you can use evio networking in your application model.
 
@@ -17,7 +17,6 @@ We welcome community participation and contributions. See [CONTRIBUTING](https:/
 ## License
 
 EdgeVPNio/evio is licensed under the [MIT license](LICENSE)
-
 
 ## Contact
 
