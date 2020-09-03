@@ -18,7 +18,7 @@ EXT_INC_DIR = ../../external/include
 SRC_DIR = ../src
 SRC_DIR_LNX = $(SRC_DIR)/linux
 
-EXT_LIB_DIR = ../../external/3rd-Party-Libs/$(OPT)
+EXT_LIB_DIR = ../../external/libs/$(OPT)
 OUT = ../out
 OBJ_DIR = $(OUT)/$(OPT)/$(ARCH)/obj
 BIN_DIR = $(OUT)/$(OPT)/$(ARCH)
