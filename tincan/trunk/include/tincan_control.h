@@ -1,6 +1,6 @@
 /*
-* EdgeVPNio
-* Copyright 2020, University of Florida
+* ipop-project
+* Copyright 2016, University of Florida
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the "Software"), to deal
@@ -23,8 +23,8 @@
 #ifndef TINCAN_TINCAN_CONTROL_H_
 #define TINCAN_TINCAN_CONTROL_H_
 #include "tincan_base.h"
-#include "webrtc/base/json.h"
-#include "webrtc/base/socketaddress.h"
+#include "rtc_base/strings/json.h"
+#include "rtc_base/socket_address.h"
 
 namespace tincan {
 using namespace rtc;
@@ -91,7 +91,7 @@ const array<const char*, 3> ControlTypeStrings = { {"TincanRequest", "TincanResp
   static const Json::StaticString IgnoredNetInterfaces;
   static const Json::StaticString TapName;
   static const Json::StaticString IP4PrefixLen;
-  static const Json::StaticString EVIO;
+  static const Json::StaticString IPOP;
   static const Json::StaticString LinkId;
   static const Json::StaticString LinkStateChange;
   static const Json::StaticString Level;

@@ -1,6 +1,6 @@
 /*
-* EdgeVPNio
-* Copyright 2020, University of Florida
+* ipop-project
+* Copyright 2016, University of Florida
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the "Software"), to deal
@@ -171,8 +171,8 @@ namespace tincan
     static const uint16_t kFwdMagic = 0x0B01;
     static const uint16_t kIccMagic = 0x0C01;
     static const char kCandidateDelim = ':';
-    const char * const kIceUfrag = "_001EVIOICEUFRAG";
-    const char * const kIcePwd = "_00000001EVIOICEPASSWORD";
+    const char * const kIceUfrag = "_001IPOPICEUFRAG";
+    const char * const kIcePwd = "_00000001IPOPICEPASSWORD";
     const char * const kLocalHost = "127.0.0.1";
     const char * const kLocalHost6 = "::1";
     bool kVersionCheck;

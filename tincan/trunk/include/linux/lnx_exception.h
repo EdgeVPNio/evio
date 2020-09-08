@@ -1,6 +1,6 @@
 /*
-* EdgeVPNio
-* Copyright 2020, University of Florida
+* ipop-project
+* Copyright 2016, University of Florida
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the "Software"), to deal
@@ -45,7 +45,7 @@ public:
   ~LnxException()
   {}
 
-  const char* what() const _GLIBCXX_USE_NOEXCEPT override
+  const char* what() const _NOEXCEPT override
   {
     return emsg.c_str();
   }

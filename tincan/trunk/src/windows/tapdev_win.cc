@@ -1,6 +1,6 @@
 /*
-* EdgeVPNio
-* Copyright 2020, University of Florida
+* ipop-project
+* Copyright 2016, University of Florida
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the "Software"), to deal
@@ -21,7 +21,7 @@
 * THE SOFTWARE.
 */
 
-#if defined(_TNC_WIN)
+#if defined(_IPOP_WIN)
 #include "windows/tapdev_win.h"
 #include <iphlpapi.h>
 #include <mstcpip.h>
@@ -48,7 +48,7 @@ const char * const TapDevWin::TAP_SUFFIX_ = ".tap";
 #define TAP_IOCTL_CONFIG_POINT_TO_POINT TAP_CONTROL_CODE (5, METHOD_BUFFERED)
 #define TAP_IOCTL_SET_MEDIA_STATUS      TAP_CONTROL_CODE (6, METHOD_BUFFERED)
 #define TAP_IOCTL_CONFIG_DHCP_MASQ      TAP_CONTROL_CODE (7, METHOD_BUFFERED)
-#define TAP_IOCTL_GET_LOG_LINE          TAP_CONTROL_CODE (8, METHOD_BUFFERED)
+#define TAP_IOCTL_GET_RTC_LOG_LINE          TAP_CONTROL_CODE (8, METHOD_BUFFERED)
 #define TAP_IOCTL_CONFIG_DHCP_SET_OPT   TAP_CONTROL_CODE (9, METHOD_BUFFERED)
 /* obsoletes TAP_WIN_IOCTL_CONFIG_POINT_TO_POINT */
 #define TAP_WIN_IOCTL_CONFIG_TUN        TAP_WIN_CONTROL_CODE (10, METHOD_BUFFERED)
@@ -75,7 +75,7 @@ TapDevWin::IoThreadDescriptor::IoCompletionThread(void * param)
       break;
     else if(ERROR_SUCCESS != rv)
     {//completion packet for a failed IO
-      LOG(LS_WARNING) << "Received a completion packet for a failed IO, error: " << rv;
+      RTC_LOG(LS_WARNING) << "Received a completion packet for a failed IO, error: " << rv;
       //indicate failure and deliver
       AsyncIo * aio = (AsyncIo*)overlap;
       aio->BytesTransferred(0);
@@ -121,7 +121,7 @@ TapDevWin::Open(
       memmove(ip4_.data(), &vip4_addr.S_un.S_addr, sizeof(ip4_));
     }
     else
-      LOG(WARNING) << "Failed to convert IP4 string in Tap Descriptor="
+      RTC_LOG(WARNING) << "Failed to convert IP4 string in Tap Descriptor="
       << tap_desc.ip4 << " for TAP device " + tap_name_;
 
     NetDeviceNameToGuid(tap_name_, device_guid);
@@ -175,7 +175,7 @@ TapDevWin::Read(
   DWORD rv = GetLastError();
   if(rv != ERROR_IO_PENDING && rv != ERROR_SUCCESS)
   {
-    LOG(LS_ERROR) << "The TAP device read request operation failed for device "
+    RTC_LOG(LS_ERROR) << "The TAP device read request operation failed for device "
       << tap_name_ << ", error: " << rv << ".";
     return rv;
   }
@@ -220,7 +220,7 @@ TapDevWin::NetDeviceNameToGuid(
       DWORD rv = RegEnumKeyEx(key_0, i_0++, guid_buf, &guid_buf_len,
         NULL, NULL, NULL, NULL);
       if(rv == ERROR_NO_MORE_ITEMS)
-        throw WINEXCEPT("Failed to resolve EVIO TAP GUID in system registry");
+        throw WINEXCEPT("Failed to resolve IPOP TAP GUID in system registry");
       if(rv != ERROR_SUCCESS)
         continue;
       full_path.assign(NETWORK_PATH_).append("\\")
@@ -297,14 +297,14 @@ TapDevWin::OnMessage(
     DWORD rv = GetLastError();
     if(rv != ERROR_IO_PENDING && rv != ERROR_SUCCESS)
     {
-      LOG(LS_WARNING) << "The TAP device write request operation failed for device "
+      RTC_LOG(LS_WARNING) << "The TAP device write request operation failed for device "
         << tap_name_ << ", error: " << rv << ".";
       delete static_cast<TapFrame*>(aio_wr->context_);
     }
   }
   break;
   default:
-    LOG(LS_WARNING) << "An invalid TAP Message ID was specified for device " << tap_name_ << ".";
+    RTC_LOG(LS_WARNING) << "An invalid TAP Message ID was specified for device " << tap_name_ << ".";
     break;
   }
   delete (TapMessageData*)msg->pdata;
@@ -321,7 +321,7 @@ TapDevWin::Up()
     &media_status_, sizeof(media_status_), &media_status_,
     sizeof(media_status_), (LPDWORD)&len, NULL))
   {
-    const string emsg("Device IO control to TAP failed to enable EVIO TAP device " + tap_name_);
+    const string emsg("Device IO control to TAP failed to enable IPOP TAP device " + tap_name_);
     throw WINEXCEPT(emsg.c_str());
   }
   //Get drivers version
@@ -330,13 +330,13 @@ TapDevWin::Up()
   if(DeviceIoControl(dev_handle_, TAP_IOCTL_GET_VERSION, &info,
     sizeof(info), &info, sizeof(info), &len, NULL))
   {
-    LOG(LS_INFO) << "TAP Driver Version " << (int)info[0] <<
+    RTC_LOG(LS_INFO) << "TAP Driver Version " << (int)info[0] <<
       (int)info[1] << (info[2] ? "(DEBUG)" : "");
   }
   uint16_t mtu = Mtu();
   writer_.Start();
   io_thread_pool_.Attach(cmpl_prt_handle_);
-  LOG(LS_INFO) << "TAP device MTU " << mtu;
+  RTC_LOG(LS_INFO) << "TAP device MTU " << mtu;
 }
 
 void
@@ -351,7 +351,7 @@ TapDevWin::Down()
     sizeof(media_status_), &media_status_, sizeof(media_status_),
     (LPDWORD)&len, NULL))
   {
-    const string emsg("Device IO control failed to disable EVIO TAP device " + tap_name_);
+    const string emsg("Device IO control failed to disable IPOP TAP device " + tap_name_);
     throw WINEXCEPT(emsg.c_str());
   }
 }
@@ -371,7 +371,7 @@ uint16_t TapDevWin::Mtu()
   if(!DeviceIoControl(dev_handle_, TAP_IOCTL_GET_MTU, &mtu, sizeof(mtu),
     &mtu, sizeof(mtu), &len, NULL))
   {
-    LOG_ERR(LS_ERROR) << "The ioctl failed to query the TAP device MTU for device "
+    RTC_LOG_ERR(LS_ERROR) << "The ioctl failed to query the TAP device MTU for device "
       << tap_name_ << ".";
   }
   return (uint16_t)mtu;
@@ -384,4 +384,4 @@ TapDevWin::Ip4()
 }
 }  // namespace win
 }  // namespace tincan
-#endif// _TNC_WIN
+#endif// _IPOP_WIN

@@ -1,6 +1,6 @@
 /*
-* EdgeVPNio
-* Copyright 2020, University of Florida
+* ipop-project
+* Copyright 2016, University of Florida
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the "Software"), to deal
@@ -22,15 +22,15 @@
 */
 #ifndef TINCAN_TAPDEV_LNX_H_
 #define TINCAN_TAPDEV_LNX_H_
-#if defined (_TNC_LINUX)
+#if defined (_IPOP_LINUX)
 
 #include "async_io.h"
 #include "tapdev_inf.h"
 #include "tincan_base.h"
 
-#include "webrtc/base/logging.h"
-#include "webrtc/base/thread.h"
-#include "webrtc/base/sigslot.h"
+#include "rtc_base/logging.h"
+#include "rtc_base/thread.h"
+#include "rtc_base/third_party/sigslot/sigslot.h"
 
 #include <sys/ioctl.h>
 #include <fcntl.h>
@@ -51,6 +51,7 @@ namespace linux
 using rtc::Message;
 using rtc::MessageData;
 using rtc::MessageHandler;
+using rtc::SocketServer;
 class TapDevLnx :
   public TapDevInf,
   public MessageHandler
@@ -86,5 +87,5 @@ private:
 };
 }
 }
-#endif //_TNC_LINUX
+#endif //_IPOP_LINUX
 #endif 

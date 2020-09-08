@@ -1,6 +1,6 @@
 /*
-* EdgeVPNio
-* Copyright 2020, University of Florida
+* ipop-project
+* Copyright 2016, University of Florida
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the "Software"), to deal
@@ -236,11 +236,11 @@ uint32_t TapFrame::Capacity() const
 
 void TapFrame::Dump(const string & label)
 {
-  if(LOG_CHECK_LEVEL(LS_VERBOSE))
+  if(RTC_LOG_CHECK_LEVEL(LS_VERBOSE))
   {
     ostringstream oss;
-    LOG(LS_VERBOSE) << label << " header=" <<
-      ByteArrayToString(Begin(), Payload(), 0, false) << endl <<
+    RTC_LOG(LS_VERBOSE) << label << " header=" <<
+      ByteArrayToString(Begin(), Payload(), 0, false) << "\n" <<
       ByteArrayToString(Payload(), PayloadEnd(), 16, true);
   }
 }

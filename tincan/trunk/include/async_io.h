@@ -1,6 +1,6 @@
 /*
-* EdgeVPNio
-* Copyright 2020, University of Florida
+* ipop-project
+* Copyright 2016, University of Florida
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the "Software"), to deal
@@ -22,8 +22,8 @@
 */
 #ifndef TINCAN_ASYNCIO_H_
 #define TINCAN_ASYNCIO_H_
-#include "webrtc/base/logging.h"
-#if defined(_TNC_WIN)
+#include "rtc_base/logging.h"
+#if defined(_IPOP_WIN)
 #include <Winsock2.h>
 #include <minwinbase.h>
 #endif
@@ -40,9 +40,9 @@ enum AIO_OP
 };
 
 struct AsyncIo
-#if defined(_TNC_WIN)
+#if defined(_IPOP_WIN)
   : public OVERLAPPED
-#endif // defined(_TNC_WIN)
+#endif // defined(_IPOP_WIN)
 {
   AsyncIo() :
     buffer_to_transfer_(nullptr),
@@ -52,9 +52,9 @@ struct AsyncIo
     flags_(AIO_READ),
     good_(true)
   {
-#if defined(_TNC_WIN)
+#if defined(_IPOP_WIN)
     ZeroMemory(this, sizeof(OVERLAPPED));
-#endif // defined(_TNC_WIN)
+#endif // defined(_IPOP_WIN)
   }
   AsyncIo(
     uint8_t* buffer,
@@ -69,13 +69,13 @@ struct AsyncIo
     flags_(flags),
     good_(true)
   {
-#if defined(_TNC_WIN)
+#if defined(_IPOP_WIN)
     ZeroMemory(this, sizeof(OVERLAPPED));
-#endif // defined(_TNC_WIN)
+#endif // defined(_IPOP_WIN)
   }
-#if !defined(_TNC_WIN)
+#if !defined(_IPOP_WIN)
   virtual ~AsyncIo() = default;
-#endif // defined(_TNC_WIN)
+#endif // defined(_IPOP_WIN)
   void Initialize(
     uint8_t* buffer_to_transfer,
     uint32_t bytes_to_transfer,

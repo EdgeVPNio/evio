@@ -1,6 +1,6 @@
 /*
-* EdgeVPNio
-* Copyright 2020, University of Florida
+* ipop-project
+* Copyright 2016, University of Florida
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the "Software"), to deal
@@ -35,9 +35,9 @@ Tincan::~Tincan()
 }
 
 void
-Tincan::SetControllerLink(
-  //shared_ptr<ControllerLink> ctrl_handle)
-  ControllerLink * ctrl_handle)
+Tincan::SetIpopControllerLink(
+  //shared_ptr<IpopControllerLink> ctrl_handle)
+  IpopControllerLink * ctrl_handle)
 {
   ctrl_link_ = ctrl_handle;
 }
@@ -69,16 +69,17 @@ void Tincan::CreateTunnel(
   }
   td->enable_ip_mapping = false;
   unique_ptr<BasicTunnel> tnl;
-  if(tnl_desc[TincanControl::Type].asString() == "VNET")
+ /* if(tnl_desc[TincanControl::Type].asString() == "VNET")
   {
     tnl = make_unique<MultiLinkTunnel>(move(td), ctrl_link_);
   }
-  else if(tnl_desc[TincanControl::Type].asString() == "TUNNEL")
-  {
-    tnl = make_unique<SingleLinkTunnel>(move(td), ctrl_link_);
-  }
-  else
-    throw TCEXCEPT("Invalid Tunnel type specified");
+  else 
+  if(tnl_desc[TincanControl::Type].asString() == "TUNNEL")
+  {*/
+  tnl = make_unique<SingleLinkTunnel>(move(td), ctrl_link_);
+  //}
+  //else
+  //  throw TCEXCEPT("Invalid Tunnel type specified");
   unique_ptr<TapDescriptor> tap_desc = make_unique<TapDescriptor>();
   tap_desc->name = tnl_desc["TapName"].asString();
   tap_desc->ip4 = tnl_desc["IP4"].asString();
@@ -86,7 +87,7 @@ void Tincan::CreateTunnel(
   tap_desc->mtu4 = tnl_desc[TincanControl::MTU4].asUInt();
 
   Json::Value network_ignore_list =
-    tnl_desc[TincanControl::IgnoredNetInterfaces];
+  tnl_desc[TincanControl::IgnoredNetInterfaces];
   int count = network_ignore_list.size();
   vector<string> if_list(count);
   for (int i = 0; i < count; i++)
@@ -219,11 +220,11 @@ Tincan::RemoveTunnel(
     {
       (*tnl)->Shutdown();
       tunnels_.erase(tnl);
-      LOG(LS_INFO) << "RemoveTunnel: Instance erased from collection " << tnl_id;
+      RTC_LOG(LS_INFO) << "RemoveTunnel: Instance erased from collection " << tnl_id;
       return;
     }
   }
-  LOG(LS_WARNING) << "RemoveTunnel: No such virtual network exists " << tnl_id;
+  RTC_LOG(LS_WARNING) << "RemoveTunnel: No such virtual network exists " << tnl_id;
 }
 
 void
@@ -269,7 +270,7 @@ Tincan::OnLocalCasUpdated(
   if(lcas.empty())
   {
     lcas = "No local candidates available on this vlink";
-    LOG(LS_WARNING) << lcas;
+    RTC_LOG(LS_WARNING) << lcas;
   }
   bool to_deliver = false;
   unique_ptr<TincanControl> ctrl;
@@ -308,16 +309,17 @@ void
 Tincan::Run()
 {
   //TODO:Code cleanup
-#if defined(_TNC_WIN)
+#if defined(_IPOP_WIN)
   self_ = this;
   SetConsoleCtrlHandler(ControlHandler, TRUE);
-#endif // _TNC_WIN
+#endif // _IPOP_WIN
 
   //Start tincan control to get config from Controller
   unique_ptr<ControlDispatch> ctrl_dispatch(new ControlDispatch);
   ctrl_dispatch->SetDispatchToTincanInf(this);
   ctrl_listener_ = make_shared<ControlListener>(move(ctrl_dispatch));
-  ctl_thread_.Start(ctrl_listener_.get());
+  ctrl_listener_->Run();
+  //ctl_thread_->Start(ctrl_listener_.get());
   exit_event_.Wait(Event::kForever);
 }
 
@@ -358,7 +360,7 @@ void
 Tincan::Shutdown()
 {
   lock_guard<mutex> lg(tunnels_mutex_);
-  ctl_thread_.Quit();
+  ctrl_listener_->Quit();
   for(auto const & tnl : tunnels_) {
     tnl->Shutdown();
   }
@@ -371,7 +373,7 @@ PURPOSE: Handles keyboard signals
 PARAMETERS: The signal code
 RETURN VALUE: Success/Failure
 ++*/
-#if defined(_TNC_WIN)
+#if defined(_IPOP_WIN)
 BOOL __stdcall Tincan::ControlHandler(DWORD CtrlType) {
   switch(CtrlType) {
   case CTRL_BREAK_EVENT:  // use Ctrl+C or Ctrl+Break to send
@@ -382,5 +384,5 @@ BOOL __stdcall Tincan::ControlHandler(DWORD CtrlType) {
   }
   return(FALSE);
 }
-#endif // _TNC_WIN
+#endif // _IPOP_WIN
 } // namespace tincan

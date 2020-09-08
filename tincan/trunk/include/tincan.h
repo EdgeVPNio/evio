@@ -1,6 +1,6 @@
 /*
-* EdgeVPNio
-* Copyright 2020, University of Florida
+* ipop-project
+* Copyright 2016, University of Florida
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the "Software"), to deal
@@ -23,11 +23,11 @@
 #ifndef TINCAN_TINCAN_H_
 #define TINCAN_TINCAN_H_
 #include "tincan_base.h"
-#include "webrtc/base/event.h"
+#include "rtc_base/event.h"
 #include "control_listener.h"
 #include "control_dispatch.h"
 #include "single_link_tunnel.h"
-#include "multi_link_tunnel.h"
+//#include "multi_link_tunnel.h"
 
 namespace tincan {
 class Tincan :
@@ -68,8 +68,8 @@ public:
   void SendIcc(
     const Json::Value & icc_desc) override;
 
-  void SetControllerLink(
-    ControllerLink * ctrl_handle) override;
+  void SetIpopControllerLink(
+    IpopControllerLink * ctrl_handle) override;
 
   void UpdateRouteTable(
     const Json::Value & rts_desc) override;
@@ -94,15 +94,15 @@ private:
   void OnStop();
   void Shutdown();
   //TODO:Code cleanup
-#if defined(_TNC_WIN)
+#if defined(_IPOP_WIN)
   static BOOL __stdcall ControlHandler(
     DWORD CtrlType);
-#endif // _TNC_WIN
+#endif // _IPOP_WIN
 
   vector<unique_ptr<BasicTunnel>> tunnels_;
-  ControllerLink * ctrl_link_;
+  IpopControllerLink * ctrl_link_;
   map<string, unique_ptr<TincanControl>> inprogess_controls_;
-  Thread ctl_thread_;
+  //rtc::Thread *ctl_thread_;// = new Thread(SocketServer::CreateDefault());
   shared_ptr<ControlListener> ctrl_listener_; //must be destroyed before ctl_thread
   static Tincan * self_;
   std::mutex tunnels_mutex_;

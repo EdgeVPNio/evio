@@ -1,6 +1,6 @@
 /*
-* EdgeVPNio
-* Copyright 2020, University of Florida
+* ipop-project
+* Copyright 2016, University of Florida
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the "Software"), to deal
@@ -21,7 +21,7 @@
 * THE SOFTWARE.
 */
 #include "tincan_control.h"
-#include "webrtc/base/logging.h"
+#include "rtc_base/logging.h"
 #include "tincan_exception.h"
 namespace tincan
 {
@@ -41,7 +41,7 @@ const Json::StaticString TincanControl::ICC("ICC");
 const Json::StaticString TincanControl::IceRole("IceRole");
 const Json::StaticString TincanControl::IgnoredNetInterfaces("IgnoredNetInterfaces");
 const Json::StaticString TincanControl::IP4PrefixLen("IP4PrefixLen");
-const Json::StaticString TincanControl::EVIO("EVIO");
+const Json::StaticString TincanControl::IPOP("IPOP");
 const Json::StaticString TincanControl::LinkId("LinkId");
 const Json::StaticString TincanControl::LinkStateChange("LinkStateChange");
 const Json::StaticString TincanControl::Level("Level");
@@ -109,30 +109,32 @@ TincanControl::TincanControl(
   dict_resp_(new Json::Value(Json::objectValue))
 {
   //create Json from full request
-  Json::Reader parser;
+  Json::CharReaderBuilder b;
+  Json::CharReader* parser(b.newCharReader());
+  Json::String errs;
   Json::Value ctrl(Json::objectValue);
-  if(!parser.parse(req_data, req_data + len, ctrl))
+  if(!parser->parse(req_data, req_data + len, &ctrl, &errs))
   {
     string errmsg = "Unable to parse json control object - ";
     errmsg.append(req_data, req_data + len);
     throw TCEXCEPT(errmsg.c_str());
   }
-  if(ctrl[EVIO].isNull() || ctrl[EVIO].empty())
+  if(ctrl[IPOP].isNull() || ctrl[IPOP].empty())
   {
     ostringstream oss;
-    oss << "The control is invalid, the'EVIO' header is missing" << endl
+    oss << "The control is invalid, the'IPOP' header is missing" << endl
       << req_data;
     throw TCEXCEPT(oss.str().c_str());
   }
-  uint32_t ver = ctrl[EVIO][ProtocolVersion].asUInt();
+  uint32_t ver = ctrl[IPOP][ProtocolVersion].asUInt();
   if(ver != tp.kTincanControlVer)
   {
     ostringstream oss;
-    oss << "Invalid EVIO protocol version in control header (" << ver << ")";
+    oss << "Invalid IPOP protocol version in control header (" << ver << ")";
     throw TCEXCEPT(oss.str().c_str());
   }
   proto_ver_ = ver;
-  string ct = ctrl[EVIO][ControlType].asString();
+  string ct = ctrl[IPOP][ControlType].asString();
   if(ct == ControlTypeStrings[CTTincanRequest])
   {
     type_ = CTTincanRequest;
@@ -145,13 +147,19 @@ TincanControl::TincanControl(
   {
     throw TCEXCEPT("Invalid control type");
   }
-  tag_ = ctrl[EVIO][TransactionId].asInt64();
-  if(ctrl[EVIO].isMember(Request))
+  tag_ = ctrl[IPOP][TransactionId].asInt64();
+  if(ctrl[IPOP].isMember(Request))
   {
-    (*dict_req_) = ctrl[EVIO].removeMember(Request);
+    Json::Value removed_mem;
+    bool status = ctrl[IPOP].removeMember(Request, &removed_mem);
+    if(status == true)
+    	(*dict_req_) = removed_mem;
   }
-  if(ctrl[EVIO].isMember(Response)) {
-    (*dict_resp_) = ctrl[EVIO].removeMember(Response);
+  if(ctrl[IPOP].isMember(Response)) {
+    Json::Value removed_mem;
+    bool status = ctrl[IPOP].removeMember(Response, &removed_mem);
+    if(status == true)
+    	(*dict_resp_) = removed_mem;
   }
 }
 
@@ -224,13 +232,13 @@ string
 TincanControl::StyledString()
 {
   Json::Value ctrl(Json::objectValue);
-  ctrl[EVIO][ProtocolVersion] = proto_ver_;
-  ctrl[EVIO][TransactionId] = (Json::UInt64)tag_;
-  ctrl[EVIO][ControlType] = ControlTypeStrings[type_];
+  ctrl[IPOP][ProtocolVersion] = proto_ver_;
+  ctrl[IPOP][TransactionId] = (Json::UInt64)tag_;
+  ctrl[IPOP][ControlType] = ControlTypeStrings[type_];
   if(dict_req_)
-    ctrl[EVIO][Request] = *dict_req_;
+    ctrl[IPOP][Request] = *dict_req_;
   if(dict_resp_)
-    ctrl[EVIO][Response] = *dict_resp_;
+    ctrl[IPOP][Response] = *dict_resp_;
   return ctrl.toStyledString();
 }
 

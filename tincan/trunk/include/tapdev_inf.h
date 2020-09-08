@@ -1,6 +1,6 @@
 /*
-* EdgeVPNio
-* Copyright 2020, University of Florida
+* ipop-project
+* Copyright 2016, University of Florida
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the "Software"), to deal
@@ -25,7 +25,7 @@
 #include "tincan_base.h"
 #include "async_io.h"
 #include "tap_frame.h"
-#include "webrtc/base/thread.h"
+#include "rtc_base/thread.h"
 
 namespace tincan
 {

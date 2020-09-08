@@ -1,6 +1,6 @@
 /*
-* EdgeVPNio
-* Copyright 2020, University of Florida
+* ipop-project
+* Copyright 2016, University of Florida
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the "Software"), to deal
@@ -26,10 +26,10 @@
 #include "tincan_control.h"
 
 namespace tincan {
-  class ControllerLink
+  class IpopControllerLink
   {
   public:
-    virtual ~ControllerLink() = default;
+    virtual ~IpopControllerLink() = default;
     virtual void Deliver(
       TincanControl & ctrl_resp) = 0;
 
@@ -41,9 +41,9 @@ namespace tincan {
   {
   public:
     virtual ~DispatchToListenerInf() = default;
-    virtual void CreateControllerLink(
+    virtual void CreateIpopControllerLink(
       unique_ptr<SocketAddress> controller_addr) = 0;
-    virtual ControllerLink & GetControllerLink() = 0;
+    virtual IpopControllerLink & GetIpopControllerLink() = 0;
   };
 
   class TincanDispatchInterface
@@ -83,8 +83,8 @@ namespace tincan {
     virtual void SendIcc(
       const Json::Value & icc_desc) = 0;
 
-    virtual void SetControllerLink(
-      ControllerLink * ctrl_link) = 0;
+    virtual void SetIpopControllerLink(
+      IpopControllerLink * ctrl_link) = 0;
 
     virtual void UpdateRouteTable(
       const Json::Value & rts_desc) = 0;

@@ -1,367 +1,704 @@
-/*
- *  Copyright 2004 The WebRTC Project Authors. All rights reserved.
- *
- *  Use of this source code is governed by a BSD-style license
- *  that can be found in the LICENSE file in the root of the source
- *  tree. An additional intellectual property rights grant can be found
- *  in the file PATENTS.  All contributing project authors may
- *  be found in the AUTHORS file in the root of the source tree.
- */
+// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
-//   LOG(...) an ostream target that can be used to send formatted
-// output to a variety of logging targets, such as debugger console, stderr,
-// or any LogSink.
-//   The severity level passed as the first argument to the LOGging
-// functions is used as a filter, to limit the verbosity of the logging.
-//   Static members of LogMessage documented below are used to control the
-// verbosity and target of the output.
-//   There are several variations on the LOG macro which facilitate logging
-// of common error conditions, detailed below.
+#ifndef BASE_LOGGING_H_
+#define BASE_LOGGING_H_
 
-// LOG(sev) logs the given stream at severity "sev", which must be a
-//     compile-time constant of the LoggingSeverity type, without the namespace
-//     prefix.
-// LOG_V(sev) Like LOG(), but sev is a run-time variable of the LoggingSeverity
-//     type (basically, it just doesn't prepend the namespace).
-// LOG_F(sev) Like LOG(), but includes the name of the current function.
-// LOG_T(sev) Like LOG(), but includes the this pointer.
-// LOG_T_F(sev) Like LOG_F(), but includes the this pointer.
-// LOG_GLE(M)(sev [, mod]) attempt to add a string description of the
-//     HRESULT returned by GetLastError.  The "M" variant allows searching of a
-//     DLL's string table for the error description.
-// LOG_ERRNO(sev) attempts to add a string description of an errno-derived
-//     error. errno and associated facilities exist on both Windows and POSIX,
-//     but on Windows they only apply to the C/C++ runtime.
-// LOG_ERR(sev) is an alias for the platform's normal error system, i.e. _GLE on
-//     Windows and _ERRNO on POSIX.
-// (The above three also all have _EX versions that let you specify the error
-// code, rather than using the last one.)
-// LOG_E(sev, ctx, err, ...) logs a detailed error interpreted using the
-//     specified context.
-// LOG_CHECK_LEVEL(sev) (and LOG_CHECK_LEVEL_V(sev)) can be used as a test
-//     before performing expensive or sensitive operations whose sole purpose is
-//     to output logging data at the desired level.
-// Lastly, PLOG(sev, err) is an alias for LOG_ERR_EX.
+#include <stddef.h>
 
-#ifndef WEBRTC_BASE_LOGGING_H_
-#define WEBRTC_BASE_LOGGING_H_
-
-#include <errno.h>
-
-#include <list>
+#include <cassert>
+#include <cstdint>
 #include <sstream>
 #include <string>
-#include <utility>
 
-#if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
-#include <CoreServices/CoreServices.h>
+#include "base/base_export.h"
+#include "base/callback_forward.h"
+#include "base/check.h"
+#include "base/check_op.h"
+#include "base/compiler_specific.h"
+#include "base/macros.h"
+#include "base/notreached.h"
+#include "base/scoped_clear_last_error.h"
+#include "base/strings/string_piece_forward.h"
+
+#if defined(OS_CHROMEOS)
+#include <cstdio>
 #endif
 
-#include "webrtc/base/basictypes.h"
-#include "webrtc/base/constructormagic.h"
-#include "webrtc/base/thread_annotations.h"
+//
+// Optional message capabilities
+// -----------------------------
+// Assertion failed messages and fatal errors are displayed in a dialog box
+// before the application exits. However, running this UI creates a message
+// loop, which causes application messages to be processed and potentially
+// dispatched to existing application windows. Since the application is in a
+// bad state when this assertion dialog is displayed, these messages may not
+// get processed and hang the dialog, or the application might go crazy.
+//
+// Therefore, it can be beneficial to display the error dialog in a separate
+// process from the main application. When the logging system needs to display
+// a fatal error dialog box, it will look for a program called
+// "DebugMessage.exe" in the same directory as the application executable. It
+// will run this application with the message as the command line, and will
+// not include the name of the application as is traditional for easier
+// parsing.
+//
+// The code for DebugMessage.exe is only one line. In WinMain, do:
+//   MessageBox(NULL, GetCommandLineW(), L"Fatal Error", 0);
+//
+// If DebugMessage.exe is not found, the logging code will use a normal
+// MessageBox, potentially causing the problems discussed above.
 
-namespace rtc {
-
-///////////////////////////////////////////////////////////////////////////////
-// ConstantLabel can be used to easily generate string names from constant
-// values.  This can be useful for logging descriptive names of error messages.
-// Usage:
-//   const ConstantLabel LIBRARY_ERRORS[] = {
-//     KLABEL(SOME_ERROR),
-//     KLABEL(SOME_OTHER_ERROR),
-//     ...
-//     LASTLABEL
+// Instructions
+// ------------
+//
+// Make a bunch of macros for logging.  The way to log things is to stream
+// things to LOG(<a particular severity level>).  E.g.,
+//
+//   LOG(INFO) << "Found " << num_cookies << " cookies";
+//
+// You can also do conditional logging:
+//
+//   LOG_IF(INFO, num_cookies > 10) << "Got lots of cookies";
+//
+// The CHECK(condition) macro is active in both debug and release builds and
+// effectively performs a LOG(FATAL) which terminates the process and
+// generates a crashdump unless a debugger is attached.
+//
+// There are also "debug mode" logging macros like the ones above:
+//
+//   DLOG(INFO) << "Found cookies";
+//
+//   DLOG_IF(INFO, num_cookies > 10) << "Got lots of cookies";
+//
+// All "debug mode" logging is compiled away to nothing for non-debug mode
+// compiles.  LOG_IF and development flags also work well together
+// because the code can be compiled away sometimes.
+//
+// We also have
+//
+//   LOG_ASSERT(assertion);
+//   DLOG_ASSERT(assertion);
+//
+// which is syntactic sugar for {,D}LOG_IF(FATAL, assert fails) << assertion;
+//
+// There are "verbose level" logging macros.  They look like
+//
+//   VLOG(1) << "I'm printed when you run the program with --v=1 or more";
+//   VLOG(2) << "I'm printed when you run the program with --v=2 or more";
+//
+// These always log at the INFO log level (when they log at all).
+// The verbose logging can also be turned on module-by-module.  For instance,
+//    --vmodule=profile=2,icon_loader=1,browser_*=3,*/chromeos/*=4 --v=0
+// will cause:
+//   a. VLOG(2) and lower messages to be printed from profile.{h,cc}
+//   b. VLOG(1) and lower messages to be printed from icon_loader.{h,cc}
+//   c. VLOG(3) and lower messages to be printed from files prefixed with
+//      "browser"
+//   d. VLOG(4) and lower messages to be printed from files under a
+//     "chromeos" directory.
+//   e. VLOG(0) and lower messages to be printed from elsewhere
+//
+// The wildcarding functionality shown by (c) supports both '*' (match
+// 0 or more characters) and '?' (match any single character)
+// wildcards.  Any pattern containing a forward or backward slash will
+// be tested against the whole pathname and not just the module.
+// E.g., "*/foo/bar/*=2" would change the logging level for all code
+// in source files under a "foo/bar" directory.
+//
+// There's also VLOG_IS_ON(n) "verbose level" condition macro. To be used as
+//
+//   if (VLOG_IS_ON(2)) {
+//     // do some logging preparation and logging
+//     // that can't be accomplished with just VLOG(2) << ...;
 //   }
 //
-//   int err = LibraryFunc();
-//   LOG(LS_ERROR) << "LibraryFunc returned: "
-//                 << ErrorName(err, LIBRARY_ERRORS);
+// There is also a VLOG_IF "verbose level" condition macro for sample
+// cases, when some extra computation and preparation for logs is not
+// needed.
+//
+//   VLOG_IF(1, (size > 1024))
+//      << "I'm printed when size is more than 1024 and when you run the "
+//         "program with --v=1 or more";
+//
+// We also override the standard 'assert' to use 'DLOG_ASSERT'.
+//
+// Lastly, there is:
+//
+//   PLOG(ERROR) << "Couldn't do foo";
+//   DPLOG(ERROR) << "Couldn't do foo";
+//   PLOG_IF(ERROR, cond) << "Couldn't do foo";
+//   DPLOG_IF(ERROR, cond) << "Couldn't do foo";
+//   PCHECK(condition) << "Couldn't do foo";
+//   DPCHECK(condition) << "Couldn't do foo";
+//
+// which append the last system error to the message in string form (taken from
+// GetLastError() on Windows and errno on POSIX).
+//
+// The supported severity levels for macros that allow you to specify one
+// are (in increasing order of severity) INFO, WARNING, ERROR, and FATAL.
+//
+// Very important: logging a message at the FATAL severity level causes
+// the program to terminate (after the message is logged).
+//
+// There is the special severity of DFATAL, which logs FATAL in debug mode,
+// ERROR in normal mode.
+//
+// Output is of the format, for example:
+// [3816:3877:0812/234555.406952:VERBOSE1:drm_device_handle.cc(90)] Succeeded
+// authenticating /dev/dri/card0 in 0 ms with 1 attempt(s)
+//
+// The colon separated fields inside the brackets are as follows:
+// 0. An optional Logfile prefix (not included in this example)
+// 1. Process ID
+// 2. Thread ID
+// 3. The date/time of the log message, in MMDD/HHMMSS.Milliseconds format
+// 4. The log level
+// 5. The filename and line number where the log was instantiated
+//
+// Note that the visibility can be changed by setting preferences in
+// SetLogItems()
 
-struct ConstantLabel { int value; const char * label; };
-#define KLABEL(x) { x, #x }
-#define TLABEL(x, y) { x, y }
-#define LASTLABEL { 0, 0 }
+namespace logging {
 
-const char* FindLabel(int value, const ConstantLabel entries[]);
-std::string ErrorName(int err, const ConstantLabel* err_table);
-
-#if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
-// Returns a UTF8 description from an OS X Status error.
-std::string DescriptionFromOSStatus(OSStatus err);
+// TODO(avi): do we want to do a unification of character types here?
+#if defined(OS_WIN)
+typedef wchar_t PathChar;
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
+typedef char PathChar;
 #endif
 
-//////////////////////////////////////////////////////////////////////
+// A bitmask of potential logging destinations.
+using LoggingDestination = uint32_t;
+// Specifies where logs will be written. Multiple destinations can be specified
+// with bitwise OR.
+// Unless destination is LOG_NONE, all logs with severity ERROR and above will
+// be written to stderr in addition to the specified destination.
+enum : uint32_t {
+  LOG_NONE                = 0,
+  LOG_TO_FILE             = 1 << 0,
+  LOG_TO_SYSTEM_DEBUG_LOG = 1 << 1,
+  LOG_TO_STDERR           = 1 << 2,
 
-// Note that the non-standard LoggingSeverity aliases exist because they are
-// still in broad use.  The meanings of the levels are:
-//  LS_SENSITIVE: Information which should only be logged with the consent
-//   of the user, due to privacy concerns.
-//  LS_VERBOSE: This level is for data which we do not want to appear in the
-//   normal debug log, but should appear in diagnostic logs.
-//  LS_INFO: Chatty level used in debugging for all sorts of things, the default
-//   in debug builds.
-//  LS_WARNING: Something that may warrant investigation.
-//  LS_ERROR: Something that should not have occurred.
-//  LS_NONE: Don't log.
-enum LoggingSeverity {
-  LS_SENSITIVE,
-  LS_VERBOSE,
-  LS_INFO,
-  LS_WARNING,
-  LS_ERROR,
-  LS_NONE,
-  INFO = LS_INFO,
-  WARNING = LS_WARNING,
-  LERROR = LS_ERROR
+  LOG_TO_ALL = LOG_TO_FILE | LOG_TO_SYSTEM_DEBUG_LOG | LOG_TO_STDERR,
+
+// On Windows, use a file next to the exe.
+// On POSIX platforms, where it may not even be possible to locate the
+// executable on disk, use stderr.
+// On Fuchsia, use the Fuchsia logging service.
+#if defined(OS_FUCHSIA) || defined(OS_NACL)
+  LOG_DEFAULT = LOG_TO_SYSTEM_DEBUG_LOG,
+#elif defined(OS_WIN)
+  LOG_DEFAULT = LOG_TO_FILE,
+#elif defined(OS_POSIX)
+  LOG_DEFAULT = LOG_TO_SYSTEM_DEBUG_LOG | LOG_TO_STDERR,
+#endif
 };
 
-// LogErrorContext assists in interpreting the meaning of an error value.
-enum LogErrorContext {
-  ERRCTX_NONE,
-  ERRCTX_ERRNO,     // System-local errno
-  ERRCTX_HRESULT,   // Windows HRESULT
-  ERRCTX_OSSTATUS,  // MacOS OSStatus
+// Indicates that the log file should be locked when being written to.
+// Unless there is only one single-threaded process that is logging to
+// the log file, the file should be locked during writes to make each
+// log output atomic. Other writers will block.
+//
+// All processes writing to the log file must have their locking set for it to
+// work properly. Defaults to LOCK_LOG_FILE.
+enum LogLockingState { LOCK_LOG_FILE, DONT_LOCK_LOG_FILE };
 
-  // Abbreviations for LOG_E macro
-  ERRCTX_EN = ERRCTX_ERRNO,     // LOG_E(sev, EN, x)
-  ERRCTX_HR = ERRCTX_HRESULT,   // LOG_E(sev, HR, x)
-  ERRCTX_OS = ERRCTX_OSSTATUS,  // LOG_E(sev, OS, x)
+// On startup, should we delete or append to an existing log file (if any)?
+// Defaults to APPEND_TO_OLD_LOG_FILE.
+enum OldFileDeletionState { DELETE_OLD_LOG_FILE, APPEND_TO_OLD_LOG_FILE };
+
+struct BASE_EXPORT LoggingSettings {
+  // Equivalent to logging destination enum, but allows for multiple
+  // destinations.
+  uint32_t logging_dest = LOG_DEFAULT;
+
+  // The four settings below have an effect only when LOG_TO_FILE is
+  // set in |logging_dest|.
+  const PathChar* log_file_path = nullptr;
+  LogLockingState lock_log = LOCK_LOG_FILE;
+  OldFileDeletionState delete_old = APPEND_TO_OLD_LOG_FILE;
+#if defined(OS_CHROMEOS)
+  // Contains an optional file that logs should be written to. If present,
+  // |log_file_path| will be ignored, and the logging system will take ownership
+  // of the FILE. If there's an error writing to this file, no fallback paths
+  // will be opened.
+  FILE* log_file = nullptr;
+#endif
 };
 
-// Virtual sink interface that can receive log messages.
-class LogSink {
+// Define different names for the BaseInitLoggingImpl() function depending on
+// whether NDEBUG is defined or not so that we'll fail to link if someone tries
+// to compile logging.cc with NDEBUG but includes logging.h without defining it,
+// or vice versa.
+#if defined(NDEBUG)
+#define BaseInitLoggingImpl BaseInitLoggingImpl_built_with_NDEBUG
+#else
+#define BaseInitLoggingImpl BaseInitLoggingImpl_built_without_NDEBUG
+#endif
+
+// Implementation of the InitLogging() method declared below.  We use a
+// more-specific name so we can #define it above without affecting other code
+// that has named stuff "InitLogging".
+BASE_EXPORT bool BaseInitLoggingImpl(const LoggingSettings& settings);
+
+// Sets the log file name and other global logging state. Calling this function
+// is recommended, and is normally done at the beginning of application init.
+// If you don't call it, all the flags will be initialized to their default
+// values, and there is a race condition that may leak a critical section
+// object if two threads try to do the first log at the same time.
+// See the definition of the enums above for descriptions and default values.
+//
+// The default log file is initialized to "debug.log" in the application
+// directory. You probably don't want this, especially since the program
+// directory may not be writable on an enduser's system.
+//
+// This function may be called a second time to re-direct logging (e.g after
+// loging in to a user partition), however it should never be called more than
+// twice.
+inline bool InitLogging(const LoggingSettings& settings) {
+  return BaseInitLoggingImpl(settings);
+}
+
+// Sets the log level. Anything at or above this level will be written to the
+// log file/displayed to the user (if applicable). Anything below this level
+// will be silently ignored. The log level defaults to 0 (everything is logged
+// up to level INFO) if this function is not called.
+// Note that log messages for VLOG(x) are logged at level -x, so setting
+// the min log level to negative values enables verbose logging.
+BASE_EXPORT void SetMinLogLevel(int level);
+
+// Gets the current log level.
+BASE_EXPORT int GetMinLogLevel();
+
+// Used by LOG_IS_ON to lazy-evaluate stream arguments.
+BASE_EXPORT bool ShouldCreateLogMessage(int severity);
+
+// Gets the VLOG default verbosity level.
+BASE_EXPORT int GetVlogVerbosity();
+
+// Note that |N| is the size *with* the null terminator.
+BASE_EXPORT int GetVlogLevelHelper(const char* file_start, size_t N);
+
+// Gets the current vlog level for the given file (usually taken from __FILE__).
+template <size_t N>
+int GetVlogLevel(const char (&file)[N]) {
+  return GetVlogLevelHelper(file, N);
+}
+
+// Sets the common items you want to be prepended to each log message.
+// process and thread IDs default to off, the timestamp defaults to on.
+// If this function is not called, logging defaults to writing the timestamp
+// only.
+BASE_EXPORT void SetLogItems(bool enable_process_id, bool enable_thread_id,
+                             bool enable_timestamp, bool enable_tickcount);
+
+// Sets an optional prefix to add to each log message. |prefix| is not copied
+// and should be a raw string constant. |prefix| must only contain ASCII letters
+// to avoid confusion with PIDs and timestamps. Pass null to remove the prefix.
+// Logging defaults to no prefix.
+BASE_EXPORT void SetLogPrefix(const char* prefix);
+
+// Sets whether or not you'd like to see fatal debug messages popped up in
+// a dialog box or not.
+// Dialogs are not shown by default.
+BASE_EXPORT void SetShowErrorDialogs(bool enable_dialogs);
+
+// Sets the Log Assert Handler that will be used to notify of check failures.
+// Resets Log Assert Handler on object destruction.
+// The default handler shows a dialog box and then terminate the process,
+// however clients can use this function to override with their own handling
+// (e.g. a silent one for Unit Tests)
+using LogAssertHandlerFunction =
+    base::RepeatingCallback<void(const char* file,
+                                 int line,
+                                 const base::StringPiece message,
+                                 const base::StringPiece stack_trace)>;
+
+class BASE_EXPORT ScopedLogAssertHandler {
  public:
-  LogSink() {}
-  virtual ~LogSink() {}
-  virtual void OnLogMessage(const std::string& message) = 0;
-};
-
-class LogMessage {
- public:
-  LogMessage(const char* file, int line, LoggingSeverity sev,
-             LogErrorContext err_ctx = ERRCTX_NONE, int err = 0,
-             const char* module = NULL);
-
-  LogMessage(const char* file,
-             int line,
-             LoggingSeverity sev,
-             const std::string& tag);
-
-  ~LogMessage();
-
-  static inline bool Loggable(LoggingSeverity sev) { return (sev >= min_sev_); }
-  std::ostream& stream() { return print_stream_; }
-
-  // Returns the time at which this function was called for the first time.
-  // The time will be used as the logging start time.
-  // If this is not called externally, the LogMessage ctor also calls it, in
-  // which case the logging start time will be the time of the first LogMessage
-  // instance is created.
-  static int64_t LogStartTime();
-
-  // Returns the wall clock equivalent of |LogStartTime|, in seconds from the
-  // epoch.
-  static uint32_t WallClockStartTime();
-
-  //  LogThreads: Display the thread identifier of the current thread
-  static void LogThreads(bool on = true);
-
-  //  LogTimestamps: Display the elapsed time of the program
-  static void LogTimestamps(bool on = true);
-
-  // These are the available logging channels
-  //  Debug: Debug console on Windows, otherwise stderr
-  static void LogToDebug(LoggingSeverity min_sev);
-  static LoggingSeverity GetLogToDebug() { return dbg_sev_; }
-
-  // Sets whether logs will be directed to stderr in debug mode.
-  static void SetLogToStderr(bool log_to_stderr);
-
-  //  Stream: Any non-blocking stream interface.  LogMessage takes ownership of
-  //   the stream. Multiple streams may be specified by using AddLogToStream.
-  //   LogToStream is retained for backwards compatibility; when invoked, it
-  //   will discard any previously set streams and install the specified stream.
-  //   GetLogToStream gets the severity for the specified stream, of if none
-  //   is specified, the minimum stream severity.
-  //   RemoveLogToStream removes the specified stream, without destroying it.
-  static int GetLogToStream(LogSink* stream = NULL);
-  static void AddLogToStream(LogSink* stream, LoggingSeverity min_sev);
-  static void RemoveLogToStream(LogSink* stream);
-
-  // Testing against MinLogSeverity allows code to avoid potentially expensive
-  // logging operations by pre-checking the logging level.
-  static int GetMinLogSeverity() { return min_sev_; }
-
-  // Parses the provided parameter stream to configure the options above.
-  // Useful for configuring logging from the command line.
-  static void ConfigureLogging(const char* params);
+  explicit ScopedLogAssertHandler(LogAssertHandlerFunction handler);
+  ~ScopedLogAssertHandler();
 
  private:
-  typedef std::pair<LogSink*, LoggingSeverity> StreamAndSeverity;
-  typedef std::list<StreamAndSeverity> StreamList;
-
-  // Updates min_sev_ appropriately when debug sinks change.
-  static void UpdateMinLogSeverity();
-
-  // These write out the actual log messages.
-  static void OutputToDebug(const std::string& msg,
-                            LoggingSeverity severity,
-                            const std::string& tag);
-
-  // The ostream that buffers the formatted message before output
-  std::ostringstream print_stream_;
-
-  // The severity level of this message
-  LoggingSeverity severity_;
-
-  // The Android debug output tag.
-  std::string tag_;
-
-  // String data generated in the constructor, that should be appended to
-  // the message before output.
-  std::string extra_;
-
-  // dbg_sev_ is the thresholds for those output targets
-  // min_sev_ is the minimum (most verbose) of those levels, and is used
-  //  as a short-circuit in the logging macros to identify messages that won't
-  //  be logged.
-  // ctx_sev_ is the minimum level at which file context is displayed
-  static LoggingSeverity min_sev_, dbg_sev_, ctx_sev_;
-
-  // The output streams and their associated severities
-  static StreamList streams_;
-
-  // Flags for formatting options
-  static bool thread_, timestamp_;
-
-  // Determines if logs will be directed to stderr in debug mode.
-  static bool log_to_stderr_;
-
-  RTC_DISALLOW_COPY_AND_ASSIGN(LogMessage);
+  DISALLOW_COPY_AND_ASSIGN(ScopedLogAssertHandler);
 };
 
-//////////////////////////////////////////////////////////////////////
-// Logging Helpers
-//////////////////////////////////////////////////////////////////////
+// Sets the Log Message Handler that gets passed every log message before
+// it's sent to other log destinations (if any).
+// Returns true to signal that it handled the message and the message
+// should not be sent to other log destinations.
+typedef bool (*LogMessageHandlerFunction)(int severity,
+    const char* file, int line, size_t message_start, const std::string& str);
+BASE_EXPORT void SetLogMessageHandler(LogMessageHandlerFunction handler);
+BASE_EXPORT LogMessageHandlerFunction GetLogMessageHandler();
 
-class LogMultilineState {
+
+typedef int LogSeverity;
+const LogSeverity LOG_VERBOSE = -1;  // This is level 1 verbosity
+// Note: the log severities are used to index into the array of names,
+// see log_severity_names.
+const LogSeverity LOG_INFO = 0;
+const LogSeverity LOG_WARNING = 1;
+const LogSeverity LOG_ERROR = 2;
+const LogSeverity LOG_FATAL = 3;
+const LogSeverity LOG_NUM_SEVERITIES = 4;
+
+// LOG_DFATAL is LOG_FATAL in debug mode, ERROR in normal mode
+#if defined(NDEBUG)
+const LogSeverity LOG_DFATAL = LOG_ERROR;
+#else
+const LogSeverity LOG_DFATAL = LOG_FATAL;
+#endif
+
+// A few definitions of macros that don't generate much code. These are used
+// by LOG() and LOG_IF, etc. Since these are used all over our code, it's
+// better to have compact code for these operations.
+#define COMPACT_GOOGLE_LOG_EX_INFO(ClassName, ...) \
+  ::logging::ClassName(__FILE__, __LINE__, ::logging::LOG_INFO, ##__VA_ARGS__)
+#define COMPACT_GOOGLE_LOG_EX_WARNING(ClassName, ...)              \
+  ::logging::ClassName(__FILE__, __LINE__, ::logging::LOG_WARNING, \
+                       ##__VA_ARGS__)
+#define COMPACT_GOOGLE_LOG_EX_ERROR(ClassName, ...) \
+  ::logging::ClassName(__FILE__, __LINE__, ::logging::LOG_ERROR, ##__VA_ARGS__)
+#define COMPACT_GOOGLE_LOG_EX_FATAL(ClassName, ...) \
+  ::logging::ClassName(__FILE__, __LINE__, ::logging::LOG_FATAL, ##__VA_ARGS__)
+#define COMPACT_GOOGLE_LOG_EX_DFATAL(ClassName, ...) \
+  ::logging::ClassName(__FILE__, __LINE__, ::logging::LOG_DFATAL, ##__VA_ARGS__)
+#define COMPACT_GOOGLE_LOG_EX_DCHECK(ClassName, ...) \
+  ::logging::ClassName(__FILE__, __LINE__, ::logging::LOG_DCHECK, ##__VA_ARGS__)
+
+#define COMPACT_GOOGLE_LOG_INFO COMPACT_GOOGLE_LOG_EX_INFO(LogMessage)
+#define COMPACT_GOOGLE_LOG_WARNING COMPACT_GOOGLE_LOG_EX_WARNING(LogMessage)
+#define COMPACT_GOOGLE_LOG_ERROR COMPACT_GOOGLE_LOG_EX_ERROR(LogMessage)
+#define COMPACT_GOOGLE_LOG_FATAL COMPACT_GOOGLE_LOG_EX_FATAL(LogMessage)
+#define COMPACT_GOOGLE_LOG_DFATAL COMPACT_GOOGLE_LOG_EX_DFATAL(LogMessage)
+#define COMPACT_GOOGLE_LOG_DCHECK COMPACT_GOOGLE_LOG_EX_DCHECK(LogMessage)
+
+#if defined(OS_WIN)
+// wingdi.h defines ERROR to be 0. When we call LOG(ERROR), it gets
+// substituted with 0, and it expands to COMPACT_GOOGLE_LOG_0. To allow us
+// to keep using this syntax, we define this macro to do the same thing
+// as COMPACT_GOOGLE_LOG_ERROR, and also define ERROR the same way that
+// the Windows SDK does for consistency.
+#define ERROR 0
+#define COMPACT_GOOGLE_LOG_EX_0(ClassName, ...) \
+  COMPACT_GOOGLE_LOG_EX_ERROR(ClassName , ##__VA_ARGS__)
+#define COMPACT_GOOGLE_LOG_0 COMPACT_GOOGLE_LOG_ERROR
+// Needed for LOG_IS_ON(ERROR).
+const LogSeverity LOG_0 = LOG_ERROR;
+#endif
+
+// As special cases, we can assume that LOG_IS_ON(FATAL) always holds. Also,
+// LOG_IS_ON(DFATAL) always holds in debug mode. In particular, CHECK()s will
+// always fire if they fail.
+#define LOG_IS_ON(severity) \
+  (::logging::ShouldCreateLogMessage(::logging::LOG_##severity))
+
+// We don't do any caching tricks with VLOG_IS_ON() like the
+// google-glog version since it increases binary size.  This means
+// that using the v-logging functions in conjunction with --vmodule
+// may be slow.
+#define VLOG_IS_ON(verboselevel) \
+  ((verboselevel) <= ::logging::GetVlogLevel(__FILE__))
+
+// Helper macro which avoids evaluating the arguments to a stream if
+// the condition doesn't hold. Condition is evaluated once and only once.
+#define LAZY_STREAM(stream, condition)                                  \
+  !(condition) ? (void) 0 : ::logging::LogMessageVoidify() & (stream)
+
+// We use the preprocessor's merging operator, "##", so that, e.g.,
+// LOG(INFO) becomes the token COMPACT_GOOGLE_LOG_INFO.  There's some funny
+// subtle difference between ostream member streaming functions (e.g.,
+// ostream::operator<<(int) and ostream non-member streaming functions
+// (e.g., ::operator<<(ostream&, string&): it turns out that it's
+// impossible to stream something like a string directly to an unnamed
+// ostream. We employ a neat hack by calling the stream() member
+// function of LogMessage which seems to avoid the problem.
+#define LOG_STREAM(severity) COMPACT_GOOGLE_LOG_ ## severity.stream()
+
+#define LOG(severity) LAZY_STREAM(LOG_STREAM(severity), LOG_IS_ON(severity))
+#define LOG_IF(severity, condition) \
+  LAZY_STREAM(LOG_STREAM(severity), LOG_IS_ON(severity) && (condition))
+
+// The VLOG macros log with negative verbosities.
+#define VLOG_STREAM(verbose_level) \
+  ::logging::LogMessage(__FILE__, __LINE__, -verbose_level).stream()
+
+#define VLOG(verbose_level) \
+  LAZY_STREAM(VLOG_STREAM(verbose_level), VLOG_IS_ON(verbose_level))
+
+#define VLOG_IF(verbose_level, condition) \
+  LAZY_STREAM(VLOG_STREAM(verbose_level), \
+      VLOG_IS_ON(verbose_level) && (condition))
+
+#if defined (OS_WIN)
+#define VPLOG_STREAM(verbose_level) \
+  ::logging::Win32ErrorLogMessage(__FILE__, __LINE__, -verbose_level, \
+    ::logging::GetLastSystemErrorCode()).stream()
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
+#define VPLOG_STREAM(verbose_level) \
+  ::logging::ErrnoLogMessage(__FILE__, __LINE__, -verbose_level, \
+    ::logging::GetLastSystemErrorCode()).stream()
+#endif
+
+#define VPLOG(verbose_level) \
+  LAZY_STREAM(VPLOG_STREAM(verbose_level), VLOG_IS_ON(verbose_level))
+
+#define VPLOG_IF(verbose_level, condition) \
+  LAZY_STREAM(VPLOG_STREAM(verbose_level), \
+    VLOG_IS_ON(verbose_level) && (condition))
+
+// TODO(akalin): Add more VLOG variants, e.g. VPLOG.
+
+#define LOG_ASSERT(condition)                       \
+  LOG_IF(FATAL, !(ANALYZER_ASSUME_TRUE(condition))) \
+      << "Assert failed: " #condition ". "
+
+#if defined(OS_WIN)
+#define PLOG_STREAM(severity) \
+  COMPACT_GOOGLE_LOG_EX_ ## severity(Win32ErrorLogMessage, \
+      ::logging::GetLastSystemErrorCode()).stream()
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
+#define PLOG_STREAM(severity) \
+  COMPACT_GOOGLE_LOG_EX_ ## severity(ErrnoLogMessage, \
+      ::logging::GetLastSystemErrorCode()).stream()
+#endif
+
+#define PLOG(severity)                                          \
+  LAZY_STREAM(PLOG_STREAM(severity), LOG_IS_ON(severity))
+
+#define PLOG_IF(severity, condition) \
+  LAZY_STREAM(PLOG_STREAM(severity), LOG_IS_ON(severity) && (condition))
+
+BASE_EXPORT extern std::ostream* g_swallow_stream;
+
+// Note that g_swallow_stream is used instead of an arbitrary LOG() stream to
+// avoid the creation of an object with a non-trivial destructor (LogMessage).
+// On MSVC x86 (checked on 2015 Update 3), this causes a few additional
+// pointless instructions to be emitted even at full optimization level, even
+// though the : arm of the ternary operator is clearly never executed. Using a
+// simpler object to be &'d with Voidify() avoids these extra instructions.
+// Using a simpler POD object with a templated operator<< also works to avoid
+// these instructions. However, this causes warnings on statically defined
+// implementations of operator<<(std::ostream, ...) in some .cc files, because
+// they become defined-but-unreferenced functions. A reinterpret_cast of 0 to an
+// ostream* also is not suitable, because some compilers warn of undefined
+// behavior.
+#define EAT_STREAM_PARAMETERS \
+  true ? (void)0              \
+       : ::logging::LogMessageVoidify() & (*::logging::g_swallow_stream)
+
+// Definitions for DLOG et al.
+
+#if DCHECK_IS_ON()
+
+#define DLOG_IS_ON(severity) LOG_IS_ON(severity)
+#define DLOG_IF(severity, condition) LOG_IF(severity, condition)
+#define DLOG_ASSERT(condition) LOG_ASSERT(condition)
+#define DPLOG_IF(severity, condition) PLOG_IF(severity, condition)
+#define DVLOG_IF(verboselevel, condition) VLOG_IF(verboselevel, condition)
+#define DVPLOG_IF(verboselevel, condition) VPLOG_IF(verboselevel, condition)
+
+#else  // DCHECK_IS_ON()
+
+// If !DCHECK_IS_ON(), we want to avoid emitting any references to |condition|
+// (which may reference a variable defined only if DCHECK_IS_ON()).
+// Contrast this with DCHECK et al., which has different behavior.
+
+#define DLOG_IS_ON(severity) false
+#define DLOG_IF(severity, condition) EAT_STREAM_PARAMETERS
+#define DLOG_ASSERT(condition) EAT_STREAM_PARAMETERS
+#define DPLOG_IF(severity, condition) EAT_STREAM_PARAMETERS
+#define DVLOG_IF(verboselevel, condition) EAT_STREAM_PARAMETERS
+#define DVPLOG_IF(verboselevel, condition) EAT_STREAM_PARAMETERS
+
+#endif  // DCHECK_IS_ON()
+
+#define DLOG(severity)                                          \
+  LAZY_STREAM(LOG_STREAM(severity), DLOG_IS_ON(severity))
+
+#define DPLOG(severity)                                         \
+  LAZY_STREAM(PLOG_STREAM(severity), DLOG_IS_ON(severity))
+
+#define DVLOG(verboselevel) DVLOG_IF(verboselevel, true)
+
+#define DVPLOG(verboselevel) DVPLOG_IF(verboselevel, true)
+
+// Definitions for DCHECK et al.
+
+#if DCHECK_IS_ON()
+
+#if defined(DCHECK_IS_CONFIGURABLE)
+BASE_EXPORT extern LogSeverity LOG_DCHECK;
+#else
+const LogSeverity LOG_DCHECK = LOG_FATAL;
+#endif  // defined(DCHECK_IS_CONFIGURABLE)
+
+#else  // DCHECK_IS_ON()
+
+// There may be users of LOG_DCHECK that are enabled independently
+// of DCHECK_IS_ON(), so default to FATAL logging for those.
+const LogSeverity LOG_DCHECK = LOG_FATAL;
+
+#endif  // DCHECK_IS_ON()
+
+// Redefine the standard assert to use our nice log files
+#undef assert
+#define assert(x) DLOG_ASSERT(x)
+
+// This class more or less represents a particular log message.  You
+// create an instance of LogMessage and then stream stuff to it.
+// When you finish streaming to it, ~LogMessage is called and the
+// full message gets streamed to the appropriate destination.
+//
+// You shouldn't actually use LogMessage's constructor to log things,
+// though.  You should use the LOG() macro (and variants thereof)
+// above.
+class BASE_EXPORT LogMessage {
  public:
-  size_t unprintable_count_[2];
-  LogMultilineState() {
-    unprintable_count_[0] = unprintable_count_[1] = 0;
-  }
+  // Used for LOG(severity).
+  LogMessage(const char* file, int line, LogSeverity severity);
+
+  // Used for CHECK().  Implied severity = LOG_FATAL.
+  LogMessage(const char* file, int line, const char* condition);
+
+  virtual ~LogMessage();
+
+  std::ostream& stream() { return stream_; }
+
+  LogSeverity severity() { return severity_; }
+  std::string str() { return stream_.str(); }
+
+ private:
+  void Init(const char* file, int line);
+
+  LogSeverity severity_;
+  std::ostringstream stream_;
+  size_t message_start_;  // Offset of the start of the message (past prefix
+                          // info).
+  // The file and line information passed in to the constructor.
+  const char* file_;
+  const int line_;
+  const char* file_basename_;
+
+  // This is useful since the LogMessage class uses a lot of Win32 calls
+  // that will lose the value of GLE and the code that called the log function
+  // will have lost the thread error value when the log call returns.
+  base::ScopedClearLastError last_error_;
+
+  DISALLOW_COPY_AND_ASSIGN(LogMessage);
 };
-
-// When possible, pass optional state variable to track various data across
-// multiple calls to LogMultiline.  Otherwise, pass NULL.
-void LogMultiline(LoggingSeverity level, const char* label, bool input,
-                  const void* data, size_t len, bool hex_mode,
-                  LogMultilineState* state);
-
-#ifndef LOG
-
-// The following non-obvious technique for implementation of a
-// conditional log stream was stolen from google3/base/logging.h.
 
 // This class is used to explicitly ignore values in the conditional
 // logging macros.  This avoids compiler warnings like "value computed
 // is not used" and "statement has no effect".
-
 class LogMessageVoidify {
  public:
-  LogMessageVoidify() { }
+  LogMessageVoidify() = default;
   // This has to be an operator with a precedence lower than << but
   // higher than ?:
   void operator&(std::ostream&) { }
 };
 
-#define LOG_SEVERITY_PRECONDITION(sev) \
-  !(rtc::LogMessage::Loggable(sev)) \
-    ? (void) 0 \
-    : rtc::LogMessageVoidify() &
-
-#define LOG(sev) \
-  LOG_SEVERITY_PRECONDITION(rtc::sev) \
-    rtc::LogMessage(__FILE__, __LINE__, rtc::sev).stream()
-
-// The _V version is for when a variable is passed in.  It doesn't do the
-// namespace concatination.
-#define LOG_V(sev) \
-  LOG_SEVERITY_PRECONDITION(sev) \
-    rtc::LogMessage(__FILE__, __LINE__, sev).stream()
-
-// The _F version prefixes the message with the current function name.
-#if (defined(__GNUC__) && !defined(NDEBUG)) || defined(WANT_PRETTY_LOG_F)
-#define LOG_F(sev) LOG(sev) << __PRETTY_FUNCTION__ << ": "
-#define LOG_T_F(sev) LOG(sev) << this << ": " << __PRETTY_FUNCTION__ << ": "
-#else
-#define LOG_F(sev) LOG(sev) << __FUNCTION__ << ": "
-#define LOG_T_F(sev) LOG(sev) << this << ": " << __FUNCTION__ << ": "
+#if defined(OS_WIN)
+typedef unsigned long SystemErrorCode;
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
+typedef int SystemErrorCode;
 #endif
 
-#define LOG_CHECK_LEVEL(sev) \
-  rtc::LogCheckLevel(rtc::sev)
-#define LOG_CHECK_LEVEL_V(sev) \
-  rtc::LogCheckLevel(sev)
+// Alias for ::GetLastError() on Windows and errno on POSIX. Avoids having to
+// pull in windows.h just for GetLastError() and DWORD.
+BASE_EXPORT SystemErrorCode GetLastSystemErrorCode();
+BASE_EXPORT std::string SystemErrorCodeToString(SystemErrorCode error_code);
 
-inline bool LogCheckLevel(LoggingSeverity sev) {
-  return (LogMessage::GetMinLogSeverity() <= sev);
+#if defined(OS_WIN)
+// Appends a formatted system message of the GetLastError() type.
+class BASE_EXPORT Win32ErrorLogMessage : public LogMessage {
+ public:
+  Win32ErrorLogMessage(const char* file,
+                       int line,
+                       LogSeverity severity,
+                       SystemErrorCode err);
+
+  // Appends the error message before destructing the encapsulated class.
+  ~Win32ErrorLogMessage() override;
+
+ private:
+  SystemErrorCode err_;
+
+  DISALLOW_COPY_AND_ASSIGN(Win32ErrorLogMessage);
+};
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
+// Appends a formatted system message of the errno type
+class BASE_EXPORT ErrnoLogMessage : public LogMessage {
+ public:
+  ErrnoLogMessage(const char* file,
+                  int line,
+                  LogSeverity severity,
+                  SystemErrorCode err);
+
+  // Appends the error message before destructing the encapsulated class.
+  ~ErrnoLogMessage() override;
+
+ private:
+  SystemErrorCode err_;
+
+  DISALLOW_COPY_AND_ASSIGN(ErrnoLogMessage);
+};
+#endif  // OS_WIN
+
+// Closes the log file explicitly if open.
+// NOTE: Since the log file is opened as necessary by the action of logging
+//       statements, there's no guarantee that it will stay closed
+//       after this call.
+BASE_EXPORT void CloseLogFile();
+
+#if defined(OS_CHROMEOS)
+// Returns a new file handle that will write to the same destination as the
+// currently open log file. Returns nullptr if logging to a file is disabled,
+// or if opening the file failed. This is intended to be used to initialize
+// logging in child processes that are unable to open files.
+BASE_EXPORT FILE* DuplicateLogFILE();
+#endif
+
+// Async signal safe logging mechanism.
+BASE_EXPORT void RawLog(int level, const char* message);
+
+#define RAW_LOG(level, message) \
+  ::logging::RawLog(::logging::LOG_##level, message)
+
+
+#if defined(OS_WIN)
+// Returns true if logging to file is enabled.
+BASE_EXPORT bool IsLoggingToFileEnabled();
+
+// Returns the default log file path.
+BASE_EXPORT std::wstring GetLogFileFullPath();
+#endif
+
+}  // namespace logging
+
+// Note that "The behavior of a C++ program is undefined if it adds declarations
+// or definitions to namespace std or to a namespace within namespace std unless
+// otherwise specified." --C++11[namespace.std]
+//
+// We've checked that this particular definition has the intended behavior on
+// our implementations, but it's prone to breaking in the future, and please
+// don't imitate this in your own definitions without checking with some
+// standard library experts.
+namespace std {
+// These functions are provided as a convenience for logging, which is where we
+// use streams (it is against Google style to use streams in other places). It
+// is designed to allow you to emit non-ASCII Unicode strings to the log file,
+// which is normally ASCII. It is relatively slow, so try not to use it for
+// common cases. Non-ASCII characters will be converted to UTF-8 by these
+// operators.
+BASE_EXPORT std::ostream& operator<<(std::ostream& out, const wchar_t* wstr);
+inline std::ostream& operator<<(std::ostream& out, const std::wstring& wstr) {
+  return out << wstr.c_str();
 }
+}  // namespace std
 
-#define LOG_E(sev, ctx, err, ...) \
-  LOG_SEVERITY_PRECONDITION(rtc::sev) \
-    rtc::LogMessage(__FILE__, __LINE__, rtc::sev, \
-                          rtc::ERRCTX_ ## ctx, err , ##__VA_ARGS__) \
-        .stream()
-
-#define LOG_T(sev) LOG(sev) << this << ": "
-
-#define LOG_ERRNO_EX(sev, err) \
-  LOG_E(sev, ERRNO, err)
-#define LOG_ERRNO(sev) \
-  LOG_ERRNO_EX(sev, errno)
-
-#if defined(WEBRTC_WIN)
-#define LOG_GLE_EX(sev, err) \
-  LOG_E(sev, HRESULT, err)
-#define LOG_GLE(sev) \
-  LOG_GLE_EX(sev, GetLastError())
-#define LOG_GLEM(sev, mod) \
-  LOG_E(sev, HRESULT, GetLastError(), mod)
-#define LOG_ERR_EX(sev, err) \
-  LOG_GLE_EX(sev, err)
-#define LOG_ERR(sev) \
-  LOG_GLE(sev)
-#define LAST_SYSTEM_ERROR \
-  (::GetLastError())
-#elif defined(__native_client__) && __native_client__
-#define LOG_ERR_EX(sev, err) \
-  LOG(sev)
-#define LOG_ERR(sev) \
-  LOG(sev)
-#define LAST_SYSTEM_ERROR \
-  (0)
-#elif defined(WEBRTC_POSIX)
-#define LOG_ERR_EX(sev, err) \
-  LOG_ERRNO_EX(sev, err)
-#define LOG_ERR(sev) \
-  LOG_ERRNO(sev)
-#define LAST_SYSTEM_ERROR \
-  (errno)
-#endif  // WEBRTC_WIN
-
-#define LOG_TAG(sev, tag) \
-  LOG_SEVERITY_PRECONDITION(sev) \
-    rtc::LogMessage(NULL, 0, sev, tag).stream()
-
-#define PLOG(sev, err) \
-  LOG_ERR_EX(sev, err)
-
-// TODO(?): Add an "assert" wrapper that logs in the same manner.
-
-#endif  // LOG
-
-}  // namespace rtc
-
-#endif  // WEBRTC_BASE_LOGGING_H_
+#endif  // BASE_LOGGING_H_

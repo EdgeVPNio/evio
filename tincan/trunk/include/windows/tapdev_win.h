@@ -1,6 +1,6 @@
 /*
-* EdgeVPNio
-* Copyright 2020, University of Florida
+* ipop-project
+* Copyright 2016, University of Florida
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the "Software"), to deal
@@ -23,10 +23,10 @@
 
 #ifndef TINCAN_TAPDEV_WIN_H_
 #define TINCAN_TAPDEV_WIN_H_
-#if defined(_TNC_WIN)
+#if defined(_IPOP_WIN)
 #include "tincan_base.h"
-#include "webrtc/base/logging.h"
-#include "webrtc/base/sigslot.h"
+#include "rtc_base/logging.h"
+#include "rtc_base/third_party/sigslot/sigslot.h"
 #include <Winsock2.h>
 #include "async_io.h"
 #include "tapdev_inf.h"
@@ -207,5 +207,5 @@ protected:
 };
 }  // namespace win
 }  // namespace tincan
-#endif  // _TNC_WIN
+#endif  // _IPOP_WIN
 #endif  // TINCAN_TAPDEV_WIN_H_

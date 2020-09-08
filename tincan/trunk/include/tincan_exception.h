@@ -1,6 +1,6 @@
 /*
-* EdgeVPNio
-* Copyright 2020, University of Florida
+* ipop-project
+* Copyright 2016, University of Florida
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the "Software"), to deal
@@ -23,20 +23,20 @@
 #ifndef TINCAN_EXCEPTION_H_
 #define TINCAN_EXCEPTION_H_
 
-#if defined(_TNC_LINUX)
+#if defined(_IPOP_LINUX)
 #include "linux/lnx_exception.h"
-#elif defined(_TNC_OSX)
+#elif defined(_IPOP_OSX)
 #include "mac/mac_exception.h"
-#elif defined(_TNC_WIN)
+#elif defined(_IPOP_WIN)
 #include "windows/win_exception.h"
 #endif
 
 namespace tincan {
-#if defined(_TNC_LINUX)
+#if defined(_IPOP_LINUX)
 #define TCEXCEPT(ExtendedErrorInfo) linux::LNXEXCEPT(ExtendedErrorInfo)
-#elif defined(_TNC_OSX)
+#elif defined(_IPOP_OSX)
 #define TCEXCEPT(ExtendedErrorInfo) osx::OSXEXCEPT(ExtendedErrorInfo)
-#elif defined(_TNC_WIN)
+#elif defined(_IPOP_WIN)
 #define TCEXCEPT(ExtendedErrorInfo) windows::WINEXCEPT(ExtendedErrorInfo)
 #endif
 } // namespace tincan

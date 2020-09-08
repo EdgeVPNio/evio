@@ -1,6 +1,6 @@
 /*
-* EdgeVPNio
-* Copyright 2020, University of Florida
+* ipop-project
+* Copyright 2016, University of Florida
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the "Software"), to deal
@@ -23,17 +23,17 @@
 #ifndef TINCAN_TAPDEV_H_
 #define TINCAN_TAPDEV_H_
 
-#if defined(_TNC_LINUX)
+#if defined(_IPOP_LINUX)
 #include "linux/tapdev_lnx.h"
-#elif defined(_TNC_WIN)
+#elif defined(_IPOP_WIN)
 #include "windows/tapdev_win.h"
 #endif
 
 namespace tincan {
 //class TapDev : public
-#if defined(_TNC_LINUX)
+#if defined(_IPOP_LINUX)
 using TapDev = linux::TapDevLnx;
-#elif defined(_TNC_WIN)
+#elif defined(_IPOP_WIN)
 using TapDev = windows::TapDevWin;
 #endif
 //{};

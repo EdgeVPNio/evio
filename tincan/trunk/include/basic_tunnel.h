@@ -1,6 +1,6 @@
 /*
-* EdgeVPNio
-* Copyright 2020, University of Florida
+* ipop-project
+* Copyright 2016, University of Florida
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the "Software"), to deal
@@ -23,20 +23,20 @@
 #ifndef BASIC_TUNNEL_H_
 #define BASIC_TUNNEL_H_
 #include "tincan_base.h"
-#include "webrtc/base/network.h"
+//#include "rtc_base/network.h"
 #ifdef min
 #undef min
 #endif //
 #ifdef max
 #undef max
 #endif //
-#include "webrtc/base/sslidentity.h"
-#include "webrtc/base/thread.h"
-#include "webrtc/base/sigslot.h"
-#include "webrtc/base/json.h"
+#include "rtc_base/ssl_identity.h"
+#include "rtc_base/thread.h"
+#include "rtc_base/third_party/sigslot/sigslot.h"
+#include "rtc_base/strings/json.h"
 #include "async_io.h"
 #include "controller_handle.h"
-#include "peer_network.h"
+//#include "peer_network.h"
 #include "tapdev.h"
 #include "tap_frame.h"
 #include "tincan_exception.h"
@@ -86,7 +86,7 @@ public:
 
   BasicTunnel(
     unique_ptr<TunnelDescriptor> descriptor,
-    ControllerLink * ctrl_handle);
+    IpopControllerLink * ctrl_handle);
 
   virtual ~BasicTunnel();
 
@@ -172,12 +172,12 @@ protected:
   unique_ptr<TapDev> tdev_;
   unique_ptr<TapDescriptor> tap_desc_;
   unique_ptr<TunnelDescriptor> descriptor_;
-  //shared_ptr<ControllerLink> ctrl_link_;
-  ControllerLink * ctrl_link_;
+  //shared_ptr<IpopControllerLink> ctrl_link_;
+  IpopControllerLink * ctrl_link_;
   unique_ptr<rtc::SSLIdentity> sslid_;
   unique_ptr<rtc::SSLFingerprint> local_fingerprint_;
-  rtc::Thread net_worker_;
-  rtc::Thread sig_worker_;
+  rtc::Thread *net_worker_ = new Thread(SocketServer::CreateDefault());
+  rtc::Thread *sig_worker_ = new Thread(SocketServer::CreateDefault());
   rtc::BasicNetworkManager net_manager_;
 };
 }  // namespace tincan

@@ -1,6 +1,6 @@
 /*
-* EdgeVPNio
-* Copyright 2020, University of Florida
+* ipop-project
+* Copyright 2016, University of Florida
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the "Software"), to deal
@@ -23,10 +23,9 @@
 #ifndef TINCAN_CONTROL_DISPATCH_H_
 #define TINCAN_CONTROL_DISPATCH_H_
 #include "tincan_base.h"
-#include "webrtc/base/logging.h"
-#include "webrtc/base/logsinks.h"
-#include "webrtc/base/fileutils.h"
-#include "webrtc/base/pathutils.h"
+#include "rtc_base/logging.h"
+#include "rtc_base/log_sinks.h"
+//#include "base/files/file_util.h"
 #include <map>
 #include <memory>
 #include <mutex>
@@ -37,8 +36,9 @@ namespace tincan
 {
 using rtc::FileRotatingLogSink;
 using rtc::LogMessage;
-using rtc::Filesystem;
-using rtc::Pathname;
+//using rtc::Filesystem;
+//using rtc::Pathname;
+//using base::FilePath;
 class ControlDispatch
 {
 public:
@@ -51,7 +51,7 @@ public:
 private:
   void ConfigureLogging(TincanControl & control);
   void CreateLink(TincanControl & control);
-  void CreateControllerRespLink(TincanControl & control);
+  void CreateIpopControllerRespLink(TincanControl & control);
   void CreateTunnel(TincanControl & control);
   void Echo(TincanControl & control);
   void InjectFrame(TincanControl & control);
@@ -67,10 +67,10 @@ private:
   map<string, void (ControlDispatch::*)(TincanControl & control)>control_map_;
   DispatchToListenerInf * dtol_;
   TincanDispatchInterface * tincan_;
-  ControllerLink * ctrl_link_;
+  IpopControllerLink * ctrl_link_;
   mutex disp_mutex_;
   unique_ptr<FileRotatingLogSink> log_sink_;
-  class DisconnectedControllerHandle : virtual public ControllerLink {
+  class DisconnectedControllerHandle : virtual public IpopControllerLink {
   public:
     DisconnectedControllerHandle() {
       msg_ = "No connection to Controller exists. "
@@ -80,12 +80,12 @@ private:
   private:
     virtual void Deliver(
       TincanControl &) {
-      LOG(LS_INFO) << msg_ << endl;
+      RTC_LOG(LS_INFO) << msg_;
     }
     virtual void Deliver(
       unique_ptr<TincanControl>)
     {
-      LOG(LS_INFO) << msg_ << endl;
+      RTC_LOG(LS_INFO) << msg_;
     }
     string msg_;
   };

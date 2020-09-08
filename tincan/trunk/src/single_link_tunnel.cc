@@ -1,6 +1,6 @@
 /*
-* EdgeVPNio
-* Copyright 2020, University of Florida
+* ipop-project
+* Copyright 2016, University of Florida
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the "Software"), to deal
@@ -28,7 +28,7 @@ namespace tincan
 {
 SingleLinkTunnel::SingleLinkTunnel(
   unique_ptr<TunnelDescriptor> descriptor,
-  ControllerLink * ctrl_handle) :
+  IpopControllerLink * ctrl_handle) :
   BasicTunnel(move(descriptor), ctrl_handle)
 {}
 
@@ -41,7 +41,7 @@ SingleLinkTunnel::CreateVlink(
   {
     vlink_->PeerCandidates(peer_desc->cas);
     vlink_->StartConnections();
-    LOG(LS_INFO) << "Added remote CAS to vlink w/ peer "
+    RTC_LOG(LS_INFO) << "Added remote CAS to vlink w/ peer "
       << vlink_->PeerInfo().uid;
   }
   else
@@ -50,7 +50,7 @@ SingleLinkTunnel::CreateVlink(
     if(descriptor_->node_id < peer_desc->uid)
       ir = cricket::ICEROLE_CONTROLLING;
     string roles[] = { "CONTROLLING", "CONTROLLED" };
-    LOG(LS_INFO) << "Creating " << roles[ir] << " vlink w/ peer " << peer_desc->uid;
+    RTC_LOG(LS_INFO) << "Creating " << roles[ir] << " vlink w/ peer " << peer_desc->uid;
     vlink_ = BasicTunnel::CreateVlink(move(vlink_desc), move(peer_desc), ir);
   }
   return vlink_;
@@ -105,7 +105,7 @@ void SingleLinkTunnel::QueryLinkInfo(
     {
       LinkInfoMsgData md;
       md.vl = vlink_;
-      net_worker_.Post(RTC_FROM_HERE, this, MSGID_QUERY_NODE_INFO, &md);
+      net_worker_->Post(RTC_FROM_HERE, this, MSGID_QUERY_NODE_INFO, &md);
       md.msg_event.Wait(Event::kForever);
       vlink_info[TincanControl::Stats].swap(md.info);
       vlink_info[TincanControl::Status] = "ONLINE";
@@ -135,7 +135,7 @@ void SingleLinkTunnel::SendIcc(
   unique_ptr<TransmitMsgData> md = make_unique<TransmitMsgData>();
   md->frm = move(icc);
   md->vl = vlink_;
-  net_worker_.Post(RTC_FROM_HERE, this, MSGID_SEND_ICC, md.release());
+  net_worker_->Post(RTC_FROM_HERE, this, MSGID_SEND_ICC, md.release());
 
 }
 
@@ -145,7 +145,7 @@ void SingleLinkTunnel::Shutdown()
   {
     LinkInfoMsgData md;
     md.vl = vlink_;
-    net_worker_.Post(RTC_FROM_HERE, this, MSGID_DISC_LINK, &md);
+    net_worker_->Post(RTC_FROM_HERE, this, MSGID_DISC_LINK, &md);
     md.msg_event.Wait(Event::kForever);
   }
   vlink_.reset();
@@ -176,7 +176,7 @@ void SingleLinkTunnel::RemoveLink(
   {
     LinkInfoMsgData md;
     md.vl = vlink_;
-    net_worker_.Post(RTC_FROM_HERE, this, MSGID_DISC_LINK, &md);
+    net_worker_->Post(RTC_FROM_HERE, this, MSGID_DISC_LINK, &md);
     md.msg_event.Wait(Event::kForever);
   }
   vlink_.reset();
@@ -206,7 +206,7 @@ void SingleLinkTunnel::VlinkReadComplete(
     tdev_->Write(*frame.release());
   }
   else if(fp.IsIccMsg())
-  { // this is an ICC message, deliver to the controller
+  { // this is an ICC message, deliver to the ipop-controller
     unique_ptr<TincanControl> ctrl = make_unique<TincanControl>();
     ctrl->SetControlType(TincanControl::CTTincanRequest);
     Json::Value & req = ctrl->GetRequest();
@@ -215,13 +215,13 @@ void SingleLinkTunnel::VlinkReadComplete(
     req[TincanControl::LinkId] = vlink.Id();
     req[TincanControl::Data] = string((char*)frame->Payload(),
       frame->PayloadLength());
-    //LOG(LS_INFO) << " Delivering ICC to ctrl, data=\n"
+    //RTC_LOG(LS_INFO) << " Delivering ICC to ctrl, data=\n"
     //<< req[TincanControl::Data].asString();
     ctrl_link_->Deliver(move(ctrl));
   }
   else
   {
-    LOG(LS_ERROR) << "Unknown frame type received!";
+    RTC_LOG(LS_ERROR) << "Unknown frame type received!";
     frame->Dump("Invalid header");
   }
 }
@@ -234,7 +234,7 @@ void SingleLinkTunnel::TapReadComplete(
   {
     // TAP is most likely shutting down
     delete frame;
-    LOG(LS_INFO) << "TAP read failure, cancelling IO";
+    RTC_LOG(LS_INFO) << "TAP read failure, cancelling IO";
   }
   else if(!vlink_)
   {
@@ -246,7 +246,7 @@ void SingleLinkTunnel::TapReadComplete(
     {
       // TAP read msg queue has shut down
       delete frame;
-      LOG(LS_INFO) << "TAP read post failed, no more attempts will be made";
+      RTC_LOG(LS_INFO) << "TAP read post failed, no more attempts will be made";
     }
   }
   else
@@ -258,7 +258,7 @@ void SingleLinkTunnel::TapReadComplete(
     TransmitMsgData *md = new TransmitMsgData;
     md->frm.reset(frame);
     md->vl = vlink_;
-    net_worker_.Post(RTC_FROM_HERE, this, MSGID_TRANSMIT, md);
+    net_worker_->Post(RTC_FROM_HERE, this, MSGID_TRANSMIT, md);
   }
 }
 

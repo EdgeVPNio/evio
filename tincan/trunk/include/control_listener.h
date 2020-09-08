@@ -1,6 +1,6 @@
 /*
-* EdgeVPNio
-* Copyright 2020, University of Florida
+* ipop-project
+* Copyright 2016, University of Florida
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the "Software"), to deal
@@ -23,13 +23,14 @@
 #ifndef TINCAN_CONTROL_LISTENER_H_
 #define TINCAN_CONTROL_LISTENER_H_
 #include "tincan_base.h"
-#include "webrtc/base/asyncudpsocket.h"
-#include "webrtc/base/asyncpacketsocket.h"
-#include "webrtc/base/logging.h"
-#include "webrtc/base/sigslot.h"
-#include "webrtc/base/socketaddress.h"
-#include "webrtc/base/thread.h"
-#include "webrtc/p2p/base/basicpacketsocketfactory.h"
+#include "rtc_base/async_socket.h"
+#include "rtc_base/async_udp_socket.h"
+#include "rtc_base/async_packet_socket.h"
+#include "rtc_base/logging.h"
+#include "rtc_base/third_party/sigslot/sigslot.h"
+#include "rtc_base/socket_address.h"
+#include "rtc_base/thread.h"
+#include "p2p/base/basic_packet_socket_factory.h"
 #include "controller_handle.h"
 #include "control_dispatch.h"
 #include "tap_frame.h"
@@ -39,10 +40,10 @@ namespace tincan
 
 using namespace rtc;
 class ControlListener :
-  public ControllerLink,
+  public IpopControllerLink,
   public DispatchToListenerInf,
-  public sigslot::has_slots<>,
-  public Runnable
+  public sigslot::has_slots<>
+  //public Runnable
 {
 public:
   ControlListener(unique_ptr<ControlDispatch> control_dispatch);
@@ -52,7 +53,7 @@ public:
     const char * data,
     size_t len,
     const SocketAddress & remote_addr,
-    const PacketTime & ptime);
+    const int64_t& ptime);
 
   void Deliver(
     TincanControl & ctrl_resp) override;
@@ -60,21 +61,23 @@ public:
     unique_ptr<TincanControl> ctrl_resp) override;
   //
   //DispatchtoListener interface implementation
-  void CreateControllerLink(
+  void CreateIpopControllerLink(
     unique_ptr<SocketAddress> controller_addr
     ) override;
-  ControllerLink & GetControllerLink() override
+  IpopControllerLink & GetIpopControllerLink() override
   {
     return *this;
   }
+  std::unique_ptr<Thread> ctrl_thread_;
   //
   //Runnable
-  void Run(Thread* thread) override;
+  void Quit();
+  void Run();
 
 private:
   unique_ptr<ControlDispatch> ctrl_dispatch_;
   unique_ptr<AsyncPacketSocket> rcv_socket_; //Listener for incoming Controls
-  unique_ptr<AsyncUDPSocket> snd_socket_;    //Sends to Listener Controller Module
+  unique_ptr<AsyncPacketSocket> snd_socket_;    //Sends to Listener Controller Module
   unique_ptr<SocketAddress> ctrl_addr_;      //Address for Listener Controller Module
   PacketOptions packet_options_;
   std::mutex skt_mutex_;

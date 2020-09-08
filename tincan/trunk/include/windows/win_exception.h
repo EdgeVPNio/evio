@@ -1,6 +1,6 @@
 /*
-* EdgeVPNio
-* Copyright 2020, University of Florida
+* ipop-project
+* Copyright 2016, University of Florida
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the "Software"), to deal
@@ -31,7 +31,7 @@
 
 #ifndef TINCAN_WIN_EXCEPTION_H_
 #define TINCAN_WIN_EXCEPTION_H_
-#if defined(_TNC_WIN)
+#if defined(_IPOP_WIN)
 #include "tincan_base.h"
 #include <Winsock2.h>
 namespace tincan
@@ -96,5 +96,5 @@ public:
 }; // WinException
 } // windows
 } // tincan
-#endif // _TNC_WIN
+#endif // _IPOP_WIN
 #endif // TINCAN_WIN_EXCEPTION_H_

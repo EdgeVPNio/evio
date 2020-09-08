@@ -1,6 +1,6 @@
 /*
-* EdgeVPNio
-* Copyright 2020, University of Florida
+* ipop-project
+* Copyright 2016, University of Florida
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the "Software"), to deal
@@ -33,7 +33,7 @@ class SingleLinkTunnel :
 public:
   SingleLinkTunnel(
     unique_ptr<TunnelDescriptor> descriptor,
-    ControllerLink * ctrl_handle);
+    IpopControllerLink * ctrl_handle);
   virtual ~SingleLinkTunnel() = default;
 
   shared_ptr<VirtualLink> CreateVlink(

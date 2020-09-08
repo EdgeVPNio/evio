@@ -2,7 +2,7 @@ include config.mk
 
 .PHONY : all vars mkdirs clean help
 
-## all : default rule to create tincan executable
+## all : default rule to create ipop-tincan executable
 all : mkdirs $(TARGET)
 
 ## vars : prints variables
@@ -16,15 +16,16 @@ mkdirs :
 	if [ ! -d $(OBJ_DIR) ]; then  mkdir -p $(OBJ_DIR); fi
 
 $(TARGET) : $(OBJ_FILES) $(LOBJ_FILES)
-	$(CC) -o $@ $^ -L $(EXT_LIB_DIR) $(LIBS)
+	#$(CC) -fuse-ld=/usr/bin/ldd 
+	$(CC) -v -o $@ $^ -L $(EXT_LIB_DIR) $(LIBS) 
 
 ## ../src/file.obj : comiples the specified object file
 $(OBJ_DIR)/%.o : $(SRC_DIR)/%.cc $(HDR_FILES)	
-	$(CC) -iquote $(INC_DIR) -isystem $(EXT_INC_DIR) $(defines) $(cflags_cc) -c $< -o $@
+	$(CC) -iquote $(INC_DIR) -isystem $(EXT_INC_DIR) -isystem $(RTC_INC_DIR) $(defines) $(cflags_cc) -c $< -o $@
 
 
 $(LOBJ_FILES) : $(LSRC_FILES) $(INC_DIR_LNX)/tapdev_lnx.h
-	$(CC) -iquote $(INC_DIR) -isystem $(EXT_INC_DIR) -iquote $(INC_DIR_LNX) $(defines) $(cflags_cc) -c $< -o $@
+	$(CC) -iquote $(INC_DIR) -isystem $(EXT_INC_DIR) -isystem $(RTC_INC_DIR) -iquote $(INC_DIR_LNX) $(defines) $(cflags_cc) -c $< -o $@
 
 ## clean : removes output dir and generated files
 clean:
