@@ -20,11 +20,11 @@ $(TARGET) : $(OBJ_FILES) $(LOBJ_FILES)
 
 ## ../src/file.obj : comiples the specified object file
 $(OBJ_DIR)/%.o : $(SRC_DIR)/%.cc $(HDR_FILES)	
-	$(CC) -iquote $(INC_DIR) -isystem $(EXT_INC_DIR) $(defines) $(cflags_cc) -c $< -o $@
+	$(CC) -iquote $(INC_DIR) -isystem $(EXT_INC_DIR) -isystem $(RTC_INC_DIR) $(defines) $(cflags_cc) -c $< -o $@
 
 
 $(LOBJ_FILES) : $(LSRC_FILES) $(INC_DIR_LNX)/tapdev_lnx.h
-	$(CC) -iquote $(INC_DIR) -isystem $(EXT_INC_DIR) -iquote $(INC_DIR_LNX) $(defines) $(cflags_cc) -c $< -o $@
+	$(CC) -iquote $(INC_DIR) -isystem $(EXT_INC_DIR) -isystem $(RTC_INC_DIR) -iquote $(INC_DIR_LNX) $(defines) $(cflags_cc) -c $< -o $@
 
 ## clean : removes output dir and generated files
 clean:
