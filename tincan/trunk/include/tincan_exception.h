@@ -25,8 +25,6 @@
 
 #if defined(_TNC_LINUX)
 #include "linux/lnx_exception.h"
-#elif defined(_TNC_OSX)
-#include "mac/mac_exception.h"
 #elif defined(_TNC_WIN)
 #include "windows/win_exception.h"
 #endif
@@ -34,8 +32,6 @@
 namespace tincan {
 #if defined(_TNC_LINUX)
 #define TCEXCEPT(ExtendedErrorInfo) linux::LNXEXCEPT(ExtendedErrorInfo)
-#elif defined(_TNC_OSX)
-#define TCEXCEPT(ExtendedErrorInfo) osx::OSXEXCEPT(ExtendedErrorInfo)
 #elif defined(_TNC_WIN)
 #define TCEXCEPT(ExtendedErrorInfo) windows::WINEXCEPT(ExtendedErrorInfo)
 #endif

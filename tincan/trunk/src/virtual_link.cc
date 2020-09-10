@@ -21,7 +21,7 @@
 * THE SOFTWARE.
 */
 #include "virtual_link.h"
-#include "webrtc/base/stringencode.h"
+#include "rtc_base/string_encode.h"
 #include "tincan_exception.h"
 #include "turn_descriptor.h"
 namespace tincan
@@ -36,7 +36,6 @@ VirtualLink::VirtualLink(
   peer_desc_(move(peer_desc)),
   tiebreaker_(rtc::CreateRandomId64()),
   conn_role_(cricket::CONNECTIONROLE_ACTPASS),
-  channel_(nullptr),
   packet_options_(DSCP_DEFAULT),
   packet_factory_(network_thread),
   gather_state_(cricket::kIceGatheringNew),
@@ -76,12 +75,19 @@ VirtualLink::Initialize(
 
   port_allocator_->set_flags(cricket::PORTALLOCATOR_DISABLE_TCP);
   SetupTURN(vlink_desc_->turn_descs);
-  transport_ctlr_ = make_unique<TransportController>(signaling_thread_,
-    network_thread_, port_allocator_.get());
+  transport_ctlr_ = make_unique<JsepTransportController>(
+                        signaling_thread_,
+                        network_thread_,
+                        port_allocator_.get(),
+                        /*async_resolver_factory*/ nullptr,
+                        config);
 
   transport_ctlr_->SetLocalCertificate(RTCCertificate::Create(move(sslid)));
-  channel_ = transport_ctlr_->CreateTransportChannel(content_name_,
-    cricket::ICE_CANDIDATE_COMPONENT_DEFAULT);
+  //replacing CreateTransportChannel
+  channel_ = make_unique<P2PTransportChannel>(
+                content_name_,
+                cricket::ICE_CANDIDATE_COMPONENT_DEFAULT,
+                port_allocator_.get());
   RegisterLinkEventHandlers();
   SetupICE(local_fingerprint);
   transport_ctlr_->MaybeStartGathering();
@@ -119,19 +125,17 @@ VirtualLink::AddRemoteCandidates(
       cas_vec.push_back(candidate);
     }
   } while(iss);
-  string err;
-  bool rv = transport_ctlr_->AddRemoteCandidates(content_name_, cas_vec, &err);
-  if(!rv)
-    throw TCEXCEPT(string("Failed to add remote candidates - ").append(err).c_str());
+  if (!(transport_ctlr_->AddRemoteCandidates(content_name_, cas_vec).ok()))
+     throw TCEXCEPT(string("Failed to add remote candidates - "));
   return;
 }
 
 void
 VirtualLink::OnReadPacket(
-  PacketTransportInterface *,
+  PacketTransportInternal *,
   const char * data,
   size_t len,
-  const rtc::PacketTime &,
+  const int64_t &,
   int)
 {
   SignalMessageReceived((uint8_t*)data, *(uint32_t*)&len, *this);
@@ -139,7 +143,7 @@ VirtualLink::OnReadPacket(
 
 void
 VirtualLink::OnSentPacket(
-  PacketTransportInterface *,
+  PacketTransportInternal *,
   const rtc::SentPacket &)
 {
   //nothing to do atm ...
@@ -165,16 +169,16 @@ void VirtualLink::OnGatheringState(
 }
 
 void VirtualLink::OnWriteableState(
-  PacketTransportInterface * transport)
+  PacketTransportInternal * transport)
 {
   if(transport->writable())
   {
-    LOG(LS_INFO) << "Connection established to: " << peer_desc_->uid;
+    RTC_LOG(LS_INFO) << "Connection established to: " << peer_desc_->uid;
     SignalLinkUp(vlink_desc_->uid);
   }
   else
   {
-    LOG(LS_INFO) << "Link NOT writeable: " << peer_desc_->uid;
+    RTC_LOG(LS_INFO) << "Link NOT writeable: " << peer_desc_->uid;
     SignalLinkDown(vlink_desc_->uid);
   }
 }
@@ -187,9 +191,9 @@ VirtualLink::RegisterLinkEventHandlers()
   channel_->SignalWritableState.connect(this, &VirtualLink::OnWriteableState);
   //channel_->SignalReadyToSend.connect(this, &VirtualLink::OnWriteableState);
 
-  transport_ctlr_->SignalCandidatesGathered.connect(
+  transport_ctlr_->SignalIceCandidatesGathered.connect(
     this, &VirtualLink::OnCandidatesGathered);
-  transport_ctlr_->SignalGatheringState.connect(
+  transport_ctlr_->SignalIceGatheringState.connect(
     this, &VirtualLink::OnGatheringState);
 }
 
@@ -198,7 +202,7 @@ void VirtualLink::Transmit(TapFrame & frame)
   int status = channel_->SendPacket((const char*)frame.BufferToTransfer(),
     frame.BytesToTransfer(), packet_options_, 0);
   if(status < 0)
-    LOG(LS_INFO) << "Vlink send failed";
+    RTC_LOG(LS_INFO) << "Vlink send failed";
 }
 
 string VirtualLink::Candidates()
@@ -235,9 +239,9 @@ VirtualLink::PeerCandidates(
 void
 VirtualLink::GetStats(Json::Value & stats)
 {
-  cricket::ConnectionInfos infos;
+  cricket::IceTransportStats infos;
   channel_->GetStats(&infos);
-  for(auto info : infos)
+  for(const cricket::ConnectionInfo& info : infos.connection_infos)//(auto info: infos)
   {
       Json::Value stat(Json::objectValue);
       stat["best_conn"] = info.best_connection;
@@ -284,7 +288,7 @@ VirtualLink::SetupICE(
   //cricket::IceConfig ic;
   //ic.continual_gathering_policy = cricket::GATHER_CONTINUALLY_AND_RECOVER;
   //transport_ctlr_->SetIceConfig(ic);
-  transport_ctlr_->SetIceRole(ice_role_);
+  channel_->SetIceRole(ice_role_);
   cricket::ConnectionRole remote_conn_role = cricket::CONNECTIONROLE_ACTIVE;
   conn_role_ = cricket::CONNECTIONROLE_ACTPASS;
   if(cricket::ICEROLE_CONTROLLING == ice_role_) {
@@ -292,42 +296,43 @@ VirtualLink::SetupICE(
     remote_conn_role = cricket::CONNECTIONROLE_ACTPASS;
   }
 
-  local_description_.reset(new cricket::TransportDescription(
-    vector<string>(),
+   cricket::TransportDescription local_transport_desc
+   (vector<string>(),
     tp.kIceUfrag,
     tp.kIcePwd,
     cricket::ICEMODE_FULL,
     conn_role_,
-    & local_fingerprint));
+    & local_fingerprint);
 
-  remote_description_.reset(new cricket::TransportDescription(
-    vector<string>(),
+   cricket::TransportDescription remote_transport_desc
+   (vector<string>(),
     tp.kIceUfrag,
     tp.kIcePwd,
     cricket::ICEMODE_FULL,
     remote_conn_role,
-    remote_fingerprint_.get()));
+    remote_fingerprint_.get());
+
+
+   local_description_->AddTransportInfo(cricket::TransportInfo(content_name_, local_transport_desc));
+   remote_description_->AddTransportInfo(cricket::TransportInfo(content_name_, remote_transport_desc));
 
   if(cricket::ICEROLE_CONTROLLING == ice_role_)
   {
     //when controlling the remote description must be set first.
-    transport_ctlr_->SetRemoteTransportDescription(content_name_,
-      *remote_description_.get(), cricket::CA_OFFER, NULL);
-    transport_ctlr_->SetLocalTransportDescription(content_name_,
-      *local_description_.get(), cricket::CA_ANSWER, NULL);
+    transport_ctlr_->SetRemoteDescription(SdpType::kOffer, remote_description_.get());
+    transport_ctlr_->SetLocalDescription(SdpType::kAnswer, local_description_.get());
   }
   else if(cricket::ICEROLE_CONTROLLED == ice_role_)
   {
-    transport_ctlr_->SetLocalTransportDescription(content_name_,
-      *local_description_.get(), cricket::CA_OFFER, NULL);
-    transport_ctlr_->SetRemoteTransportDescription(content_name_,
-      *remote_description_.get(), cricket::CA_ANSWER, NULL);
+    transport_ctlr_->SetLocalDescription(SdpType::kOffer, local_description_.get());
+    transport_ctlr_->SetRemoteDescription(SdpType::kAnswer, remote_description_.get());
   }
   else
   {
-    LOG(LS_WARNING) << "Invalid ICE role specified: " << (uint32_t)ice_role_;
+    RTC_LOG(LS_WARNING) << "Invalid ICE role specified: " << (uint32_t)ice_role_;
     throw TCEXCEPT("Invalid ICE role specified");
   }
+
 }
 
 void
@@ -335,7 +340,7 @@ VirtualLink::SetupTURN(
   const vector<TurnDescriptor> turn_descs)
 {
   if(turn_descs.empty()) {
-    LOG(LS_INFO) << "No TURN Server address provided";
+    RTC_LOG(LS_INFO) << "No TURN Server address provided";
     return;
   }
 
@@ -343,7 +348,7 @@ VirtualLink::SetupTURN(
   {
     if (turn_desc.username.empty() || turn_desc.password.empty())
     {
-      LOG(LS_WARNING) << "TURN credentials were not provided for hostname " << turn_desc.server_hostname;
+      RTC_LOG(LS_WARNING) << "TURN credentials were not provided for hostname " << turn_desc.server_hostname;
       continue;
     }
 
@@ -351,7 +356,7 @@ VirtualLink::SetupTURN(
     rtc::split(turn_desc.server_hostname, ':', &addr_port);
     if(addr_port.size() != 2)
     {
-      LOG(LS_INFO) << "Invalid TURN Server address provided. Address must contain a port number separated by a \":\".";
+      RTC_LOG(LS_INFO) << "Invalid TURN Server address provided. Address must contain a port number separated by a \":\".";
       continue;
     }
     cricket::RelayServerConfig relay_config_udp(addr_port[0], stoi(addr_port[1]),
@@ -370,8 +375,7 @@ VirtualLink::StartConnections()
 }
 void VirtualLink::Disconnect()
 {
-  transport_ctlr_->DestroyTransportChannel_n(content_name_,
-    cricket::ICE_CANDIDATE_COMPONENT_DEFAULT);
+   channel_.reset();
 }
 
 bool VirtualLink::IsReady()

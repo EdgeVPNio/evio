@@ -21,7 +21,7 @@
 * THE SOFTWARE.
 */
 #include "tincan_control.h"
-#include "webrtc/base/logging.h"
+#include "rtc_base/logging.h"
 #include "tincan_exception.h"
 namespace tincan
 {
@@ -109,9 +109,11 @@ TincanControl::TincanControl(
   dict_resp_(new Json::Value(Json::objectValue))
 {
   //create Json from full request
-  Json::Reader parser;
+  Json::CharReaderBuilder b;
+  Json::CharReader* parser = b.newCharReader();
+  Json::String errs;
   Json::Value ctrl(Json::objectValue);
-  if(!parser.parse(req_data, req_data + len, ctrl))
+  if(!parser->parse(req_data, req_data + len, &ctrl, &errs))
   {
     string errmsg = "Unable to parse json control object - ";
     errmsg.append(req_data, req_data + len);
@@ -148,10 +150,16 @@ TincanControl::TincanControl(
   tag_ = ctrl[EVIO][TransactionId].asInt64();
   if(ctrl[EVIO].isMember(Request))
   {
-    (*dict_req_) = ctrl[EVIO].removeMember(Request);
+    Json::Value removed_mem;
+    bool status = ctrl[EVIO].removeMember(Request, &removed_mem);
+    if(status == true)
+    	(*dict_req_) = removed_mem;    
   }
   if(ctrl[EVIO].isMember(Response)) {
-    (*dict_resp_) = ctrl[EVIO].removeMember(Response);
+    Json::Value removed_mem;
+    bool status = ctrl[EVIO].removeMember(Response, &removed_mem);
+    if(status == true)
+    	(*dict_resp_) = removed_mem;    
   }
 }
 

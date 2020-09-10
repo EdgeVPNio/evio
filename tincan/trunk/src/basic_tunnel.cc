@@ -21,7 +21,7 @@
 * THE SOFTWARE.
 */
 #include "basic_tunnel.h"
-#include "webrtc/base/base64.h"
+#include "rtc_base/third_party/base64/base64.h"
 #include "tincan_control.h"
 namespace tincan
 {
@@ -34,10 +34,15 @@ namespace tincan
   ctrl_link_(ctrl_handle)
 {
   tdev_ = make_unique<TapDev>();
+  net_worker_ = new Thread(SocketServer::CreateDefault());
+  sig_worker_ = new Thread(SocketServer::CreateDefault());
 }
 
 BasicTunnel::~BasicTunnel()
-{}
+{
+  delete net_worker_;
+  delete sig_worker_;
+}
 
 void
 BasicTunnel::Configure(
@@ -49,11 +54,10 @@ BasicTunnel::Configure(
   tdev_->Open(*tap_desc_.get());
   //create X509 identity for secure connections
   string sslid_name = descriptor_->node_id + descriptor_->uid;
-  sslid_.reset(SSLIdentity::Generate(sslid_name, rtc::KT_RSA));
+  sslid_ = rtc::SSLIdentity::Create(sslid_name, rtc::KT_RSA);
   if(!sslid_)
     throw TCEXCEPT("Failed to generate SSL Identity");
-  local_fingerprint_.reset(
-    SSLFingerprint::Create(rtc::DIGEST_SHA_1, sslid_.get()));
+  local_fingerprint_ = rtc::SSLFingerprint::CreateUnique("DIGEST_SHA_3", *sslid_.get());
   if(!local_fingerprint_)
     throw TCEXCEPT("Failed to create the local finger print");
   SetIgnoredNetworkInterfaces(ignored_list);
@@ -62,8 +66,8 @@ BasicTunnel::Configure(
 void
 BasicTunnel::Start()
 {
-  net_worker_.Start();
-  sig_worker_.Start();
+  net_worker_->Start();
+  sig_worker_->Start();
   tdev_->read_completion_.connect(this, &BasicTunnel::TapReadComplete);
   tdev_->write_completion_.connect(this, &BasicTunnel::TapWriteComplete);
 }
@@ -71,8 +75,8 @@ BasicTunnel::Start()
 void
 BasicTunnel::Shutdown()
 {
-  net_worker_.Quit();
-  sig_worker_.Quit();
+  net_worker_->Quit();
+  sig_worker_->Quit();
   tdev_->Down();
   tdev_->Close();
 }
@@ -86,8 +90,8 @@ BasicTunnel::CreateVlink(
   vlink_desc->stun_servers = descriptor_->stun_servers;
   vlink_desc->turn_descs = descriptor_->turn_descs;
   unique_ptr<VirtualLink> vl = make_unique<VirtualLink>(
-    move(vlink_desc), move(peer_desc), &sig_worker_, &net_worker_);
-  unique_ptr<SSLIdentity> sslid_copy(sslid_->GetReference());
+    move(vlink_desc), move(peer_desc), sig_worker_, net_worker_);
+  unique_ptr<SSLIdentity> sslid_copy(sslid_->Clone());
   vl->Initialize(net_manager_, move(sslid_copy), *local_fingerprint_.get(),
     ice_role);
   vl->SignalMessageReceived.connect(this, &BasicTunnel::VlinkReadComplete);
@@ -141,7 +145,7 @@ BasicTunnel::StartIo()
     if(0 == tdev_->Read(*tf))
       tf.release();
     else
-      LOG(LS_ERROR) << "A TAP read operation failed to start!";
+      RTC_LOG(LS_ERROR) << "A TAP read operation failed to start!";
   }
 }
 
@@ -197,7 +201,7 @@ void BasicTunnel::OnMessage(Message * msg)
     unique_ptr<TapFrame> frame = move(((TransmitMsgData*)msg->pdata)->frm);
     shared_ptr<VirtualLink> vl = ((TransmitMsgData*)msg->pdata)->vl;
     vl->Transmit(*frame);
-    //LOG(LS_INFO) << "Sent ICC to=" <<vl->PeerInfo().vip4 << " data=\n" <<
+    //RTC_LOG(LS_INFO) << "Sent ICC to=" <<vl->PeerInfo().vip4 << " data=\n" <<
     //  string((char*)(frame->begin()+4), *(uint16_t*)(frame->begin()+2));
     delete msg->pdata;
   }
@@ -215,7 +219,7 @@ void BasicTunnel::OnMessage(Message * msg)
     unique_ptr<TapFrame> frame = move(((TransmitMsgData*)msg->pdata)->frm);
     shared_ptr<VirtualLink> vl = ((TransmitMsgData*)msg->pdata)->vl;
     vl->Transmit(*frame);
-    //LOG(LS_INFO) << "FWDing frame to " << vl->PeerInfo().vip4;
+    //RTC_LOG(LS_INFO) << "FWDing frame to " << vl->PeerInfo().vip4;
     if(msg->message_id == MSGID_FWD_FRAME_RD)
     {
       frame->Initialize(frame->Payload(), frame->PayloadCapacity());
@@ -257,6 +261,6 @@ BasicTunnel::InjectFame(
   tf->BytesTransferred((uint32_t)len);
   tf->BytesToTransfer((uint32_t)len);
   tdev_->Write(*tf.release());
-  //LOG(LS_INFO) << "Frame injected=\n" << data;
+  //RTC_LOG(LS_INFO) << "Frame injected=\n" << data;
 }
 } //namespace tincan

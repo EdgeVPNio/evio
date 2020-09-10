@@ -23,10 +23,8 @@
 #ifndef TINCAN_CONTROL_DISPATCH_H_
 #define TINCAN_CONTROL_DISPATCH_H_
 #include "tincan_base.h"
-#include "webrtc/base/logging.h"
-#include "webrtc/base/logsinks.h"
-#include "webrtc/base/fileutils.h"
-#include "webrtc/base/pathutils.h"
+#include "rtc_base/logging.h"
+#include "rtc_base/log_sinks.h"
 #include <map>
 #include <memory>
 #include <mutex>
@@ -37,8 +35,6 @@ namespace tincan
 {
 using rtc::FileRotatingLogSink;
 using rtc::LogMessage;
-using rtc::Filesystem;
-using rtc::Pathname;
 class ControlDispatch
 {
 public:
@@ -80,12 +76,12 @@ private:
   private:
     virtual void Deliver(
       TincanControl &) {
-      LOG(LS_INFO) << msg_ << endl;
+      RTC_LOG(LS_INFO) << msg_ << "\n";
     }
     virtual void Deliver(
       unique_ptr<TincanControl>)
     {
-      LOG(LS_INFO) << msg_ << endl;
+      RTC_LOG(LS_INFO) << msg_ << "\n";
     }
     string msg_;
   };

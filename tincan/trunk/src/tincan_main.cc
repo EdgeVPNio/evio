@@ -52,7 +52,7 @@ int main(int argc, char **argv)
   }
   catch(exception & e) {
     rv = -1;
-    LOG(LS_ERROR) << e.what();
+    RTC_LOG(LS_ERROR) << e.what();
   }
   return rv;
 }

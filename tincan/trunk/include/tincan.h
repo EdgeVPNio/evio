@@ -23,11 +23,10 @@
 #ifndef TINCAN_TINCAN_H_
 #define TINCAN_TINCAN_H_
 #include "tincan_base.h"
-#include "webrtc/base/event.h"
+#include "rtc_base/event.h"
 #include "control_listener.h"
 #include "control_dispatch.h"
 #include "single_link_tunnel.h"
-#include "multi_link_tunnel.h"
 
 namespace tincan {
 class Tincan :
@@ -73,15 +72,14 @@ public:
 
   void UpdateRouteTable(
     const Json::Value & rts_desc) override;
-//
+
+  void QueryLinkCas(
+    const Json::Value & link_desc,
+    Json::Value & cas_info) override;
 //
   void OnLocalCasUpdated(
     string link_id,
     string lcas);
-
-  void QueryLinkCas(
-    const Json::Value & link_desc,
-    Json::Value & cas_info);
 
   void Run();
 private:
@@ -102,7 +100,6 @@ private:
   vector<unique_ptr<BasicTunnel>> tunnels_;
   ControllerLink * ctrl_link_;
   map<string, unique_ptr<TincanControl>> inprogess_controls_;
-  Thread ctl_thread_;
   shared_ptr<ControlListener> ctrl_listener_; //must be destroyed before ctl_thread
   static Tincan * self_;
   std::mutex tunnels_mutex_;

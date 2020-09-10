@@ -23,8 +23,8 @@
 #ifndef TINCAN_TINCAN_CONTROL_H_
 #define TINCAN_TINCAN_CONTROL_H_
 #include "tincan_base.h"
-#include "webrtc/base/json.h"
-#include "webrtc/base/socketaddress.h"
+#include "rtc_base/strings/json.h"
+#include "rtc_base/socket_address.h"
 
 namespace tincan {
 using namespace rtc;

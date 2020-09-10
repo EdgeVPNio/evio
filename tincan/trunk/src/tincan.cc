@@ -31,12 +31,10 @@ Tincan::Tincan() :
 {}
 
 Tincan::~Tincan()
-{
-}
+{}
 
 void
 Tincan::SetControllerLink(
-  //shared_ptr<ControllerLink> ctrl_handle)
   ControllerLink * ctrl_handle)
 {
   ctrl_link_ = ctrl_handle;
@@ -69,16 +67,7 @@ void Tincan::CreateTunnel(
   }
   td->enable_ip_mapping = false;
   unique_ptr<BasicTunnel> tnl;
-  if(tnl_desc[TincanControl::Type].asString() == "VNET")
-  {
-    tnl = make_unique<MultiLinkTunnel>(move(td), ctrl_link_);
-  }
-  else if(tnl_desc[TincanControl::Type].asString() == "TUNNEL")
-  {
-    tnl = make_unique<SingleLinkTunnel>(move(td), ctrl_link_);
-  }
-  else
-    throw TCEXCEPT("Invalid Tunnel type specified");
+  tnl = make_unique<SingleLinkTunnel>(move(td), ctrl_link_);
   unique_ptr<TapDescriptor> tap_desc = make_unique<TapDescriptor>();
   tap_desc->name = tnl_desc["TapName"].asString();
   tap_desc->ip4 = tnl_desc["IP4"].asString();
@@ -219,11 +208,11 @@ Tincan::RemoveTunnel(
     {
       (*tnl)->Shutdown();
       tunnels_.erase(tnl);
-      LOG(LS_INFO) << "RemoveTunnel: Instance erased from collection " << tnl_id;
+      RTC_LOG(LS_INFO) << "RemoveTunnel: Instance erased from collection " << tnl_id;
       return;
     }
   }
-  LOG(LS_WARNING) << "RemoveTunnel: No such virtual network exists " << tnl_id;
+  RTC_LOG(LS_WARNING) << "RemoveTunnel: No such virtual network exists " << tnl_id;
 }
 
 void
@@ -269,7 +258,7 @@ Tincan::OnLocalCasUpdated(
   if(lcas.empty())
   {
     lcas = "No local candidates available on this vlink";
-    LOG(LS_WARNING) << lcas;
+    RTC_LOG(LS_WARNING) << lcas;
   }
   bool to_deliver = false;
   unique_ptr<TincanControl> ctrl;
@@ -317,7 +306,7 @@ Tincan::Run()
   unique_ptr<ControlDispatch> ctrl_dispatch(new ControlDispatch);
   ctrl_dispatch->SetDispatchToTincanInf(this);
   ctrl_listener_ = make_shared<ControlListener>(move(ctrl_dispatch));
-  ctl_thread_.Start(ctrl_listener_.get());
+  ctrl_listener_->Run();
   exit_event_.Wait(Event::kForever);
 }
 
@@ -358,7 +347,7 @@ void
 Tincan::Shutdown()
 {
   lock_guard<mutex> lg(tunnels_mutex_);
-  ctl_thread_.Quit();
+  ctrl_listener_->Quit();
   for(auto const & tnl : tunnels_) {
     tnl->Shutdown();
   }

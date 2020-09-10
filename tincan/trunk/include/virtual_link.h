@@ -23,17 +23,19 @@
 #ifndef TINCAN_VIRTUAL_LINK_H_
 #define TINCAN_VIRTUAL_LINK_H_
 #include "tincan_base.h"
-#include "webrtc/base/asyncpacketsocket.h"
-#include "webrtc/base/json.h"
-#include "webrtc/base/network.h"
-#include "webrtc/base/sslfingerprint.h"
-#include "webrtc/base/thread.h"
-#include "webrtc/p2p/base/basicpacketsocketfactory.h"
-#include "webrtc/p2p/base/dtlstransportchannel.h"
-#include "webrtc/p2p/base/transportcontroller.h"
-#include "webrtc/p2p/base/packettransportinterface.h"
-#include "webrtc/p2p/base/p2ptransportchannel.h"
-#include "webrtc/p2p/client/basicportallocator.h"
+#include "rtc_base/async_packet_socket.h"
+#include "rtc_base/strings/json.h"
+#include "rtc_base/network.h"
+#include "rtc_base/ssl_fingerprint.h"
+#include "rtc_base/thread.h"
+#include "p2p/base/basic_packet_socket_factory.h"
+#include "p2p/base/dtls_transport.h"
+#include "p2p/base/dtls_transport_factory.h"
+#include "p2p/base/dtls_transport_internal.h"
+#include "pc/jsep_transport_controller.h"
+#include "p2p/base/packet_transport_internal.h"
+#include "p2p/base/p2p_transport_channel.h"
+#include "p2p/client/basic_port_allocator.h"
 #include "tap_frame.h"
 #include "peer_descriptor.h"
 #include "turn_descriptor.h"
@@ -41,13 +43,13 @@
 namespace tincan
 {
 using namespace rtc;
-using cricket::TransportController;
-using cricket::TransportChannelImpl;
-using cricket::TransportChannel;
+using webrtc::JsepTransportController;
+using cricket::IceTransportInternal;
+using cricket::P2PTransportChannel;
 using cricket::ConnectionRole;
-using rtc::PacketTransportInterface;
-
-class PeerNetwork;
+using rtc::PacketTransportInternal;
+using cricket::JsepTransportDescription;
+using webrtc::SdpType;
 
 struct  VlinkDescriptor
 {
@@ -61,7 +63,6 @@ class VirtualLink :
   public sigslot::has_slots<>
 {
 public:
-  friend PeerNetwork;
   VirtualLink(
     unique_ptr<VlinkDescriptor> vlink_desc,
     unique_ptr<PeerDescriptor> peer_desc,
@@ -127,7 +128,7 @@ private:
     cricket::IceGatheringState gather_state);
 
   void OnWriteableState(
-    PacketTransportInterface * transport);
+    PacketTransportInternal * transport);
 
   void RegisterLinkEventHandlers();
 
@@ -138,14 +139,14 @@ private:
     SSLFingerprint const & local_fingerprint);
 
   void OnReadPacket(
-    PacketTransportInterface* transport,
+    PacketTransportInternal* transport,
     const char* data,
     size_t len,
-    const PacketTime & ptime,
+    const int64_t & ptime,
     int flags);
 
   void OnSentPacket(
-    PacketTransportInterface * transport,
+    PacketTransportInternal * transport,
     const SentPacket & packet);
 
   unique_ptr<VlinkDescriptor> vlink_desc_;
@@ -155,20 +156,21 @@ private:
   const uint64_t tiebreaker_;
   cricket::IceRole ice_role_;
   ConnectionRole conn_role_;
-  TransportChannel * channel_;
-  unique_ptr<cricket::TransportDescription> local_description_;
-  unique_ptr<cricket::TransportDescription> remote_description_;
+  unique_ptr<P2PTransportChannel> channel_;
+  unique_ptr<cricket::SessionDescription> local_description_;
+  unique_ptr<cricket::SessionDescription> remote_description_;
   unique_ptr<SSLFingerprint> remote_fingerprint_;
   string content_name_;
   PacketOptions packet_options_;
   BasicPacketSocketFactory packet_factory_;
   unique_ptr<cricket::BasicPortAllocator> port_allocator_;
-  unique_ptr<cricket::TransportController> transport_ctlr_;
+  unique_ptr<JsepTransportController> transport_ctlr_;
 
   cricket::IceGatheringState gather_state_;
   bool is_valid_;
   rtc::Thread* signaling_thread_;
   rtc::Thread* network_thread_;
+  JsepTransportController::Config config;
 };
 } //namespace tincan
 #endif // !TINCAN_VIRTUAL_LINK_H_

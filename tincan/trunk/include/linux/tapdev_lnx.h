@@ -28,9 +28,9 @@
 #include "tapdev_inf.h"
 #include "tincan_base.h"
 
-#include "webrtc/base/logging.h"
-#include "webrtc/base/thread.h"
-#include "webrtc/base/sigslot.h"
+#include "rtc_base/logging.h"
+#include "rtc_base/thread.h"
+#include "rtc_base/third_party/sigslot/sigslot.h"
 
 #include <sys/ioctl.h>
 #include <fcntl.h>
@@ -51,6 +51,7 @@ namespace linux
 using rtc::Message;
 using rtc::MessageData;
 using rtc::MessageHandler;
+using rtc::SocketServer;
 class TapDevLnx :
   public TapDevInf,
   public MessageHandler

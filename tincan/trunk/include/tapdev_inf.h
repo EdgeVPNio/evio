@@ -25,7 +25,7 @@
 #include "tincan_base.h"
 #include "async_io.h"
 #include "tap_frame.h"
-#include "webrtc/base/thread.h"
+#include "rtc_base/thread.h"
 
 namespace tincan
 {

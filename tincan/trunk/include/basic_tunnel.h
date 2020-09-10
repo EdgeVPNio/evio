@@ -23,20 +23,18 @@
 #ifndef BASIC_TUNNEL_H_
 #define BASIC_TUNNEL_H_
 #include "tincan_base.h"
-#include "webrtc/base/network.h"
 #ifdef min
 #undef min
 #endif //
 #ifdef max
 #undef max
 #endif //
-#include "webrtc/base/sslidentity.h"
-#include "webrtc/base/thread.h"
-#include "webrtc/base/sigslot.h"
-#include "webrtc/base/json.h"
+#include "rtc_base/ssl_identity.h"
+#include "rtc_base/thread.h"
+#include "rtc_base/third_party/sigslot/sigslot.h"
+#include "rtc_base/strings/json.h"
 #include "async_io.h"
 #include "controller_handle.h"
-#include "peer_network.h"
 #include "tapdev.h"
 #include "tap_frame.h"
 #include "tincan_exception.h"
@@ -176,8 +174,8 @@ protected:
   ControllerLink * ctrl_link_;
   unique_ptr<rtc::SSLIdentity> sslid_;
   unique_ptr<rtc::SSLFingerprint> local_fingerprint_;
-  rtc::Thread net_worker_;
-  rtc::Thread sig_worker_;
+  rtc::Thread* net_worker_;
+  rtc::Thread* sig_worker_;
   rtc::BasicNetworkManager net_manager_;
 };
 }  // namespace tincan

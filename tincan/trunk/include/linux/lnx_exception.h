@@ -45,7 +45,7 @@ public:
   ~LnxException()
   {}
 
-  const char* what() const _GLIBCXX_USE_NOEXCEPT override
+  const char* what() const _NOEXCEPT override
   {
     return emsg.c_str();
   }

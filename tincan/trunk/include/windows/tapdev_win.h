@@ -25,8 +25,8 @@
 #define TINCAN_TAPDEV_WIN_H_
 #if defined(_TNC_WIN)
 #include "tincan_base.h"
-#include "webrtc/base/logging.h"
-#include "webrtc/base/sigslot.h"
+#include "rtc_base/logging.h"
+#include "rtc_base/third_party/sigslot/sigslot.h"
 #include <Winsock2.h>
 #include "async_io.h"
 #include "tapdev_inf.h"

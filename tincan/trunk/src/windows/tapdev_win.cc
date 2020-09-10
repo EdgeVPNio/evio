@@ -75,7 +75,7 @@ TapDevWin::IoThreadDescriptor::IoCompletionThread(void * param)
       break;
     else if(ERROR_SUCCESS != rv)
     {//completion packet for a failed IO
-      LOG(LS_WARNING) << "Received a completion packet for a failed IO, error: " << rv;
+      RTC_LOG(LS_WARNING) << "Received a completion packet for a failed IO, error: " << rv;
       //indicate failure and deliver
       AsyncIo * aio = (AsyncIo*)overlap;
       aio->BytesTransferred(0);
@@ -121,7 +121,7 @@ TapDevWin::Open(
       memmove(ip4_.data(), &vip4_addr.S_un.S_addr, sizeof(ip4_));
     }
     else
-      LOG(WARNING) << "Failed to convert IP4 string in Tap Descriptor="
+      RTC_LOG(WARNING) << "Failed to convert IP4 string in Tap Descriptor="
       << tap_desc.ip4 << " for TAP device " + tap_name_;
 
     NetDeviceNameToGuid(tap_name_, device_guid);
@@ -175,7 +175,7 @@ TapDevWin::Read(
   DWORD rv = GetLastError();
   if(rv != ERROR_IO_PENDING && rv != ERROR_SUCCESS)
   {
-    LOG(LS_ERROR) << "The TAP device read request operation failed for device "
+    RTC_LOG(LS_ERROR) << "The TAP device read request operation failed for device "
       << tap_name_ << ", error: " << rv << ".";
     return rv;
   }
@@ -297,14 +297,14 @@ TapDevWin::OnMessage(
     DWORD rv = GetLastError();
     if(rv != ERROR_IO_PENDING && rv != ERROR_SUCCESS)
     {
-      LOG(LS_WARNING) << "The TAP device write request operation failed for device "
+      RTC_LOG(LS_WARNING) << "The TAP device write request operation failed for device "
         << tap_name_ << ", error: " << rv << ".";
       delete static_cast<TapFrame*>(aio_wr->context_);
     }
   }
   break;
   default:
-    LOG(LS_WARNING) << "An invalid TAP Message ID was specified for device " << tap_name_ << ".";
+    RTC_LOG(LS_WARNING) << "An invalid TAP Message ID was specified for device " << tap_name_ << ".";
     break;
   }
   delete (TapMessageData*)msg->pdata;
@@ -330,13 +330,13 @@ TapDevWin::Up()
   if(DeviceIoControl(dev_handle_, TAP_IOCTL_GET_VERSION, &info,
     sizeof(info), &info, sizeof(info), &len, NULL))
   {
-    LOG(LS_INFO) << "TAP Driver Version " << (int)info[0] <<
+    RTC_LOG(LS_INFO) << "TAP Driver Version " << (int)info[0] <<
       (int)info[1] << (info[2] ? "(DEBUG)" : "");
   }
   uint16_t mtu = Mtu();
   writer_.Start();
   io_thread_pool_.Attach(cmpl_prt_handle_);
-  LOG(LS_INFO) << "TAP device MTU " << mtu;
+  RTC_LOG(LS_INFO) << "TAP device MTU " << mtu;
 }
 
 void
@@ -371,7 +371,7 @@ uint16_t TapDevWin::Mtu()
   if(!DeviceIoControl(dev_handle_, TAP_IOCTL_GET_MTU, &mtu, sizeof(mtu),
     &mtu, sizeof(mtu), &len, NULL))
   {
-    LOG_ERR(LS_ERROR) << "The ioctl failed to query the TAP device MTU for device "
+    RTC_LOG(LS_ERROR) << "The ioctl failed to query the TAP device MTU for device "
       << tap_name_ << ".";
   }
   return (uint16_t)mtu;

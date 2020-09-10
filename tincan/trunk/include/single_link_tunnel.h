@@ -81,7 +81,7 @@ public:
   //
   //AsyncIOComplete
   void TapReadComplete(
-    AsyncIo * aio_rd);
+    AsyncIo * aio_rd) override;
   void TapWriteComplete(
     AsyncIo * aio_wr) override;
 
