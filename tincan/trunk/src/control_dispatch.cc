@@ -112,6 +112,7 @@ ControlDispatch::ConfigureLogging(
     {
       LogMessage::SetLogToStderr(false);
       string dir = req["Directory"].asString();
+      //TODO: issue with file_util.h(links-> base/logging_buildflags.h not generated as part of webrtc) header from webrtc
       /*rtc::Pathname pn(dir);
       if(!Filesystem::IsFolder(pn))
         Filesystem::CreateFolder(pn);*/

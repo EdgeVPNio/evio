@@ -148,7 +148,7 @@ TincanControl::TincanControl(
     throw TCEXCEPT("Invalid control type");
   }
   tag_ = ctrl[EVIO][TransactionId].asInt64();
-  if(ctrl[EVIO].isMember(Request))
+   if(ctrl[EVIO].isMember(Request))
   {
     Json::Value removed_mem;
     bool status = ctrl[EVIO].removeMember(Request, &removed_mem);
