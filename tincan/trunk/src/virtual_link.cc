@@ -39,7 +39,6 @@ VirtualLink::VirtualLink(
   packet_options_(DSCP_DEFAULT),
   packet_factory_(network_thread),
   gather_state_(cricket::kIceGatheringNew),
-  is_valid_(false),
   signaling_thread_(signaling_thread),
   network_thread_(network_thread)
 {

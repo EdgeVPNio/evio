@@ -167,7 +167,6 @@ private:
   unique_ptr<JsepTransportController> transport_ctlr_;
 
   cricket::IceGatheringState gather_state_;
-  bool is_valid_;
   rtc::Thread* signaling_thread_;
   rtc::Thread* network_thread_;
   JsepTransportController::Config config;
