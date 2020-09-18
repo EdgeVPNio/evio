@@ -1,5 +1,4 @@
-tincan/external/
-tincan/trunk/out/
+tincan/out/
 .vscode/
 __pycache__/
 venv/

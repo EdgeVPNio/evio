@@ -1,0 +1,48 @@
+if (is_clang) {
+  import("//build/toolchain/clang.gni")
+}
+
+declare_args() {
+  # Path of the GCC C compiler executable.
+  gcc_cc = "gcc"
+
+  # Path of the GCC C++ compiler executable.
+  gcc_cxx = "g++"
+
+  # Path of the Clang C compiler executable.
+  # Defaults to either $clang_base_path/bin/clang or clang.
+  clang_cc = 0
+
+  # Path of the Clang C++ compiler executable.
+  # Defaults to either $clang_base_path/bin/clang++ or clang++.
+  clang_cxx = 0
+
+  # Path of the 'readelf' utility.
+  readelf = "readelf"
+
+  # Path of the 'ar' utility.
+  ar = "ar"
+
+  # Path of the 'nm' utility.
+  nm = "nm"
+}
+
+if (is_clang && clang_cc == 0) {
+  if (clang_base_path != "") {
+    clang_cc = "$clang_base_path/clang"
+  } else {
+    clang_cc = "clang"
+  }
+}
+
+if (is_clang && clang_cxx == 0) {
+  if (clang_base_path != "") {
+    clang_cxx = "$clang_base_path/clang++"
+  } else {
+    clang_cxx = "clang++"
+  }
+}
+
+if (is_clang){
+  ar = "clang_base_path/llvm-ar"
+}
