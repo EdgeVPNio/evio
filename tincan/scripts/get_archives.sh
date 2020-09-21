@@ -3,22 +3,33 @@
 helpFunction()
 {
         echo ""
-        echo "Usage: $0 -b build_type"
+        echo "Usage: $0 -b build_type -t target_os"
         echo -e "\t-b build_type can be release or debug"
+        echo -e "\t-t target_os can be ubuntu or raspberry-pi"
         exit 1 # Exit script after printing help
 }
 
-while getopts b: opt
+while getopts b:t: opt
 do
         case "$opt" in
                 b ) build_type="$OPTARG" ;;
+                t ) target_os="$OPTARG" ;;
                 ? ) helpFunction ;; # Print helpFunction in case parameter is non-existent
         esac
 done
 
-if [ -z "$build_type" ] || [ [ "$build_type" != "debug" ] && [ "$build_type" != "release" ] ]; then
-       echo "error with parameter"
-       helpFunction       
+# Print helpFunction in case parameters are empty
+if [ -z "$build_type" ] || [ -z "$target_os" ]
+then
+        echo "Some or all of the parameters are empty";
+        helpFunction
+fi
+if [ "$build_type" != "debug" ] && [ "$build_type" != "release" ]; then
+        echo "Wrong build_type spelling"
+        helpFunction
+elif [ "$target_os" != "ubuntu" ] && [ "$target_os" != "raspberry-pi" ]; then
+        echo "Wrong OS type spelling"
+        helpFunction
 fi
 
 mkdir -p evio/external/Libs/$build_type
@@ -62,6 +73,7 @@ llvm-ar -qcs external/$build_type/libwebrtc_lite.a webrtc-checkout/src/out/$buil
 llvm-ar -qcs external/$build_type/libwebrtc_lite.a webrtc-checkout/src/out/$build_type/obj/api/units/time_delta/*.o
 llvm-ar -qcs external/$build_type/libwebrtc_lite.a webrtc-checkout/src/out/$build_type/obj/api/units/data_rate/*.o
 llvm-ar -qcs external/$build_type/libwebrtc_lite.a webrtc-checkout/src/out/$build_type/obj/api/video/video_rtp_headers/*.o
+#archives from third-party directory
 llvm-ar -rcs external/$build_type/libboringssl_asm.a webrtc-checkout/src/out/$build_type/obj/third_party/boringssl/boringssl_asm/*.o
 llvm-ar -qcs external/$build_type/libjsoncxx.a webrtc-checkout/src/out/$build_type/obj/third_party/jsoncpp/jsoncpp/json_reader.o webrtc-checkout/src/out/$build_type/obj/third_party/jsoncpp/jsoncpp/json_value.o webrtc-checkout/src/out/$build_type/obj/third_party/jsoncpp/jsoncpp/json_writer.o
 llvm-ar -rcs external/$build_type/libboringssl.a webrtc-checkout/src/out/$build_type/obj/third_party/boringssl/boringssl/*.o

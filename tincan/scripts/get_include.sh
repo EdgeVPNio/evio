@@ -1,4 +1,35 @@
 #!/bin/bash
+helpFunction()
+{
+        echo ""
+        echo "Usage: $0 -b build_type -t target_os"
+        echo -e "\t-b build_type can be release or debug"
+        echo -e "\t-t target_os can be ubuntu or raspberry-pi"
+        exit 1 # Exit script after printing help
+}
+
+while getopts b:t: opt
+do
+        case "$opt" in
+                b ) build_type="$OPTARG" ;;
+                t ) target_os="$OPTARG" ;;
+                ? ) helpFunction ;; # Print helpFunction in case parameter is non-existent
+        esac
+done
+
+# Print helpFunction in case parameters are empty
+if [ -z "$build_type" ] || [ -z "$target_os" ]
+then
+        echo "Some or all of the parameters are empty";
+        helpFunction
+fi
+if [ "$build_type" != "debug" ] && [ "$build_type" != "release" ]; then
+        echo "Wrong build_type spelling"
+        helpFunction
+elif [ "$target_os" != "ubuntu" ] && [ "$target_os" != "raspberry-pi" ]; then
+        echo "Wrong OS type spelling"
+        helpFunction
+fi
 
 #getting the required include files and folders from webrtc-checkout
 # folders required: absl,api,base,call,common_video,logging,media,modules,p2p,pc,system_wrappers,rtc_base,build,common_types.h, jni.h, logging_buildflags.h
