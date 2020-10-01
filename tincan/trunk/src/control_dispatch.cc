@@ -106,7 +106,7 @@ ControlDispatch::ConfigureLogging(
                    [=](char c) {return static_cast<char>(::tolower(c));});
     oss << "tstamp " << "thread " << log_lvl.c_str();
     LogMessage::ConfigureLogging(oss.str().c_str());
-    LogMessage::LogToDebug(LS_WARNING);
+    LogMessage::LogToDebug(LS_INFO);
     LogMessage::SetLogToStderr(true);
     if(req["Device"].asString() == "All" || req["Device"].asString() == "File")
     {

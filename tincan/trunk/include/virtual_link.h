@@ -60,6 +60,7 @@ struct  VlinkDescriptor
 };
 
 class VirtualLink :
+  public JsepTransportController::Observer,
   public sigslot::has_slots<>
 {
 public:
@@ -113,12 +114,25 @@ public:
     return gather_state_ == cricket::kIceGatheringComplete;
   }
 
+  bool InitializePortAllocator();
+
+  // JsepTransportController::Observer override.
+  bool OnTransportChanged(
+      const std::string& mid,
+      webrtc::RtpTransportInternal* rtp_transport,
+      rtc::scoped_refptr<webrtc::DtlsTransport> dtls_transport,
+      webrtc::DataChannelTransportInterface* data_channel_transport) override;
+
   sigslot::signal1<string, single_threaded> SignalLinkUp;
   sigslot::signal1<string, single_threaded> SignalLinkDown;
   sigslot::signal2<string, string> SignalLocalCasReady;
   sigslot::signal3<uint8_t *, uint32_t, VirtualLink&> SignalMessageReceived;
 private:
-  void SetupTURN(vector<TurnDescriptor>);
+  cricket::ServerAddresses SetupSTUN(
+    vector<string> stun_servers);
+    
+  vector<cricket::RelayServerConfig> SetupTURN(
+    vector<TurnDescriptor>);
 
   void OnCandidatesGathered(
     const string & transport_name,
@@ -153,23 +167,23 @@ private:
   unique_ptr<PeerDescriptor> peer_desc_;
   std::mutex cas_mutex_;
   cricket::Candidates local_candidates_;
-  const uint64_t tiebreaker_;
   cricket::IceRole ice_role_;
   ConnectionRole conn_role_;
-  unique_ptr<P2PTransportChannel> channel_;
+  cricket::DtlsTransportInternal* dtls_transport_;
   unique_ptr<cricket::SessionDescription> local_description_;
   unique_ptr<cricket::SessionDescription> remote_description_;
   unique_ptr<SSLFingerprint> remote_fingerprint_;
-  string content_name_;
+  string content_name_;   //mid
   PacketOptions packet_options_;
   BasicPacketSocketFactory packet_factory_;
-  unique_ptr<cricket::BasicPortAllocator> port_allocator_;
+  unique_ptr<cricket::PortAllocator> port_allocator_;
   unique_ptr<JsepTransportController> transport_ctlr_;
-
+  unique_ptr<webrtc::IceTransportFactory> ice_transport_factory_;
+  JsepTransportController::Config config_;
   cricket::IceGatheringState gather_state_;
   rtc::Thread* signaling_thread_;
   rtc::Thread* network_thread_;
-  JsepTransportController::Config config;
+
 };
 } //namespace tincan
 #endif // !TINCAN_VIRTUAL_LINK_H_

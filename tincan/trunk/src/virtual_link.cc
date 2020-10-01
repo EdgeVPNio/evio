@@ -20,10 +20,12 @@
 * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 * THE SOFTWARE.
 */
-#include "virtual_link.h"
-#include "rtc_base/string_encode.h"
 #include "tincan_exception.h"
 #include "turn_descriptor.h"
+#include "virtual_link.h"
+#include "rtc_base/string_encode.h"
+#include "p2p/base/default_ice_transport_factory.h"
+#include "rtc_base/bind.h"
 namespace tincan
 {
 using namespace rtc;
@@ -34,8 +36,8 @@ VirtualLink::VirtualLink(
   rtc::Thread* network_thread) :
   vlink_desc_(move(vlink_desc)),
   peer_desc_(move(peer_desc)),
-  tiebreaker_(rtc::CreateRandomId64()),
   conn_role_(cricket::CONNECTIONROLE_ACTPASS),
+  dtls_transport_(nullptr),
   packet_options_(DSCP_DEFAULT),
   packet_factory_(network_thread),
   gather_state_(cricket::kIceGatheringNew),
@@ -43,6 +45,9 @@ VirtualLink::VirtualLink(
   network_thread_(network_thread)
 {
   content_name_.append(vlink_desc_->uid.substr(0, 7));
+  local_description_ = make_unique<cricket::SessionDescription>();
+  remote_description_ = make_unique<cricket::SessionDescription>();
+  ice_transport_factory_ = make_unique<webrtc::DefaultIceTransportFactory>();
 }
 
 VirtualLink::~VirtualLink()
@@ -61,36 +66,31 @@ VirtualLink::Initialize(
   cricket::IceRole ice_role)
 {
   ice_role_ = ice_role;
+  port_allocator_.reset(new cricket::BasicPortAllocator(&network_manager));
 
-  cricket::ServerAddresses stun_addrs;
-  for (auto stun_server : vlink_desc_->stun_servers)
-  {
-    rtc::SocketAddress stun_addr;
-    stun_addr.FromString(stun_server);
-    stun_addrs.insert(stun_addr);
-  }
-  port_allocator_.reset(new cricket::BasicPortAllocator(
-  &network_manager, &packet_factory_, stun_addrs));
-
-  port_allocator_->set_flags(cricket::PORTALLOCATOR_DISABLE_TCP);
-  SetupTURN(vlink_desc_->turn_descs);
+  config_.transport_observer = this;
+  config_.rtcp_handler = [](const rtc::CopyOnWriteBuffer& packet,
+                            int64_t packet_time_us) { RTC_NOTREACHED(); };
+  config_.ice_transport_factory = ice_transport_factory_.get();
+  
+  port_allocator_->SetConfiguration(
+                      SetupSTUN(vlink_desc_->stun_servers),
+                      SetupTURN(vlink_desc_->turn_descs),
+                      0, webrtc::PRUNE_BASED_ON_PRIORITY);
   transport_ctlr_ = make_unique<JsepTransportController>(
                         signaling_thread_,
                         network_thread_,
                         port_allocator_.get(),
                         /*async_resolver_factory*/ nullptr,
-                        config);
-
+                        config_);
   transport_ctlr_->SetLocalCertificate(RTCCertificate::Create(move(sslid)));
-  //replacing CreateTransportChannel
-  channel_ = make_unique<P2PTransportChannel>(
-                content_name_,
-                cricket::ICE_CANDIDATE_COMPONENT_DEFAULT,
-                port_allocator_.get());
-  RegisterLinkEventHandlers();
   SetupICE(local_fingerprint);
-  transport_ctlr_->MaybeStartGathering();
+  dtls_transport_ = transport_ctlr_->GetDtlsTransport(content_name_);
+  RegisterLinkEventHandlers();
 
+  // The port allocator lives on the network thread and should be initialized there.
+  const auto pa_result = network_thread_->Invoke<bool>(
+          RTC_FROM_HERE, rtc::Bind(&VirtualLink::InitializePortAllocator, this));
   return;
 }
 
@@ -185,9 +185,9 @@ void VirtualLink::OnWriteableState(
 void
 VirtualLink::RegisterLinkEventHandlers()
 {
-  channel_->SignalReadPacket.connect(this, &VirtualLink::OnReadPacket);
-  channel_->SignalSentPacket.connect(this, &VirtualLink::OnSentPacket);
-  channel_->SignalWritableState.connect(this, &VirtualLink::OnWriteableState);
+  dtls_transport_->SignalReadPacket.connect(this, &VirtualLink::OnReadPacket);
+  dtls_transport_->SignalSentPacket.connect(this, &VirtualLink::OnSentPacket);
+  dtls_transport_->SignalWritableState.connect(this, &VirtualLink::OnWriteableState);
   //channel_->SignalReadyToSend.connect(this, &VirtualLink::OnWriteableState);
 
   transport_ctlr_->SignalIceCandidatesGathered.connect(
@@ -198,7 +198,7 @@ VirtualLink::RegisterLinkEventHandlers()
 
 void VirtualLink::Transmit(TapFrame & frame)
 {
-  int status = channel_->SendPacket((const char*)frame.BufferToTransfer(),
+  int status = dtls_transport_->SendPacket((const char*)frame.BufferToTransfer(),
     frame.BytesToTransfer(), packet_options_, 0);
   if(status < 0)
     RTC_LOG(LS_INFO) << "Vlink send failed";
@@ -238,37 +238,38 @@ VirtualLink::PeerCandidates(
 void
 VirtualLink::GetStats(Json::Value & stats)
 {
-  cricket::IceTransportStats infos;
-  channel_->GetStats(&infos);
-  for(const cricket::ConnectionInfo& info : infos.connection_infos)//(auto info: infos)
-  {
-      Json::Value stat(Json::objectValue);
-      stat["best_conn"] = info.best_connection;
-      stat["writable"] = info.writable;
-      stat["receiving"] = info.receiving;
-      stat["timeout"] = info.timeout;
-      stat["new_conn"] = info.new_connection;
+   cricket::TransportStats transport_stats;
+  transport_ctlr_->GetStats(content_name_, &transport_stats);
+  for(const cricket::TransportChannelStats& channel_stat : transport_stats.channel_stats)
+    for(const cricket::ConnectionInfo& info : channel_stat.ice_transport_stats.connection_infos)
+    {
+        Json::Value stat(Json::objectValue);
+        stat["best_conn"] = info.best_connection;
+        stat["writable"] = info.writable;
+        stat["receiving"] = info.receiving;
+        stat["timeout"] = info.timeout;
+        stat["new_conn"] = info.new_connection;
 
-      stat["rtt"] = (Json::UInt64)info.rtt;
-      stat["sent_total_bytes"] = (Json::UInt64)info.sent_total_bytes;
-      stat["sent_bytes_second"] = (Json::UInt64)info.sent_bytes_second;
-      stat["sent_discarded_packets"] = (Json::UInt64)info.sent_discarded_packets;
-      stat["sent_total_packets"] = (Json::UInt64)info.sent_total_packets;
-      stat["sent_ping_requests_total"] = (Json::UInt64)info.sent_ping_requests_total;
-      stat["sent_ping_requests_before_first_response"] = (Json::UInt64)info.sent_ping_requests_before_first_response;
-      stat["sent_ping_responses"] = (Json::UInt64)info.sent_ping_responses;
+        stat["rtt"] = (Json::UInt64)info.rtt;
+        stat["sent_total_bytes"] = (Json::UInt64)info.sent_total_bytes;
+        stat["sent_bytes_second"] = (Json::UInt64)info.sent_bytes_second;
+        stat["sent_discarded_packets"] = (Json::UInt64)info.sent_discarded_packets;
+        stat["sent_total_packets"] = (Json::UInt64)info.sent_total_packets;
+        stat["sent_ping_requests_total"] = (Json::UInt64)info.sent_ping_requests_total;
+        stat["sent_ping_requests_before_first_response"] = (Json::UInt64)info.sent_ping_requests_before_first_response;
+        stat["sent_ping_responses"] = (Json::UInt64)info.sent_ping_responses;
 
-      stat["recv_total_bytes"] = (Json::UInt64)info.recv_total_bytes;
-      stat["recv_bytes_second"] = (Json::UInt64)info.recv_bytes_second;
-      stat["recv_ping_requests"] = (Json::UInt64)info.recv_ping_requests;
-      stat["recv_ping_responses"] = (Json::UInt64)info.recv_ping_responses;
+        stat["recv_total_bytes"] = (Json::UInt64)info.recv_total_bytes;
+        stat["recv_bytes_second"] = (Json::UInt64)info.recv_bytes_second;
+        stat["recv_ping_requests"] = (Json::UInt64)info.recv_ping_requests;
+        stat["recv_ping_responses"] = (Json::UInt64)info.recv_ping_responses;
 
-      stat["local_candidate"] = info.local_candidate.ToString();
-      stat["remote_candidate"] = info.remote_candidate.ToString();
-      stat["state"] = (Json::UInt)info.state;
-      // http://tools.ietf.org/html/rfc5245#section-5.7.4
-    stats.append(stat);
-  }
+        stat["local_candidate"] = info.local_candidate.ToString();
+        stat["remote_candidate"] = info.remote_candidate.ToString();
+        stat["state"] = (Json::UInt)info.state;
+        // http://tools.ietf.org/html/rfc5245#section-5.7.4
+      stats.append(stat);
+    }
 }
 
 void
@@ -284,10 +285,9 @@ VirtualLink::SetupICE(
     remote_fingerprint_.reset(
       rtc::SSLFingerprint::CreateFromRfc4572(alg, fp));
   }
-  //cricket::IceConfig ic;
-  //ic.continual_gathering_policy = cricket::GATHER_CONTINUALLY_AND_RECOVER;
-  //transport_ctlr_->SetIceConfig(ic);
-  channel_->SetIceRole(ice_role_);
+  cricket::IceConfig ic;
+  ic.continual_gathering_policy = cricket::GATHER_ONCE;
+  transport_ctlr_->SetIceConfig(ic);
   cricket::ConnectionRole remote_conn_role = cricket::CONNECTIONROLE_ACTIVE;
   conn_role_ = cricket::CONNECTIONROLE_ACTPASS;
   if(cricket::ICEROLE_CONTROLLING == ice_role_) {
@@ -295,25 +295,28 @@ VirtualLink::SetupICE(
     remote_conn_role = cricket::CONNECTIONROLE_ACTPASS;
   }
 
-   cricket::TransportDescription local_transport_desc
-   (vector<string>(),
-    tp.kIceUfrag,
-    tp.kIcePwd,
-    cricket::ICEMODE_FULL,
-    conn_role_,
-    & local_fingerprint);
+  cricket::TransportDescription local_transport_desc(
+    vector<string>(), tp.kIceUfrag, tp.kIcePwd,
+    cricket::ICEMODE_FULL, conn_role_, &local_fingerprint);
 
-   cricket::TransportDescription remote_transport_desc
-   (vector<string>(),
-    tp.kIceUfrag,
-    tp.kIcePwd,
-    cricket::ICEMODE_FULL,
-    remote_conn_role,
-    remote_fingerprint_.get());
+  cricket::TransportDescription remote_transport_desc(
+    vector<string>(), tp.kIceUfrag, tp.kIcePwd,
+    cricket::ICEMODE_FULL, remote_conn_role, remote_fingerprint_.get());
 
+  cricket::ContentGroup bundle_group(cricket::GROUP_TYPE_BUNDLE);
+  bundle_group.AddContentName(content_name_);
 
-   local_description_->AddTransportInfo(cricket::TransportInfo(content_name_, local_transport_desc));
-   remote_description_->AddTransportInfo(cricket::TransportInfo(content_name_, remote_transport_desc));
+  std::unique_ptr<cricket::SctpDataContentDescription> data(
+      new cricket::SctpDataContentDescription());
+  data->set_rtcp_mux(true);
+  local_description_->AddContent(content_name_, cricket::MediaProtocolType::kSctp, move(data));
+  local_description_->AddGroup(bundle_group);  
+  local_description_->AddTransportInfo(cricket::TransportInfo(content_name_, local_transport_desc));
+
+  data.reset(new cricket::SctpDataContentDescription());
+  remote_description_->AddContent(content_name_, cricket::MediaProtocolType::kSctp, move(data));
+  remote_description_->AddGroup(bundle_group);  
+  remote_description_->AddTransportInfo(cricket::TransportInfo(content_name_, remote_transport_desc));
 
   if(cricket::ICEROLE_CONTROLLING == ice_role_)
   {
@@ -334,15 +337,29 @@ VirtualLink::SetupICE(
 
 }
 
-void
+cricket::ServerAddresses
+VirtualLink::SetupSTUN(
+  vector<string> stun_servers)
+{
+  cricket::ServerAddresses stun_addrs;
+  for (auto stun_server : stun_servers)
+  {
+    rtc::SocketAddress stun_addr;
+    stun_addr.FromString(stun_server);
+    stun_addrs.insert(stun_addr);
+  }
+  return stun_addrs;
+}
+
+vector<cricket::RelayServerConfig>
 VirtualLink::SetupTURN(
   const vector<TurnDescriptor> turn_descs)
 {
   if(turn_descs.empty()) {
     RTC_LOG(LS_INFO) << "No TURN Server address provided";
-    return;
+    return vector<cricket::RelayServerConfig>();
   }
-
+  vector<cricket::RelayServerConfig> turn_servers;
   for (auto turn_desc : turn_descs)
   {
     if (turn_desc.username.empty() || turn_desc.password.empty())
@@ -360,8 +377,9 @@ VirtualLink::SetupTURN(
     }
     cricket::RelayServerConfig relay_config_udp(addr_port[0], stoi(addr_port[1]),
         turn_desc.username, turn_desc.password, cricket::PROTO_UDP);
-    port_allocator_->AddTurnServer(relay_config_udp);
+    turn_servers.push_back(relay_config_udp);
   }
+  return turn_servers;
 }
 
 void
@@ -372,13 +390,34 @@ VirtualLink::StartConnections()
       " candidates were specified in the vlink descriptor");
   AddRemoteCandidates(peer_desc_->cas);
 }
+
 void VirtualLink::Disconnect()
 {
-   channel_.reset();
+   dtls_transport_->disconnect_all();
 }
 
 bool VirtualLink::IsReady()
 {
-  return channel_->writable();
+  return dtls_transport_->writable();
+}
+
+bool VirtualLink::OnTransportChanged(
+    const std::string& mid,
+    webrtc::RtpTransportInternal* rtp_transport,
+    rtc::scoped_refptr<webrtc::DtlsTransport> dtls_transport,
+    webrtc::DataChannelTransportInterface* data_channel_transport) 
+{
+  dtls_transport_ = transport_ctlr_->GetDtlsTransport(content_name_);
+  return true;
+}
+
+
+bool
+VirtualLink::InitializePortAllocator()
+{
+  port_allocator_->set_flags(port_allocator_->flags() | cricket::PORTALLOCATOR_DISABLE_TCP);  
+  port_allocator_->Initialize();
+  transport_ctlr_->MaybeStartGathering();
+  return true;
 }
 } // end namespace tincan

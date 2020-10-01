@@ -91,15 +91,11 @@ ControlListener::Run()
 {
  const SocketAddress addr(tp.kLocalHost, tp.kUdpPort);
   SocketServer* sf = ctrl_thread_->socketserver();
-  if(!sf){
-          cout << "Error: No ctrl thread's socket server\n";
-    return;
-  }
+  if(!sf)
+    throw TCEXCEPT("Error: No ctrl_thread socket server available");
   AsyncSocket* socket = sf->CreateAsyncSocket(addr.family(), SOCK_DGRAM);
-  if(!socket){
-        cout << "Error: Failed to create async socket\n";
-    return;
-  }
+  if(!socket)
+    throw TCEXCEPT("Error: Failed to create async socket");
   rcv_socket_.reset(AsyncUDPSocket::Create(socket, addr));
   if (!rcv_socket_)
     throw TCEXCEPT("Failed to create control listener socket");

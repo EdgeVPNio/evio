@@ -57,9 +57,9 @@ BasicTunnel::Configure(
   sslid_ = rtc::SSLIdentity::Create(sslid_name, rtc::KT_RSA);
   if(!sslid_)
     throw TCEXCEPT("Failed to generate SSL Identity");
-  local_fingerprint_ = rtc::SSLFingerprint::CreateUnique("DIGEST_SHA_3", *sslid_.get());
+  local_fingerprint_ = rtc::SSLFingerprint::CreateUnique("sha-512", *sslid_.get());
   if(!local_fingerprint_)
-    throw TCEXCEPT("Failed to create the local finger print");
+    throw TCEXCEPT("Failed to create the local fingerprint");
   SetIgnoredNetworkInterfaces(ignored_list);
 }
 
