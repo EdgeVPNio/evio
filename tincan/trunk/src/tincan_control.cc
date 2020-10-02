@@ -34,6 +34,7 @@ const Json::StaticString TincanControl::Controlling("Controlling");
 const Json::StaticString TincanControl::CreateCtrlRespLink("CreateCtrlRespLink");
 const Json::StaticString TincanControl::CreateTunnel("CreateTunnel");
 const Json::StaticString TincanControl::Data("Data");
+const Json::StaticString TincanControl::DisableDtls("DisableDtls");
 const Json::StaticString TincanControl::Echo("Echo");
 const Json::StaticString TincanControl::EncryptionEnabled("EncryptionEnabled");
 const Json::StaticString TincanControl::FPR("FPR");

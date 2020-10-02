@@ -92,7 +92,8 @@ BasicTunnel::CreateVlink(
   unique_ptr<VirtualLink> vl = make_unique<VirtualLink>(
     move(vlink_desc), move(peer_desc), sig_worker_, net_worker_);
   unique_ptr<SSLIdentity> sslid_copy(sslid_->Clone());
-  vl->Initialize(net_manager_, move(sslid_copy), *local_fingerprint_.get(),
+  vl->Initialize(net_manager_, move(sslid_copy), 
+    make_unique<rtc::SSLFingerprint>(*local_fingerprint_.get()),
     ice_role);
   vl->SignalMessageReceived.connect(this, &BasicTunnel::VlinkReadComplete);
   vl->SignalLinkUp.connect(this, &BasicTunnel::VLinkUp);

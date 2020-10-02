@@ -83,6 +83,7 @@ const array<const char*, 3> ControlTypeStrings = { {"TincanRequest", "TincanResp
   static const Json::StaticString CreateCtrlRespLink;
   static const Json::StaticString CreateTunnel;
   static const Json::StaticString Data;
+  static const Json::StaticString DisableDtls;
   static const Json::StaticString Echo;
   static const Json::StaticString EncryptionEnabled;
   static const Json::StaticString FPR;

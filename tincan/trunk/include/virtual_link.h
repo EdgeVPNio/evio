@@ -53,7 +53,7 @@ using webrtc::SdpType;
 
 struct  VlinkDescriptor
 {
-  bool dtls_enabled;
+  bool dtls_enabled = true;
   string uid;
   vector<string> stun_servers;
   vector<TurnDescriptor> turn_descs;
@@ -76,7 +76,7 @@ public:
   void Initialize(
     BasicNetworkManager & network_manager,
     unique_ptr<SSLIdentity>sslid,
-    SSLFingerprint const & local_fingerprint,
+    unique_ptr<SSLFingerprint> local_fingerprint,
     cricket::IceRole ice_role);
 
   PeerDescriptor& PeerInfo()
@@ -150,7 +150,8 @@ private:
     const string & candidates);
 
   void SetupICE(
-    SSLFingerprint const & local_fingerprint);
+    unique_ptr<SSLIdentity> sslid,
+    unique_ptr<SSLFingerprint> local_fingerprint);
 
   void OnReadPacket(
     PacketTransportInternal* transport,

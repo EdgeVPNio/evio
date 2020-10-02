@@ -48,6 +48,10 @@ VirtualLink::VirtualLink(
   local_description_ = make_unique<cricket::SessionDescription>();
   remote_description_ = make_unique<cricket::SessionDescription>();
   ice_transport_factory_ = make_unique<webrtc::DefaultIceTransportFactory>();
+  config_.transport_observer = this;
+  config_.rtcp_handler = [](const rtc::CopyOnWriteBuffer& packet,
+                            int64_t packet_time_us) { RTC_NOTREACHED(); };
+  config_.ice_transport_factory = ice_transport_factory_.get();  
 }
 
 VirtualLink::~VirtualLink()
@@ -61,18 +65,12 @@ string VirtualLink::Name()
 void
 VirtualLink::Initialize(
   BasicNetworkManager & network_manager,
-  unique_ptr<SSLIdentity>sslid,
-  SSLFingerprint const & local_fingerprint,
+  unique_ptr<SSLIdentity> sslid,
+  unique_ptr<SSLFingerprint> local_fingerprint,
   cricket::IceRole ice_role)
 {
   ice_role_ = ice_role;
   port_allocator_.reset(new cricket::BasicPortAllocator(&network_manager));
-
-  config_.transport_observer = this;
-  config_.rtcp_handler = [](const rtc::CopyOnWriteBuffer& packet,
-                            int64_t packet_time_us) { RTC_NOTREACHED(); };
-  config_.ice_transport_factory = ice_transport_factory_.get();
-  
   port_allocator_->SetConfiguration(
                       SetupSTUN(vlink_desc_->stun_servers),
                       SetupTURN(vlink_desc_->turn_descs),
@@ -83,8 +81,7 @@ VirtualLink::Initialize(
                         port_allocator_.get(),
                         /*async_resolver_factory*/ nullptr,
                         config_);
-  transport_ctlr_->SetLocalCertificate(RTCCertificate::Create(move(sslid)));
-  SetupICE(local_fingerprint);
+  SetupICE(move(sslid), move(local_fingerprint));
   dtls_transport_ = transport_ctlr_->GetDtlsTransport(content_name_);
   RegisterLinkEventHandlers();
 
@@ -274,19 +271,33 @@ VirtualLink::GetStats(Json::Value & stats)
 
 void
 VirtualLink::SetupICE(
-  SSLFingerprint const & local_fingerprint)
+  unique_ptr<SSLIdentity> sslid,
+  unique_ptr<SSLFingerprint> local_fingerprint)
 {
-  size_t pos = peer_desc_->fingerprint.find(' ');
-  string alg, fp;
-  if(pos != string::npos)
+  SSLFingerprint const* local_fprnt = nullptr;
+  if (vlink_desc_->dtls_enabled)
   {
-    alg = peer_desc_->fingerprint.substr(0, pos);
-    fp = peer_desc_->fingerprint.substr(++pos);
-    remote_fingerprint_.reset(
-      rtc::SSLFingerprint::CreateFromRfc4572(alg, fp));
+    transport_ctlr_->SetLocalCertificate(RTCCertificate::Create(move(sslid)));
+
+    size_t pos = peer_desc_->fingerprint.find(' ');
+    string alg, fp;
+    if(pos != string::npos)
+    {
+      alg = peer_desc_->fingerprint.substr(0, pos);
+      fp = peer_desc_->fingerprint.substr(++pos);
+      remote_fingerprint_.reset(
+        rtc::SSLFingerprint::CreateFromRfc4572(alg, fp));
+    }
   }
+  else
+  {
+    local_fingerprint.release();
+    RTC_LOG(LS_INFO) << "Not using DTLS on vlink " << content_name_ << "\n";
+  }
+  
   cricket::IceConfig ic;
   ic.continual_gathering_policy = cricket::GATHER_ONCE;
+  //ic.ice_check_interval_strong_connectivity = ?;
   transport_ctlr_->SetIceConfig(ic);
   cricket::ConnectionRole remote_conn_role = cricket::CONNECTIONROLE_ACTIVE;
   conn_role_ = cricket::CONNECTIONROLE_ACTPASS;
@@ -297,7 +308,7 @@ VirtualLink::SetupICE(
 
   cricket::TransportDescription local_transport_desc(
     vector<string>(), tp.kIceUfrag, tp.kIcePwd,
-    cricket::ICEMODE_FULL, conn_role_, &local_fingerprint);
+    cricket::ICEMODE_FULL, conn_role_, local_fingerprint.get());
 
   cricket::TransportDescription remote_transport_desc(
     vector<string>(), tp.kIceUfrag, tp.kIcePwd,

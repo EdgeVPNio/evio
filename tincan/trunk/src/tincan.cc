@@ -121,7 +121,8 @@ Tincan::CreateVlink(
   peer_desc->mac_address =
     link_desc[TincanControl::PeerInfo][TincanControl::MAC].asString();
 
-  vl_desc->dtls_enabled = true;
+  vl_desc->dtls_enabled = !link_desc[TincanControl::DisableDtls].asBool();
+
 
   BasicTunnel & tnl = TunnelFromId(tnl_id);
   shared_ptr<VirtualLink> vlink =
@@ -307,6 +308,7 @@ Tincan::Run()
   ctrl_dispatch->SetDispatchToTincanInf(this);
   ctrl_listener_ = make_shared<ControlListener>(move(ctrl_dispatch));
   ctrl_listener_->Run();
+  cout << "Control Listener now running\n";
   exit_event_.Wait(Event::kForever);
 }
 
