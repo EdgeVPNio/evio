@@ -280,11 +280,14 @@ class XmppTransport(slixmpp.ClientXMPP):
         self.loop.run_forever()  # transport.process is calling the same so directly running the loop here
 
     def shutdown(self,):
-        self.loop.stop()
-        self.loop.close()
-        self.xmpp_thread.join()
+        self.event_loop.close()
+        pending = asyncio.Task.all_tasks(loop=self.event_loop)
+        # Setting a new event loop to make sure all the tasks are gracefully stopped.
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        asyncio.get_event_loop().run_until_complete(asyncio.gather(*pending)) # After stopping the loop wait for all tasks to finish
+        self.event_loop.stop()
+        self.xmpp_thread.join(timeout=0.05)
         self.disconnect()
-
 
 class Signal(ControllerModule):
     def __init__(self, cfx_handle, module_config, module_name):
@@ -300,7 +303,8 @@ class Signal(ControllerModule):
         xport = XmppTransport.factory(overlay_id, overlay_descr, self, self._presence_publisher,
                                       jid_cache, outgoing_rem_acts)
         xport.connect_to_server()
-        self.xmpp_thread = threading.Thread(target=xport.start_process, daemon=True).start()
+        xport.xmpp_thread = threading.Thread(target=xport.start_process, daemon=True)
+        xport.xmpp_thread.start()
         return xport
 
     def initialize(self):
