@@ -26,7 +26,7 @@ from queue import Queue
 from time import sleep
 from unittest.mock import MagicMock, Mock, patch
 
-from sleekxmpp import register_stanza_plugin, Message, Callback, StanzaPath, JID
+from slixmpp import register_stanza_plugin, Message, Callback, StanzaPath, JID
 
 from framework.CBT import CBT
 from framework.CFxHandle import CFxHandle
