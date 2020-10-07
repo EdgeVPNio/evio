@@ -11,7 +11,7 @@ declare_args() {
   target_sysroot = ""
   target_sysroot_dir = ""
 
-  use_sysroot = current_cpu == "x64"
+  use_sysroot = host_cpu == "x64"
 }
 
 if (use_sysroot && target_sysroot != "") {

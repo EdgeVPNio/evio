@@ -96,3 +96,31 @@ gcc_toolchain("arm64") {
     is_clang = false
   }
 }
+
+gcc_toolchain("clang_arm") {
+  cc = clang_cc
+  cxx = clang_cxx
+  ld = cxx
+
+  readelf = readelf
+  ar = ar
+  nm = nm
+  toolchain_args = {
+    current_cpu = "arm"
+    current_os = target_os
+  }
+}
+
+gcc_toolchain("clang_arm64") {
+  cc = clang_cc
+  cxx = clang_cxx
+  ld = cxx
+
+  readelf = readelf
+  ar = ar
+  nm = nm
+  toolchain_args = {
+    current_cpu = "arm64"
+    current_os = "linux"
+  }
+}
