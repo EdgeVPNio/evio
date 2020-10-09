@@ -418,7 +418,8 @@ bool VirtualLink::OnTransportChanged(
     rtc::scoped_refptr<webrtc::DtlsTransport> dtls_transport,
     webrtc::DataChannelTransportInterface* data_channel_transport) 
 {
-  dtls_transport_ = transport_ctlr_->GetDtlsTransport(content_name_);
+  if (transport_ctlr_)
+    dtls_transport_ = transport_ctlr_->GetDtlsTransport(content_name_);
   return true;
 }
 
