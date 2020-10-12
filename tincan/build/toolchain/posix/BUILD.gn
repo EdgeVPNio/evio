@@ -1,6 +1,22 @@
 import("//build/toolchain/gcc_toolchain.gni")
 import("//build/toolchain/posix/settings.gni")
 
+clang_toolchain("clang_arm") {
+  toolprefix = "arm-linux-gnueabihf-"
+  toolchain_args = {
+    current_cpu = "arm"
+    current_os = target_os
+  }
+}
+
+clang_toolchain("clang_arm64") {
+  toolprefix = "aarch64-linux-gnu-"
+  toolchain_args = {
+    current_cpu = "arm64"
+    current_os = "linux"
+  }
+}
+
 gcc_toolchain("clang_x86") {
   cc = clang_cc
   cxx = clang_cxx
@@ -66,13 +82,13 @@ gcc_toolchain("x64") {
 }
 
 gcc_toolchain("arm") {
-  cc = gcc_cc
-  cxx = gcc_cxx
-  ld = cxx
+ cc = arm_cc
+  cxx = arm_cxx
+  ar = arm_ar
 
-  readelf = readelf
-  ar = ar
-  nm = nm
+  ld = cxx
+  readelf = arm_readelf
+  nm = arm_nm
 
   toolchain_args = {
     current_cpu = "arm"
@@ -82,45 +98,17 @@ gcc_toolchain("arm") {
 }
 
 gcc_toolchain("arm64") {
-  cc = gcc_cc
-  cxx = gcc_cxx
-  ld = cxx
+  cc = arm64_cc
+  cxx = arm64_cxx
+  ar = arm64_ar
 
-  readelf = readelf
-  ar = ar
-  nm = nm
+  ld = cxx
+  readelf = arm64_readelf
+  nm = arm64_nm
 
   toolchain_args = {
     current_cpu = "arm64"
     current_os = target_os
     is_clang = false
-  }
-}
-
-gcc_toolchain("clang_arm") {
-  cc = clang_cc
-  cxx = clang_cxx
-  ld = cxx
-
-  readelf = readelf
-  ar = ar
-  nm = nm
-  toolchain_args = {
-    current_cpu = "arm"
-    current_os = target_os
-  }
-}
-
-gcc_toolchain("clang_arm64") {
-  cc = clang_cc
-  cxx = clang_cxx
-  ld = cxx
-
-  readelf = readelf
-  ar = ar
-  nm = nm
-  toolchain_args = {
-    current_cpu = "arm64"
-    current_os = "linux"
   }
 }

@@ -25,6 +25,21 @@ declare_args() {
 
   # Path of the 'nm' utility.
   nm = "nm"
+
+  arm64_toolprefix = "aarch64-linux-gnu-"
+  arm64_cc = "aarch64-linux-gnu-gcc"
+  arm64_cxx = "aarch64-linux-gnu-g++"
+  arm64_ar = "aarch64-linux-gnu-ar"
+  arm64_readelf = "aarch64-linux-gnu-readelf"
+  arm64_nm = "aarch64-linux-gnu-nm"
+
+  arm_toolprefix = "arm-linux-gnueabihf-"
+  arm_cc = "arm-linux-gnueabihf-gcc"
+  arm_cxx = "arm-linux-gnueabihf-g++"
+  arm_ar = "arm-linux-gnueabihf-ar"
+  arm_readelf = "arm-linux-gnueabihf-readelf"
+  arm_nm = "arm-linux-gnueabihf-nm"
+
 }
 
 if (is_clang && clang_cc == 0) {

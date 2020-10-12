@@ -435,6 +435,103 @@ config("compiler") {
     ldflags += ["-L../../../../external/debian_sid_amd64-sysroot/usr/lib/x86_64-linux-gnu"]
   }
 
+if (is_linux && is_clang && target_cpu == "arm"){
+    defines += [
+      # "USE_GLIB=1",
+      # "USE_NSS_CERTS=1",
+      # "USE_X11=1",
+      # "_GNU_SOURCE",
+      # "__STDC_CONSTANT_MACROS",
+      # "__STDC_FORMAT_MACROS", 
+      #"CR_LIBCXX_REVISION=375504",
+      # "CR_CLANG_REVISION=\"n353803-99ac9ce7-1\"",
+      # "USE_UDEV",
+      # "USE_AURA=1",
+      # "CR_SYSROOT_HASH=52cf2961a3cddc0d46e1a2f7d9bf376fc16a61de",
+      "NVALGRIND",
+      "_FILE_OFFSET_BITS=64",
+      "_LARGEFILE_SOURCE",
+      "_LARGEFILE64_SOURCE",
+      "_LIBCPP_ABI_UNSTABLE",
+      "_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS",
+      "_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS",
+      "_LIBCPP_ENABLE_NODISCARD",
+    ]
+    cflags += [
+      "--param=ssp-buffer-size=4",
+      "-funwind-tables",
+      "-fmerge-all-constants",
+      "-fcrash-diagnostics-dir=../../tools/clang/crashreports",
+      "-Xclang",
+      "-mllvm",
+      "-Xclang",
+      "-instcombine-lower-dbg-declare=0",
+      "-fcomplete-member-pointers",
+      "-Wno-builtin-macro-redefined",
+      "-Xclang",
+      "-fdebug-compilation-dir",
+      "-Xclang",
+      "-no-canonical-prefixes",
+      "-Wall",
+      "-Wextra",
+      "-Wimplicit-fallthrough",
+      "-Wunreachable-code",
+      "-Wthread-safety",
+      "-Wextra-semi",
+      "-Wno-missing-field-initializers",
+      "-Wno-unused-parameter",
+      "-Wno-c++11-narrowing",
+      "-Wno-unneeded-internal-declaration",
+      "-Wno-undefined-var-template",
+      "-Wno-ignored-pragma-optimize",
+      "-Wno-implicit-int-float-conversion",
+      "-Wno-final-dtor-non-final-class",
+      "-Wno-builtin-assume-aligned-alignment",
+      "-Wno-deprecated-copy",
+      "-Wno-non-c-typedef-for-linkage",
+      "-fno-omit-frame-pointer",
+      "-Wno-builtin-macro-redefined",
+      "-Xclang",
+      "-fdebug-compilation-dir",
+      "-Xclang",
+      "-no-canonical-prefixes",
+      "-Wall",
+      "-Wextra",
+      "-Wimplicit-fallthrough",
+      "-Wunreachable-code",
+      "-Wthread-safety",
+      "-Wextra-semi",
+      "-Wno-missing-field-initializers",
+      "-Wno-unused-parameter",
+      "-Wno-c++11-narrowing",
+      "-Wno-unneeded-internal-declaration",
+      "-Wno-undefined-var-template",
+      "-Wno-ignored-pragma-optimize",
+      "-Wno-implicit-int-float-conversion",
+      "-Wno-final-dtor-non-final-class",
+      "-Wno-builtin-assume-aligned-alignment",
+      "-Wno-deprecated-copy",
+      "-Wno-non-c-typedef-for-linkage",
+      "-fno-omit-frame-pointer",
+      "-ftrivial-auto-var-init=pattern",
+      "-Wheader-hygiene",
+      "-Wstring-conversion",
+      "-Wtautological-overlap-compare"
+    ]
+    cflags_cc += [
+      "-fcxx-exceptions",
+      "-std=c++14",
+      "-fno-rtti",
+      "-nostdinc++",
+      "-isystem../../../../external/include/libc++",
+      "-isystem../../../../external/include/libc++abi",
+      "-fexceptions"
+    ]
+    ldflags += ["-rdynamic"]
+    ldflags += ["-nostdlib++"]
+    ldflags += ["-L../../../../external/debian_sid_arm-sysroot/lib/arm-linux-gnueabihf"]
+    ldflags += ["-L../../../../external/debian_sid_arm-sysroot/usr/lib/arm-linux-gnueabihf"]
+  }
 }
 
 config("extra_flags") {
