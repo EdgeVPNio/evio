@@ -357,7 +357,8 @@ config("compiler") {
     asmflags += cflags_c
   }
 
-  if (is_linux && is_clang && target_cpu == "x64"){
+  if (is_linux && is_clang) {
+   if (target_cpu == "x64"){
     defines += [
       # "USE_GLIB=1",
       # "USE_NSS_CERTS=1",
@@ -435,7 +436,7 @@ config("compiler") {
     ldflags += ["-L../../../../external/debian_sid_amd64-sysroot/usr/lib/x86_64-linux-gnu"]
   }
 
-if (is_linux && is_clang && target_cpu == "arm"){
+if (target_cpu == "arm"){
     defines += [
       # "USE_GLIB=1",
       # "USE_NSS_CERTS=1",
@@ -532,6 +533,7 @@ if (is_linux && is_clang && target_cpu == "arm"){
     ldflags += ["-L../../../../external/debian_sid_arm-sysroot/lib/arm-linux-gnueabihf"]
     ldflags += ["-L../../../../external/debian_sid_arm-sysroot/usr/lib/arm-linux-gnueabihf"]
   }
+ }
 }
 
 config("extra_flags") {
