@@ -357,7 +357,7 @@ config("compiler") {
     asmflags += cflags_c
   }
 
-  if (is_linux && is_clang && target_cpu == "x64"){
+  if (is_linux && is_clang) {
     defines += [
       # "USE_GLIB=1",
       # "USE_NSS_CERTS=1",
@@ -379,23 +379,21 @@ config("compiler") {
       "_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS",
       "_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS",
       "_LIBCPP_ENABLE_NODISCARD", 
-    ]
+    ]    
     cflags += [
       "--param=ssp-buffer-size=4",
-      "-funwind-tables",
+      #"-funwind-tables",
       "-fmerge-all-constants",
-      "-fcrash-diagnostics-dir=../../tools/clang/crashreports",
+      #"-fcrash-diagnostics-dir=../../tools/clang/crashreports",
       "-Xclang",
       "-mllvm",
       "-Xclang",
       "-instcombine-lower-dbg-declare=0",
       "-fcomplete-member-pointers",
-      "-Wno-builtin-macro-redefined",
-
+      #"-Wno-builtin-macro-redefined",
       "-Xclang",
       "-fdebug-compilation-dir",
       "-Xclang",
-
       "-no-canonical-prefixes",
       "-Wall",
       "-Wextra",
@@ -419,7 +417,7 @@ config("compiler") {
       "-Wheader-hygiene",
       "-Wstring-conversion",
       "-Wtautological-overlap-compare"
-    ]
+    ]   
     cflags_cc += [
       "-fcxx-exceptions",
       "-std=c++14",
@@ -428,13 +426,19 @@ config("compiler") {
       "-isystem../../../../external/include/libc++",
       "-isystem../../../../external/include/libc++abi",
       "-fexceptions"
-    ]
+    ]    
     ldflags += ["-rdynamic"]
     ldflags += ["-nostdlib++"]
+
+  if (target_cpu == "x64"){
     ldflags += ["-L../../../../external/debian_sid_amd64-sysroot/lib/x86_64-linux-gnu"]
     ldflags += ["-L../../../../external/debian_sid_amd64-sysroot/usr/lib/x86_64-linux-gnu"]
   }
-
+  if (target_cpu == "arm"){
+    ldflags += ["-L../../../../external/debian_sid_arm-sysroot/lib/arm-linux-gnueabihf"]
+    ldflags += ["-L../../../../external/debian_sid_arm-sysroot/usr/lib/arm-linux-gnueabihf"]
+  }
+ }
 }
 
 config("extra_flags") {
