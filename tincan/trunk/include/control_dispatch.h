@@ -72,17 +72,12 @@ private:
       msg_ = "No connection to Controller exists. "
         "Create one with the set_ctrl_endpoint control operation";
     }
-    virtual ~DisconnectedControllerHandle() = default;
+    ~DisconnectedControllerHandle() override = default;
   private:
-    virtual void Deliver(
-      TincanControl &) {
-      RTC_LOG(LS_INFO) << msg_ << "\n";
-    }
-    virtual void Deliver(
-      unique_ptr<TincanControl>)
-    {
-      RTC_LOG(LS_INFO) << msg_ << "\n";
-    }
+    void Deliver(
+      TincanControl &) override {}
+    void Deliver(
+      unique_ptr<TincanControl>) override {}
     string msg_;
   };
 }; // ControlDispatch

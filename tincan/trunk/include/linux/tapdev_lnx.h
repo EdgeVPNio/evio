@@ -58,7 +58,7 @@ class TapDevLnx :
 {
 public:
   TapDevLnx();
-  virtual ~TapDevLnx();
+  ~TapDevLnx() override;
   sigslot::signal1<AsyncIo *> read_completion_;
   sigslot::signal1<AsyncIo *> write_completion_;
   void Open(

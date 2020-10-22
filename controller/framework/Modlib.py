@@ -20,11 +20,11 @@
 # THE SOFTWARE.
 
 import subprocess
-
+import framework.Version as ver
 
 CTL_CREATE_CTRL_LINK = {
     "EVIO": {
-        "ProtocolVersion": 5,
+        "ProtocolVersion": ver.EVIO_VER_CTL,
         "TransactionId": 0,
         "ControlType": "TincanRequest",
         "Request": {
@@ -38,7 +38,7 @@ CTL_CREATE_CTRL_LINK = {
 }
 CTL_CONFIGURE_LOGGING = {
     "EVIO": {
-        "ProtocolVersion": 5,
+        "ProtocolVersion": ver.EVIO_VER_CTL,
         "TransactionId": 0,
         "ControlType": "TincanRequest",
         "Request": {
@@ -55,7 +55,7 @@ CTL_CONFIGURE_LOGGING = {
 }
 CTL_QUERY_TUNNEL_INFO = {
     "EVIO": {
-        "ProtocolVersion": 5,
+        "ProtocolVersion": ver.EVIO_VER_CTL,
         "TransactionId": 0,
         "ControlType": "TincanRequest",
         "Request": {
@@ -67,7 +67,7 @@ CTL_QUERY_TUNNEL_INFO = {
 }
 CTL_CREATE_TUNNEL = {
     "EVIO": {
-        "ProtocolVersion": 5,
+        "ProtocolVersion": ver.EVIO_VER_CTL,
         "ControlType": "TincanRequest",
         "TransactionId": 0,
         "Request": {
@@ -84,7 +84,7 @@ CTL_CREATE_TUNNEL = {
 }
 CTL_CREATE_LINK = {
     "EVIO": {
-        "ProtocolVersion": 5,
+        "ProtocolVersion": ver.EVIO_VER_CTL,
         "TransactionId": 0,
         "ControlType": "TincanRequest",
         "Request": {
@@ -102,7 +102,7 @@ CTL_CREATE_LINK = {
 }
 CTL_REMOVE_TUNNEL = {
     "EVIO": {
-        "ProtocolVersion": 5,
+        "ProtocolVersion": ver.EVIO_VER_CTL,
         "TransactionId": 0,
         "ControlType": "TincanRequest",
         "Request": {
@@ -114,7 +114,7 @@ CTL_REMOVE_TUNNEL = {
 }
 CTL_REMOVE_LINK = {
     "EVIO": {
-        "ProtocolVersion": 5,
+        "ProtocolVersion": ver.EVIO_VER_CTL,
         "TransactionId": 0,
         "ControlType": "TincanRequest",
         "Request": {
@@ -126,7 +126,7 @@ CTL_REMOVE_LINK = {
 }
 RESP = {
     "EVIO": {
-        "ProtocolVersion": 5,
+        "ProtocolVersion": ver.EVIO_VER_CTL,
         "TransactionId": 0,
         "ControlType": "TincanResponse",
         "Request": {
@@ -139,7 +139,7 @@ RESP = {
 }
 CTL_QUERY_LINK_STATS = {
     "EVIO": {
-        "ProtocolVersion": 5,
+        "ProtocolVersion": ver.EVIO_VER_CTL,
         "TransactionId": 0,
         "ControlType": "TincanRequest",
         "Request": {
@@ -150,7 +150,7 @@ CTL_QUERY_LINK_STATS = {
 }
 CTL_QUERY_CAS = {
     "EVIO": {
-        "ProtocolVersion": 5,
+        "ProtocolVersion": ver.EVIO_VER_CTL,
         "TransactionId": 0,
         "ControlType": "TincanRequest",
         "Request": {

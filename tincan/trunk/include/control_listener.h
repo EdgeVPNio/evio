@@ -46,7 +46,7 @@ class ControlListener :
 {
 public:
   ControlListener(unique_ptr<ControlDispatch> control_dispatch);
-  ~ControlListener();
+  ~ControlListener() override;
   void ReadPacketHandler(
     AsyncPacketSocket * socket,
     const char * data,
@@ -63,10 +63,7 @@ public:
   void CreateControllerLink(
     unique_ptr<SocketAddress> controller_addr
     ) override;
-  ControllerLink & GetControllerLink() override
-  {
-    return *this;
-  }
+  ControllerLink & GetControllerLink() override;
 
   std::unique_ptr<Thread> ctrl_thread_;
   //thread to keep UDP socket listening run from tincan.cc

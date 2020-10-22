@@ -32,24 +32,10 @@ class LnxException : virtual public exception
 protected:
   string emsg;
 public:
-  LnxException(const string &arg, const char *file, int line)
-  {
-    ostringstream ostr;
-    ostr << file << ":" << line << ": " << arg << "@" << strerror(errno);
-    emsg = ostr.str();
-  }
-
-  LnxException()
-  {}
-
-  ~LnxException()
-  {}
-
-  const char* what() const _NOEXCEPT override
-  {
-    return emsg.c_str();
-  }
-
+  LnxException(const string &arg, const char *file, int line);
+  LnxException();
+  ~LnxException() override;
+  const char* what() const _NOEXCEPT override;
 };
 } // linux
 } // tincan

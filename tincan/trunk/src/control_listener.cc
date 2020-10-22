@@ -86,6 +86,12 @@ ControlListener::CreateControllerLink(
     sf->CreateAsyncSocket(ctrl_addr_->family(), SOCK_DGRAM));
 }
 
+ControllerLink & 
+ControlListener::GetControllerLink()
+{
+  return *this;
+}
+
 void
 ControlListener::Run()
 {

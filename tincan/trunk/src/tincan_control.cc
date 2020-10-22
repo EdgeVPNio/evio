@@ -77,7 +77,7 @@ const Json::StaticString TincanControl::VnetDescription("VnetDescription");
 const Json::StaticString TincanControl::Vlinks("Vlinks");
 
 TincanControl::TincanControl() :
-  proto_ver_(tp.kTincanControlVer),
+  proto_ver_(kTincanControlVer),
   tag_(NextTagValue()),
   type_(CTTincanRequest),
   dict_req_(nullptr),
@@ -86,7 +86,7 @@ TincanControl::TincanControl() :
 
 TincanControl::TincanControl(
   unique_ptr<Json::Value> req) :
-  proto_ver_(tp.kTincanControlVer),
+  proto_ver_(kTincanControlVer),
   tag_(NextTagValue()),
   type_(CTTincanRequest),
   dict_req_(req.release()),
@@ -96,7 +96,7 @@ TincanControl::TincanControl(
 TincanControl::TincanControl(
   unique_ptr<Json::Value> req,
   unique_ptr<Json::Value> resp) :
-  proto_ver_(tp.kTincanControlVer),
+  proto_ver_(kTincanControlVer),
   tag_(NextTagValue()),
   type_(CTTincanRequest),
   dict_req_(req.release()),
@@ -128,7 +128,7 @@ TincanControl::TincanControl(
     throw TCEXCEPT(oss.str().c_str());
   }
   uint32_t ver = ctrl[EVIO][ProtocolVersion].asUInt();
-  if(ver != tp.kTincanControlVer)
+  if(ver != kTincanControlVer)
   {
     ostringstream oss;
     oss << "Invalid EVIO protocol version in control header (" << ver << ")";

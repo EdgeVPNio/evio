@@ -43,6 +43,7 @@
 #include <utility>
 #include <unordered_map>
 #include <vector>
+#include "tincan_version.h"
 namespace tincan
 {
   using MacAddressType = std::array<uint8_t, 6>;
@@ -153,12 +154,6 @@ namespace tincan
         }
       }
     }
-
-    static const uint16_t kTincanVerMjr = 3;
-    static const uint16_t kTincanVerMnr = 0;
-    static const uint16_t kTincanVerRev = 0;
-    static const uint8_t kTincanControlVer = 5;
-    static const uint8_t kTincanLinkVer = 1;
     static const uint16_t kMaxMtuSize = 1500;
     static const uint16_t kTapHeaderSize = 2;
     static const uint16_t kEthHeaderSize = 14;
