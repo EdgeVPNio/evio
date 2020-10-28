@@ -55,7 +55,13 @@ VirtualLink::VirtualLink(
 }
 
 VirtualLink::~VirtualLink()
-{}
+{
+  // port_allocator_ lives on the network thread and should be destroyed there.
+  network_thread_->Invoke<void>(RTC_FROM_HERE, [this] {
+    RTC_DCHECK_RUN_ON(network_thread_);
+    port_allocator_.reset();
+  });
+}
 
 string VirtualLink::Name()
 {
@@ -86,8 +92,8 @@ VirtualLink::Initialize(
   RegisterLinkEventHandlers();
 
   // The port allocator lives on the network thread and should be initialized there.
-  const auto pa_result = network_thread_->Invoke<bool>(
-          RTC_FROM_HERE, rtc::Bind(&VirtualLink::InitializePortAllocator, this));
+  network_thread_->Invoke<bool>(
+    RTC_FROM_HERE, rtc::Bind(&VirtualLink::InitializePortAllocator, this));
   return;
 }
 
@@ -274,7 +280,6 @@ VirtualLink::SetupICE(
   unique_ptr<SSLIdentity> sslid,
   unique_ptr<SSLFingerprint> local_fingerprint)
 {
-  SSLFingerprint const* local_fprnt = nullptr;
   if (vlink_desc_->dtls_enabled)
   {
     transport_ctlr_->SetLocalCertificate(RTCCertificate::Create(move(sslid)));

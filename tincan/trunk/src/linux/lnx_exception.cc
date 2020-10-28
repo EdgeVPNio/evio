@@ -20,40 +20,32 @@
 * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 * THE SOFTWARE.
 */
-#define TINCAN_MAIN 1
 #include "tincan_base.h"
-#include "tincan.h"
+#include <errno.h>
+#include "lnx_exception.h"
+
 namespace tincan
 {
-  TincanParameters tp;
-}
-using namespace tincan;
-Tincan * Tincan::self_= NULL;
-
-int main(int argc, char **argv)
+namespace linux
 {
-  int rv = 0;
-  try {
-    tp.ParseCmdlineArgs(argc, argv);
-    if(tp.kVersionCheck) {
-      cout << kTincanVerMjr << "." 
-        << kTincanVerMnr << "." 
-        << kTincanVerRev << "."
-        << kTincanVerBld << endl;
-    }
-    else if(tp.kNeedsHelp) {
-      std::cout << "-v         Version check.\n" <<
-        "-i=COUNT   Specify concurrent I/Os" << endl <<
-        "-p=PORT    Specify control port number" << endl;
-    }
-    else {
-      Tincan tc;
-      tc.Run();
-    }
-  }
-  catch(exception & e) {
-    rv = -1;
-    RTC_LOG(LS_ERROR) << e.what();
-  }
-  return rv;
+LnxException::LnxException(const string &arg, const char *file, int line)
+{
+  ostringstream ostr;
+  ostr << file << ":" << line << ": " << arg << "@" << strerror(errno);
+  emsg = ostr.str();
 }
+
+LnxException::LnxException()
+{}
+
+LnxException::~LnxException()
+{}
+
+const char* 
+LnxException::what() const _NOEXCEPT
+{
+  return emsg.c_str();
+}
+
+} // linux
+} // tincan

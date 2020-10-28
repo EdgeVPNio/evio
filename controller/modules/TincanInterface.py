@@ -30,7 +30,7 @@ import traceback
 from distutils import spawn
 import framework.Modlib as modlib
 from framework.ControllerModule import ControllerModule
-
+import framework.Version as ver
 
 class TincanInterface(ControllerModule):
     def __init__(self, cfx_handle, module_config, module_name):
@@ -68,7 +68,7 @@ class TincanInterface(ControllerModule):
                     if sock == self._sock_svr:
                         data = sock.recvfrom(self._cm_config["MaxReadSize"])
                         ctl = json.loads(data[0].decode("utf-8"))
-                        if ctl["EVIO"]["ProtocolVersion"] != 5:
+                        if ctl["EVIO"]["ProtocolVersion"] != ver.EVIO_VER_CTL:
                             raise ValueError("Invalid control version detected")
                         # Get the original CBT if this is the response
                         if ctl["EVIO"]["ControlType"] == "TincanResponse":

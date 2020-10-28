@@ -56,7 +56,7 @@ public:
   //Copies the specifed amount of data into the TFB.
   TapFrame(uint8_t* data, uint32_t len);
 
-  virtual ~TapFrame();
+  ~TapFrame() override;
 
   //Copies the TFB from the rhs frame to the lhs
   TapFrame &operator= (TapFrame & rhs);
@@ -240,6 +240,7 @@ private:
 };
 ///////////////////////////////////////////////////////////////////////////////
 // IP4Mapper patches IP4 addresses
+/*
 class IP4AddressMapper
 {
 public:
@@ -281,5 +282,6 @@ private:
   TapFrame & tf_;
   TapFrameProperties & fp_;
 };
+*/
 } //namespace tincan
 #endif  // TINCAN_TAP_FRAME_H_

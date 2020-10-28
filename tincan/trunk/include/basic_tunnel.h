@@ -159,7 +159,7 @@ protected:
   void SetIgnoredNetworkInterfaces(
     const vector<string>& ignored_list);
 
-  unique_ptr<VirtualLink> CreateVlink(
+  virtual unique_ptr<VirtualLink> CreateVlink(
     unique_ptr<VlinkDescriptor> vlink_desc,
     unique_ptr<PeerDescriptor>
     peer_desc, cricket::IceRole ice_role);

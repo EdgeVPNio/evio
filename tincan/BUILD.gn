@@ -20,6 +20,7 @@ executable("tincan") {
         if (is_linux) {
             sources += [
                 "trunk/src/linux/tapdev_lnx.cc",
+                "trunk/src/linux/lnx_exception.cc"
             ]
 
             include_dirs += [

@@ -20,40 +20,14 @@
 * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 * THE SOFTWARE.
 */
-#define TINCAN_MAIN 1
-#include "tincan_base.h"
-#include "tincan.h"
+#ifndef TINCAN_VERSION_H_
+#define TINCAN_VERSION_H_
 namespace tincan
 {
-  TincanParameters tp;
-}
-using namespace tincan;
-Tincan * Tincan::self_= NULL;
-
-int main(int argc, char **argv)
-{
-  int rv = 0;
-  try {
-    tp.ParseCmdlineArgs(argc, argv);
-    if(tp.kVersionCheck) {
-      cout << kTincanVerMjr << "." 
-        << kTincanVerMnr << "." 
-        << kTincanVerRev << "."
-        << kTincanVerBld << endl;
-    }
-    else if(tp.kNeedsHelp) {
-      std::cout << "-v         Version check.\n" <<
-        "-i=COUNT   Specify concurrent I/Os" << endl <<
-        "-p=PORT    Specify control port number" << endl;
-    }
-    else {
-      Tincan tc;
-      tc.Run();
-    }
-  }
-  catch(exception & e) {
-    rv = -1;
-    RTC_LOG(LS_ERROR) << e.what();
-  }
-  return rv;
-}
+    static const uint16_t kTincanVerMjr = 0;
+    static const uint16_t kTincanVerMnr = 0;
+    static const uint16_t kTincanVerRev = 0;
+    static const uint16_t kTincanVerBld = 0;
+    static const uint8_t kTincanControlVer = 0;
+} // namespace tincan
+#endif // TINCAN_VERSION_H_
