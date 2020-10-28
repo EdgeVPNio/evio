@@ -423,8 +423,8 @@ config("compiler") {
       "-std=c++14",
       "-fno-rtti",
       "-nostdinc++",
-      "-isystem../../../../external/include/libc++",
-      "-isystem../../../../external/include/libc++abi",
+      "-isystem../../../../../external/include/libc++",
+      "-isystem../../../../../external/include/libc++abi",
       "-fexceptions"
     ]    
     ldflags += ["-rdynamic"]
