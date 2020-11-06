@@ -1196,18 +1196,18 @@ class BoundedFlood(app_manager.RyuApp):
         if len(pkt.protocols) < 2:
             return
         payload = pkt.protocols[2]
-        # Here I check if the payload is a multicast.
+        # Check for a multicast payload.
         is_multicast = False
         payload_pkt = packet.Packet(payload)
         pload_eth = payload_pkt.protocols[0]
         eth_dst = None
-        if pload_eth:
+        if pload_eth and rcvd_frb.frb_type == FloodRouteBound.FRB_BRDCST:
             eth_dst = pload_eth.dst
-        pload_ip = payload_pkt.get_protocol(ipv4.ipv4)
+            pload_ip = payload_pkt.get_protocol(ipv4.ipv4)
         if eth_dst and eth_dst.split(':')[0] == '01':
             self.logger.info("Received a FRB multicast packet with dst {} from {} on port {}".format(eth_dst,
                              pload_eth.src, in_port))
-            self.logger.info("More details: ip dst {} ip src {}".format(pload_ip.dst, pload_ip.src))
+            # self.logger.info("More details: ip dst {} ip src {}".format(pload_ip.dst, pload_ip.src))
             is_multicast = True
             netnode.upstream_reception.put((pload_ip.src, pload_ip.dst), in_port)
             netnode.multicast_groups.put(pload_ip.dst, (pload_ip.src, pload_ip.dst))
@@ -1234,7 +1234,7 @@ class BoundedFlood(app_manager.RyuApp):
                         datapath.send_msg(out)
         #learn src mac and rnid
         self.lt[src] = (in_port, rcvd_frb.root_nid)
-        if rcvd_frb.hop_count == 0:
+        if rcvd_frb.frb_type == FloodRouteBound.FRB_LEAF_TX:
             self.update_leaf_macs_and_flows(datapath, rcvd_frb.root_nid, payload,
                                             rcvd_frb.pl_count, in_port)
         else:
