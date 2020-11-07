@@ -248,9 +248,13 @@ class netNode():
         self.update_leaf_ports()
 
     def update_switch_ports(self):
+        tries = 0
+        while not self.ryu.dpset.port_state and tries < 3:
+            time.sleep(1)
+            tries += 1
         self.logger.info("DPSet.port_state %s", self.ryu.dpset.port_state)
         self.port_state = copy.deepcopy(self.ryu.dpset.port_state.get(
-            self.datapath.id, dpset.PortState()))
+            self.datapath.id, None))
 
     def update_evio_topology(self, tapn=None):
         olid = self.config["OverlayId"]
