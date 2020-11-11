@@ -455,9 +455,7 @@ class Signal(ControllerModule):
             for overlay_id in self._circles:
                 anc = self._circles[overlay_id]["Announce"]
                 if time.time() >= anc:
-                    self._circles[overlay_id]["Transport"].event_loop.call_soon_threadsafe(
-                        lambda: self._circles[overlay_id]["Transport"].send_presence(pstatus="ident#" +
-                                                                                             self.node_id))
+                    self._circles[overlay_id]["Transport"].send_presence(pstatus="ident#" + self.node_id)
                     self._circles[overlay_id]["Announce"] = time.time() + \
                         (int(self.config["PresenceInterval"]) * random.randint(2, 20))
                 self._circles[overlay_id]["JidCache"].scavenge()
