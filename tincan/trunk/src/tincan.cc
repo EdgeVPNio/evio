@@ -302,6 +302,13 @@ Tincan::Run()
   self_ = this;
   SetConsoleCtrlHandler(ControlHandler, TRUE);
 #endif // _TNC_WIN
+  //Registering signal with signal handler
+  self_ = this;
+  struct sigaction newact, oldact;
+  newact.sa_handler = onStopHandler;
+  sigemptyset(&newact.sa_mask);
+  newact.sa_flags = 0;
+  sigaction(SIGINT, &newact, &oldact);
 
   //Start tincan control to get config from Controller
   unique_ptr<ControlDispatch> ctrl_dispatch(new ControlDispatch);
@@ -354,6 +361,13 @@ Tincan::Shutdown()
     tnl->Shutdown();
   }
   tunnels_.clear();
+}
+
+void
+Tincan::onStopHandler(int signum) {
+       cout << "Stopping tincan due to ctrl+c" << std::endl;
+       self_->OnStop();
+       exit(signum);
 }
 
 /*
