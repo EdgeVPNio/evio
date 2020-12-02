@@ -222,17 +222,19 @@ class LinuxBridge(BridgeABC):
         Modlib.runshell([LinuxBridge.brctl,
                           "setportprio", self.name, port, str(prio)])
 ###################################################################################################
-class BoundedFloodProxy(socketserver.ThreadingMixIn, socketserver.TCPServer):
+class BoundedFloodProxy(socketserver.ThreadingUnixStreamServer, socketserver.UnixStreamServer):
     """
     Starts the TCP proxy listener
     Starts the Ryu engine and module
     Supports interactions between BF Ryu module and evio controller
     """
     RyuManager = spawn.find_executable("ryu-manager")
+
     if RyuManager is None:
         raise RuntimeError("RyuManager was not found, is it installed?")
-    def __init__(self, host_port_tuple, streamhandler, netman):
-        super().__init__(host_port_tuple, streamhandler)
+    def __init__(self, serveraddress, streamhandler, netman):
+        self.delete_sockfile()
+        super().__init__(serveraddress, streamhandler)
         self.netman = netman
         config = self.netman.config["BoundedFlood"]
         # start the BF RYU module
@@ -247,7 +249,16 @@ class BoundedFloodProxy(socketserver.ThreadingMixIn, socketserver.TCPServer):
     def server_close(self):
         self._bf_proc.kill()
         self._bf_proc.wait()
-        socketserver.TCPServer.server_close(self)
+        socketserver.UnixStreamServer.server_close(self)
+        self.delete_sockfile()
+
+    def delete_sockfile(self):
+        sockfile = "/opt/edge-vpnio/uds_socket"
+        if os.path.exists(sockfile):
+            try:
+                os.remove(sockfile)
+            except:
+                raise RuntimeError("Could not delete the previous sockfile.")
 
 class BFRequestHandler(socketserver.BaseRequestHandler):
     def handle(self):
@@ -360,10 +371,9 @@ class BridgeController(ControllerModule):
             self.log("LOG_DEBUG", "ignored bridges=%s", ign_br_names)
         # start the BF proxy if at least one overlay is configured for it
         if "BoundedFlood" in self.config:
-            proxy_listen_address = self.config["BoundedFlood"]["ProxyListenAddress"]
-            proxy_listen_port = self.config["BoundedFlood"]["ProxyListenPort"]
+            sockfile = "/opt/edge-vpnio/uds_socket"
             self._bfproxy = BoundedFloodProxy(
-                (proxy_listen_address, proxy_listen_port),
+                sockfile,
                 BFRequestHandler, self)
             self._server_thread = threading.Thread(target=self._bfproxy.serve_forever,
                                                    name="BFProxyServer")

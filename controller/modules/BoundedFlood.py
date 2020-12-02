@@ -171,7 +171,7 @@ class netNode():
         self.datapath = datapath
         self.logger = ryu_app.logger
         self.config = ryu_app.config
-        self.addr = (datapath.address[0], self.config["ProxyListenPort"])
+        self.addr = "/opt/edge-vpnio/uds_socket"
         self.node_id = None
         self._leaf_prts = set()
         self.port_state = None
@@ -352,7 +352,7 @@ class netNode():
         while attempts < 2:
             try:
                 attempts += 1
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                 sock.connect(host_addr)
                 sock.sendall(bytes(sd + "\n", "utf-8"))
                 received = str(sock.recv(65536), "utf-8")
