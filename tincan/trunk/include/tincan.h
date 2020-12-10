@@ -93,14 +93,13 @@ private:
 
   void OnStop();
   void Shutdown();
-  //TODO:Code cleanup
+
 #if defined(_TNC_WIN)
   static BOOL __stdcall ControlHandler(
     DWORD CtrlType);
-#endif // _TNC_WIN
-  //Signale handler for ctrl+C(SIGINT) linux
+#elif defined(_TNC_LINUX)
   static void onStopHandler(int signum);
-
+#endif
   vector<unique_ptr<BasicTunnel>> tunnels_;
   ControllerLink * ctrl_link_;
   map<string, unique_ptr<TincanControl>> inprogess_controls_;
