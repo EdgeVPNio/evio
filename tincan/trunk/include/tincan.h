@@ -22,6 +22,7 @@
 */
 #ifndef TINCAN_TINCAN_H_
 #define TINCAN_TINCAN_H_
+#include <signal.h>
 #include "tincan_base.h"
 #include "rtc_base/event.h"
 #include "control_listener.h"
@@ -76,7 +77,7 @@ public:
   void QueryLinkCas(
     const Json::Value & link_desc,
     Json::Value & cas_info) override;
-//
+
   void OnLocalCasUpdated(
     string link_id,
     string lcas);
@@ -96,6 +97,8 @@ private:
   static BOOL __stdcall ControlHandler(
     DWORD CtrlType);
 #endif // _TNC_WIN
+  //Signale handler for ctrl+C(SIGINT) linux
+  static void onStopHandler(int signum);
 
   vector<unique_ptr<BasicTunnel>> tunnels_;
   ControllerLink * ctrl_link_;
