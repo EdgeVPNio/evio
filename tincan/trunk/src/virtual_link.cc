@@ -56,11 +56,13 @@ VirtualLink::VirtualLink(
 
 VirtualLink::~VirtualLink()
 {
-  // port_allocator_ lives on the network thread and should be destroyed there.
-  network_thread_->Invoke<void>(RTC_FROM_HERE, [this] {
-    RTC_DCHECK_RUN_ON(network_thread_);
-    port_allocator_.reset();
-  });
+  if (!network_thread_->IsCurrent()) {
+    // port_allocator_ lives on the network thread and should be destroyed there.
+    network_thread_->Invoke<void>(RTC_FROM_HERE, [this] {
+      RTC_DCHECK_RUN_ON(network_thread_);
+      port_allocator_.reset();
+    });
+  }
 }
 
 string VirtualLink::Name()

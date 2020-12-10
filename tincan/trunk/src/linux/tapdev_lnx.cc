@@ -160,13 +160,15 @@ uint32_t TapDevLnx::Read(AsyncIo& aio_rd)
   return 0;
 }
 
-uint32_t TapDevLnx::Write(AsyncIo& aio_wr)
+uint32_t
+TapDevLnx::Write(unique_ptr<AsyncIo> aio_wr)
 {
-  if(!is_good_ || writer_->IsQuitting())
+  if(!is_good_)
     return 1; //indicates a failure to setup async operation
-  TapMessageData *tp_ = new TapMessageData;
-  tp_->aio_ = &aio_wr;
-  writer_->Post(RTC_FROM_HERE, this, MSGID_WRITE, tp_);
+  int nwrite = write(fd_, aio_wr->BufferToTransfer(), aio_wr->BytesToTransfer());
+  aio_wr->good_ = nwrite >= 0;
+  aio_wr->BytesTransferred(nwrite);
+  write_completion_(aio_wr.release());
   return 0;
 }
 
@@ -186,11 +188,11 @@ void TapDevLnx::Up()
     return;
   is_good_ = true;
   SetFlags(IFF_UP, 0);
-  if (writer_)
-  {
-    writer_->Quit();
-    writer_.reset();
-  }
+  // if (writer_)
+  // {
+  //   writer_->Quit();
+  //   writer_.reset();
+  // }
   if (reader_)
   {
     reader_->Quit();
@@ -198,19 +200,19 @@ void TapDevLnx::Up()
   }
   reader_ = make_unique<rtc::Thread>(SocketServer::CreateDefault());
   reader_->Start();
-  writer_ = make_unique<rtc::Thread>(SocketServer::CreateDefault());
-  writer_->Start();
+  // writer_ = make_unique<rtc::Thread>(SocketServer::CreateDefault());
+  // writer_->Start();
 }
 
 void TapDevLnx::Down()
 {
   is_good_ = false;
-  if(writer_)
-    writer_->Quit();
+  // if(writer_)
+  //   writer_->Quit();
   if(reader_)
     reader_->Quit();
   reader_.reset();
-  writer_.reset();
+  //writer_.reset();
   SetFlags(0, IFF_UP);
 
   RTC_LOG(LS_INFO) << "TAP device state set to DOWN";
@@ -237,23 +239,23 @@ void TapDevLnx::OnMessage(Message * msg)
     }
   }
   break;
-  case MSGID_WRITE:
-  {
-    AsyncIo* aio_write = ((TapMessageData*)msg->pdata)->aio_;
-    int nwrite = write(fd_, aio_write->BufferToTransfer(), aio_write->BytesToTransfer());
-    if(nwrite < 0)
-    {
-      RTC_LOG(LS_WARNING) << "A TAP Write operation failed.";
-      aio_write->good_ = false;
-    }
-    else
-    {
-      aio_write->good_ = true;
-    }
-    aio_write->BytesTransferred(nwrite);
-    write_completion_(aio_write);
-  }
-  break;
+  // case MSGID_WRITE:
+  // {
+  //   AsyncIo* aio_write = ((TapMessageData*)msg->pdata)->aio_;
+  //   int nwrite = write(fd_, aio_write->BufferToTransfer(), aio_write->BytesToTransfer());
+  //   if(nwrite < 0)
+  //   {
+  //     RTC_LOG(LS_WARNING) << "A TAP Write operation failed.";
+  //     aio_write->good_ = false;
+  //   }
+  //   else
+  //   {
+  //     aio_write->good_ = true;
+  //   }
+  //   aio_write->BytesTransferred(nwrite);
+  //   write_completion_(aio_write);
+  // }
+  // break;
   }
   delete (TapMessageData*)msg->pdata;
 }
@@ -263,6 +265,13 @@ TapDevLnx::Ip4()
 {
   return ip4_;
 }
+
+int
+TapDevLnx::FileDesc() 
+{
+  return fd_;
+}
+
 } // linux
 } // tincan
 #endif // _TNC_LINUX

@@ -33,7 +33,8 @@ class SingleLinkTunnel :
 public:
   SingleLinkTunnel(
     unique_ptr<TunnelDescriptor> descriptor,
-    ControllerLink * ctrl_handle);
+    ControllerLink * ctrl_handle,
+    TunnelThreads *thread_pool);
   virtual ~SingleLinkTunnel() = default;
 
   shared_ptr<VirtualLink> CreateVlink(

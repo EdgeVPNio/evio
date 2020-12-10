@@ -28,8 +28,9 @@ namespace tincan
 {
 SingleLinkTunnel::SingleLinkTunnel(
   unique_ptr<TunnelDescriptor> descriptor,
-  ControllerLink * ctrl_handle) :
-  BasicTunnel(move(descriptor), ctrl_handle)
+  ControllerLink * ctrl_handle,
+  TunnelThreads *thread_pool) :
+  BasicTunnel(move(descriptor), ctrl_handle, thread_pool)
 {}
 
 shared_ptr<VirtualLink>
@@ -105,7 +106,7 @@ void SingleLinkTunnel::QueryLinkInfo(
     {
       LinkInfoMsgData md;
       md.vl = vlink_;
-      net_worker_->Post(RTC_FROM_HERE, this, MSGID_QUERY_NODE_INFO, &md);
+      NetworkThread()->Post(RTC_FROM_HERE, this, MSGID_QUERY_NODE_INFO, &md);
       md.msg_event.Wait(Event::kForever);
       vlink_info[TincanControl::Stats].swap(md.info);
       vlink_info[TincanControl::Status] = "ONLINE";
@@ -135,7 +136,7 @@ void SingleLinkTunnel::SendIcc(
   unique_ptr<TransmitMsgData> md = make_unique<TransmitMsgData>();
   md->frm = move(icc);
   md->vl = vlink_;
-  net_worker_->Post(RTC_FROM_HERE, this, MSGID_SEND_ICC, md.release());
+  NetworkThread()->Post(RTC_FROM_HERE, this, MSGID_SEND_ICC, md.release());
 
 }
 
@@ -145,7 +146,7 @@ void SingleLinkTunnel::Shutdown()
   {
     LinkInfoMsgData md;
     md.vl = vlink_;
-    net_worker_->Post(RTC_FROM_HERE, this, MSGID_DISC_LINK, &md);
+    NetworkThread()->Post(RTC_FROM_HERE, this, MSGID_DISC_LINK, &md);
     md.msg_event.Wait(Event::kForever);
   }
   vlink_.reset();
@@ -155,14 +156,24 @@ void SingleLinkTunnel::Shutdown()
 void
 SingleLinkTunnel::StartIo()
 {
-  tdev_->Up();
+  if (!TapThread()->IsCurrent()) {
+    TapThread()->Invoke<void>(RTC_FROM_HERE, [this] {
+      RTC_DCHECK_RUN_ON(TapThread());
+      tdev_->Up();
+    });
+  }
   BasicTunnel::StartIo();
 }
 
 void
 SingleLinkTunnel::StopIo()
 {
-  tdev_->Down();
+  if (!TapThread()->IsCurrent()) {
+    TapThread()->Invoke<void>(RTC_FROM_HERE, [this] {
+      RTC_DCHECK_RUN_ON(TapThread());
+      tdev_->Down();
+    });
+  }
 }
 
 void SingleLinkTunnel::RemoveLink(
@@ -176,7 +187,7 @@ void SingleLinkTunnel::RemoveLink(
   {
     LinkInfoMsgData md;
     md.vl = vlink_;
-    net_worker_->Post(RTC_FROM_HERE, this, MSGID_DISC_LINK, &md);
+    NetworkThread()->Post(RTC_FROM_HERE, this, MSGID_DISC_LINK, &md);
     md.msg_event.Wait(Event::kForever);
   }
   vlink_.reset();
@@ -203,7 +214,12 @@ void SingleLinkTunnel::VlinkReadComplete(
     frame->BufferToTransfer(frame->Payload()); //write frame payload to TAP
     frame->BytesToTransfer(frame->PayloadLength());
     frame->SetWriteOp();
-    tdev_->Write(*frame.release());
+    if (TapThread() == NetworkThread())
+      tdev_->Write(move(frame));
+    else{
+      TapMessageData *tp_ = new TapMessageData(move(frame));
+      TapThread()->Post(RTC_FROM_HERE, this, MSGID_TAP_WRITE, tp_);
+    }
   }
   else if(fp.IsIccMsg())
   { // this is an ICC message, deliver to the controller
@@ -258,15 +274,15 @@ void SingleLinkTunnel::TapReadComplete(
     TransmitMsgData *md = new TransmitMsgData;
     md->frm.reset(frame);
     md->vl = vlink_;
-    net_worker_->Post(RTC_FROM_HERE, this, MSGID_TRANSMIT, md);
+    NetworkThread()->Post(RTC_FROM_HERE, this, MSGID_TRANSMIT, md);
   }
 }
 
 void SingleLinkTunnel::TapWriteComplete(
-  AsyncIo * aio_wr)
+  AsyncIo*aio_wr)
 {
   //TapFrame * frame = static_cast<TapFrame*>(aio_wr->context_);
-  delete static_cast<TapFrame*>(aio_wr->context_);
+  delete static_cast<TapFrame*>(aio_wr->Context());
 }
 
 } // end namespace tincan

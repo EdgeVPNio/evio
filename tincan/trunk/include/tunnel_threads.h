@@ -20,66 +20,26 @@
 * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 * THE SOFTWARE.
 */
-#ifndef TINCAN_TAPDEV_INF_H_
-#define TINCAN_TAPDEV_INF_H_
+#ifndef TINCAN_TUNNEL_THREADS_H_
+#define TINCAN_TUNNEL_THREADS_H_
 #include "tincan_base.h"
-#include "async_io.h"
-#include "tap_frame.h"
 #include "rtc_base/thread.h"
-
 namespace tincan
 {
-using rtc::Message;
-using rtc::MessageData;
-using rtc::MessageHandler;
-
-struct TapDescriptor
-{
-  string name;
-  string ip4;
-  uint32_t prefix4;
-  uint32_t mtu4;
-  string ip6;
-  uint32_t prefix6;
-  uint32_t mtu6;
-};
-class TapDevInf
-{
-public:
-  enum MSG_ID
-  {
-    MSGID_READ,
-    MSGID_WRITE,
-  };
-  class TapMessageData :
-    public MessageData
-  {
+  class TunnelThreads {
   public:
-    AsyncIo * aio_;
+    TunnelThreads();
+    TunnelThreads(TunnelThreads& rhs) = delete;
+    TunnelThreads& operator=(const TunnelThreads&) = delete;
+    ~TunnelThreads();
+    // <signal, network>
+    std::pair<rtc::Thread*, rtc::Thread*>LinkThreads();
+    rtc::Thread* TapThread();
+   private:
+    rtc::Thread signal_thread_;
+    rtc::Thread network_thread_;
+    rtc::Thread tap_thread_;
+    static unsigned int num_;
   };
-
-  virtual ~TapDevInf() = default;
-  virtual void Open(
-    const TapDescriptor & tap_desc) = 0;
-
-  virtual void Close() = 0;
-
-  virtual void Up() = 0;
-  
-  virtual void Down() = 0;
-
-  virtual uint32_t Read(
-    AsyncIo & aio_rd) = 0;
-
-  virtual uint32_t Write(
-    unique_ptr<AsyncIo> aio_wr) = 0;
-
-  virtual MacAddressType MacAddress() = 0;
-
-  virtual IP4AddressType Ip4() = 0;
-
-  virtual uint16_t Mtu() = 0;
-};
-
-}  // namespace tincan
-#endif  // TINCAN_TAPDEV_H_
+} // namespace tincan
+#endif // TINCAN_TUNNEL_THREADS_H_

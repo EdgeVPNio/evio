@@ -67,7 +67,7 @@ void Tincan::CreateTunnel(
   }
   td->enable_ip_mapping = false;
   unique_ptr<BasicTunnel> tnl;
-  tnl = make_unique<SingleLinkTunnel>(move(td), ctrl_link_);
+  tnl = make_unique<SingleLinkTunnel>(move(td), ctrl_link_, &thread_pool_);
   unique_ptr<TapDescriptor> tap_desc = make_unique<TapDescriptor>();
   tap_desc->name = tnl_desc["TapName"].asString();
   tap_desc->ip4 = tnl_desc["IP4"].asString();

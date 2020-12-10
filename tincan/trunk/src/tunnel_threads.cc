@@ -20,66 +20,39 @@
 * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 * THE SOFTWARE.
 */
-#ifndef TINCAN_TAPDEV_INF_H_
-#define TINCAN_TAPDEV_INF_H_
-#include "tincan_base.h"
-#include "async_io.h"
-#include "tap_frame.h"
-#include "rtc_base/thread.h"
+
+#include "tunnel_threads.h"
 
 namespace tincan
 {
-using rtc::Message;
-using rtc::MessageData;
-using rtc::MessageHandler;
-
-struct TapDescriptor
-{
-  string name;
-  string ip4;
-  uint32_t prefix4;
-  uint32_t mtu4;
-  string ip6;
-  uint32_t prefix6;
-  uint32_t mtu6;
-};
-class TapDevInf
-{
-public:
-  enum MSG_ID
+unsigned int TunnelThreads::num_ = 0;
+TunnelThreads::TunnelThreads():
+    signal_thread_(rtc::SocketServer::CreateDefault()),
+    network_thread_(rtc::SocketServer::CreateDefault()),
+    tap_thread_(rtc::SocketServer::CreateDefault())
   {
-    MSGID_READ,
-    MSGID_WRITE,
-  };
-  class TapMessageData :
-    public MessageData
-  {
-  public:
-    AsyncIo * aio_;
-  };
+    signal_thread_.SetName("SignalThread", &num_);
+    signal_thread_.Start();
+    network_thread_.SetName("NetworkThread", &num_);
+    network_thread_.Start();
+    tap_thread_.SetName("TapThread", &num_);
+    tap_thread_.Start();
+  }
 
-  virtual ~TapDevInf() = default;
-  virtual void Open(
-    const TapDescriptor & tap_desc) = 0;
+  TunnelThreads::~TunnelThreads(){
+    signal_thread_.Quit();
+    network_thread_.Quit();
+    tap_thread_.Quit();
+  }
 
-  virtual void Close() = 0;
+  std::pair<rtc::Thread*, rtc::Thread*>
+  TunnelThreads::LinkThreads(){
+    return make_pair(&signal_thread_, &network_thread_);
+  }
 
-  virtual void Up() = 0;
-  
-  virtual void Down() = 0;
+  rtc::Thread*
+  TunnelThreads::TapThread(){
+    return &tap_thread_;
+  }
 
-  virtual uint32_t Read(
-    AsyncIo & aio_rd) = 0;
-
-  virtual uint32_t Write(
-    unique_ptr<AsyncIo> aio_wr) = 0;
-
-  virtual MacAddressType MacAddress() = 0;
-
-  virtual IP4AddressType Ip4() = 0;
-
-  virtual uint16_t Mtu() = 0;
-};
-
-}  // namespace tincan
-#endif  // TINCAN_TAPDEV_H_
+} // namespace tincan

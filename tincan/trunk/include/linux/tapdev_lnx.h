@@ -65,7 +65,7 @@ public:
     const TapDescriptor & tap_desc) override;
   void Close() override;
   uint32_t Read(AsyncIo& aio_rd) override;
-  uint32_t Write(AsyncIo& aio_wr) override;
+  uint32_t Write(unique_ptr<AsyncIo> aio_wr) override;
   uint16_t Mtu() override;
   void Up() override;
   void Down() override;
@@ -84,6 +84,7 @@ private:
   bool is_good_;
   void SetFlags(short a, short b);
   void PlenToIpv4Mask(unsigned int a, struct sockaddr *b);
+  int FileDesc();
 };
 }
 }

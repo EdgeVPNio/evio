@@ -10,6 +10,8 @@ executable("tincan") {
             "trunk/src/tap_frame.cc",
             "trunk/src/single_link_tunnel.cc",
             "trunk/src/basic_tunnel.cc",
+            "trunk/src/tunnel_threads.cc",
+            "trunk/src/async_io.cc",
         ]
         include_dirs = [
             "trunk/include",
@@ -49,4 +51,5 @@ executable("tincan") {
         #configs +=["//build/config/compiler:exceptions",]
     }
 }
+
 

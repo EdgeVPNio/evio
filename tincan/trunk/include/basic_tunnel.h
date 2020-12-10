@@ -30,7 +30,6 @@
 #undef max
 #endif //
 #include "rtc_base/ssl_identity.h"
-#include "rtc_base/thread.h"
 #include "rtc_base/third_party/sigslot/sigslot.h"
 #include "rtc_base/strings/json.h"
 #include "async_io.h"
@@ -40,7 +39,7 @@
 #include "tincan_exception.h"
 #include "tunnel_descriptor.h"
 #include "virtual_link.h"
-
+#include "tunnel_threads.h"
 namespace tincan
 {
 class BasicTunnel :
@@ -56,6 +55,10 @@ public:
     MSGID_FWD_FRAME,
     MSGID_FWD_FRAME_RD,
     MSGID_DISC_LINK,
+    MSGID_TAP_READ,
+    MSGID_TAP_WRITE,
+    MSGID_TAP_UP,
+    MSGID_TAP_DOWN
   };
   class TransmitMsgData : public MessageData
   {
@@ -82,9 +85,19 @@ public:
     ~LinkMsgData() = default;
   };
 
+  class TapMessageData : public MessageData
+  {
+  public:
+    unique_ptr<AsyncIo> aio_;
+    TapMessageData(unique_ptr<AsyncIo> aio) : aio_(move(aio))
+    {}
+    ~TapMessageData() = default;
+  };
+
   BasicTunnel(
     unique_ptr<TunnelDescriptor> descriptor,
-    ControllerLink * ctrl_handle);
+    ControllerLink * ctrl_handle,
+    TunnelThreads *thread_pool);
 
   virtual ~BasicTunnel();
 
@@ -167,15 +180,16 @@ protected:
     string vlink_id);
   virtual void VLinkDown(
     string vlink_id);
+  rtc::Thread* SignalThread();
+  rtc::Thread* NetworkThread();
+  rtc::Thread* TapThread();
   unique_ptr<TapDev> tdev_;
   unique_ptr<TapDescriptor> tap_desc_;
   unique_ptr<TunnelDescriptor> descriptor_;
-  //shared_ptr<ControllerLink> ctrl_link_;
   ControllerLink * ctrl_link_;
   unique_ptr<rtc::SSLIdentity> sslid_;
   unique_ptr<rtc::SSLFingerprint> local_fingerprint_;
-  rtc::Thread* net_worker_;
-  rtc::Thread* sig_worker_;
+  TunnelThreads *thread_pool_;
   rtc::BasicNetworkManager net_manager_;
 };
 }  // namespace tincan

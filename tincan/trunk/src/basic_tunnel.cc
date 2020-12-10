@@ -28,21 +28,18 @@ namespace tincan
   extern TincanParameters tp;
   BasicTunnel::BasicTunnel(
   unique_ptr<TunnelDescriptor> descriptor,
-  ControllerLink * ctrl_handle) :
+  ControllerLink * ctrl_handle,
+    TunnelThreads *thread_pool) :
   tdev_(nullptr),
   descriptor_(move(descriptor)),
-  ctrl_link_(ctrl_handle)
+  ctrl_link_(ctrl_handle),
+  thread_pool_(thread_pool)
 {
   tdev_ = make_unique<TapDev>();
-  net_worker_ = new Thread(SocketServer::CreateDefault());
-  sig_worker_ = new Thread(SocketServer::CreateDefault());
 }
 
 BasicTunnel::~BasicTunnel()
-{
-  delete net_worker_;
-  delete sig_worker_;
-}
+{}
 
 void
 BasicTunnel::Configure(
@@ -51,7 +48,14 @@ BasicTunnel::Configure(
 {
   tap_desc_ = move(tap_desc);
   //initialize the Tap Device
-  tdev_->Open(*tap_desc_.get());
+  if (!TapThread()->IsCurrent()) {
+    TapThread()->Invoke<void>(RTC_FROM_HERE, [this] {
+      RTC_DCHECK_RUN_ON(TapThread());
+      tdev_->Open(*tap_desc_.get());
+    });
+  } else {
+    tdev_->Open(*tap_desc_.get());
+  }
   //create X509 identity for secure connections
   string sslid_name = descriptor_->node_id + descriptor_->uid;
   sslid_ = rtc::SSLIdentity::Create(sslid_name, rtc::KT_RSA);
@@ -66,8 +70,6 @@ BasicTunnel::Configure(
 void
 BasicTunnel::Start()
 {
-  net_worker_->Start();
-  sig_worker_->Start();
   tdev_->read_completion_.connect(this, &BasicTunnel::TapReadComplete);
   tdev_->write_completion_.connect(this, &BasicTunnel::TapWriteComplete);
 }
@@ -75,10 +77,27 @@ BasicTunnel::Start()
 void
 BasicTunnel::Shutdown()
 {
-  net_worker_->Quit();
-  sig_worker_->Quit();
+  if (!TapThread()->IsCurrent()) {
+    TapThread()->Invoke<void>(RTC_FROM_HERE, [this] {
+      RTC_DCHECK_RUN_ON(TapThread());
+      Shutdown();
+    });
+    return;
+  }
   tdev_->Down();
   tdev_->Close();
+}
+
+rtc::Thread* BasicTunnel::SignalThread(){
+  return thread_pool_->LinkThreads().first;
+}
+
+rtc::Thread* BasicTunnel::NetworkThread(){
+  return thread_pool_->LinkThreads().second;
+}
+
+rtc::Thread* BasicTunnel::TapThread(){
+  return thread_pool_->TapThread();
 }
 
 unique_ptr<VirtualLink>
@@ -90,7 +109,7 @@ BasicTunnel::CreateVlink(
   vlink_desc->stun_servers = descriptor_->stun_servers;
   vlink_desc->turn_descs = descriptor_->turn_descs;
   unique_ptr<VirtualLink> vl = make_unique<VirtualLink>(
-    move(vlink_desc), move(peer_desc), sig_worker_, net_worker_);
+    move(vlink_desc), move(peer_desc), SignalThread(), NetworkThread());
   unique_ptr<SSLIdentity> sslid_copy(sslid_->Clone());
   vl->Initialize(net_manager_, move(sslid_copy), 
     make_unique<rtc::SSLFingerprint>(*local_fingerprint_.get()),
@@ -123,7 +142,6 @@ void
 BasicTunnel::VLinkDown(
   string vlink_id)
 {
-  //StopIo();
   unique_ptr<TincanControl> ctrl = make_unique<TincanControl>();
   ctrl->SetControlType(TincanControl::CTTincanRequest);
   Json::Value & req = ctrl->GetRequest();
@@ -237,6 +255,14 @@ void BasicTunnel::OnMessage(Message * msg)
     ((LinkInfoMsgData*)msg->pdata)->msg_event.Set();
   }
   break;
+  case MSGID_TAP_READ:
+  {}
+  break;
+  case MSGID_TAP_WRITE:
+  {   
+    tdev_->Write(move(((TapMessageData*)msg->pdata)->aio_));
+  }
+  break;    
   }
 }
 
@@ -261,7 +287,9 @@ BasicTunnel::InjectFame(
   tf->BufferToTransfer(tf->Payload());
   tf->BytesTransferred((uint32_t)len);
   tf->BytesToTransfer((uint32_t)len);
-  tdev_->Write(*tf.release());
+  TapMessageData *tp_ = new TapMessageData(move(tf));
+  TapThread()->Post(RTC_FROM_HERE, this, MSGID_TAP_WRITE, tp_);
+
   //RTC_LOG(LS_INFO) << "Frame injected=\n" << data;
 }
 } //namespace tincan

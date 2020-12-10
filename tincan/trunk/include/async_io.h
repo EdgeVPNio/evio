@@ -56,6 +56,7 @@ struct AsyncIo
     ZeroMemory(this, sizeof(OVERLAPPED));
 #endif // defined(_TNC_WIN)
   }
+
   AsyncIo(
     uint8_t* buffer,
     uint32_t bytes_to_transfer,
@@ -73,79 +74,35 @@ struct AsyncIo
     ZeroMemory(this, sizeof(OVERLAPPED));
 #endif // defined(_TNC_WIN)
   }
+
+  AsyncIo(AsyncIo & rhs);
+
 #if !defined(_TNC_WIN)
   virtual ~AsyncIo() = default;
 #endif // defined(_TNC_WIN)
+
   void Initialize(
     uint8_t* buffer_to_transfer,
     uint32_t bytes_to_transfer,
-    void* context = nullptr,
-    AIO_OP flags = AIO_READ,
-    uint32_t bytes_transferred = 0)
-  {
-    buffer_to_transfer_ = buffer_to_transfer;
-    bytes_to_transfer_ = bytes_to_transfer;
-    context_ = context;
-    flags_ = flags;
-    bytes_transferred_ = bytes_transferred;
-  }
-
-  void BufferToTransfer(uint8_t* val)
-  {
-    buffer_to_transfer_ = val;
-  }
-  uint8_t* BufferToTransfer()
-  {
-    return buffer_to_transfer_;
-  }
-
-  void BytesToTransfer(uint32_t val)
-  {
-    bytes_to_transfer_ = val;
-  }
-  uint32_t BytesToTransfer()
-  {
-    return bytes_to_transfer_;
-  }
-
-  void BytesTransferred(uint32_t val)
-  {
-    bytes_transferred_ = val;
-  }
-  uint32_t BytesTransferred()
-  {
-    return bytes_transferred_;
-  }
-
-  void Context(void * val)
-  {
-    context_ = val;
-  }
-  void * Context()
-  {
-    return context_;
-  }
-
-  bool IsRead()
-  {
-    return flags_ == AIO_READ;
-  }
-  void SetReadOp()
-  {
-    flags_ = AIO_READ;
-  }
-  bool IsWrite()
-  {
-    return flags_ == AIO_WRITE;
-  }
-  void SetWriteOp()
-  {
-    flags_ = AIO_WRITE;
-  }
-  bool IsGood()
-  {
-    return good_;
-  }
+    void* context,
+    AIO_OP flags,
+    uint32_t bytes_transferred);
+  AsyncIo &operator= (const AsyncIo & rhs);
+  bool operator==(const AsyncIo & rhs) const;
+  bool operator!=(const AsyncIo & rhs) const;
+  void BufferToTransfer(uint8_t* val);
+  uint8_t* BufferToTransfer();
+  void BytesToTransfer(uint32_t val);
+  uint32_t BytesToTransfer();
+  void BytesTransferred(uint32_t val);
+  uint32_t BytesTransferred();
+  void Context(void * val);
+  void * Context();
+  bool IsRead();
+  void SetReadOp();
+  bool IsWrite();
+  void SetWriteOp();
+  bool IsGood();
   uint8_t * buffer_to_transfer_;
   void * context_;
   uint32_t bytes_to_transfer_;

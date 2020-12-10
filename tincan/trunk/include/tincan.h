@@ -28,6 +28,7 @@
 #include "control_listener.h"
 #include "control_dispatch.h"
 #include "single_link_tunnel.h"
+#include "tunnel_threads.h"
 
 namespace tincan {
 class Tincan :
@@ -108,7 +109,7 @@ private:
   std::mutex tunnels_mutex_;
   std::mutex inprogess_controls_mutex_;
   rtc::Event exit_event_;
-
+  TunnelThreads thread_pool_;
 };
 } //namespace tincan
 #endif //TINCAN_TINCAN_H_
