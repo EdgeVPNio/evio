@@ -104,6 +104,7 @@ class CFxHandle():
             cbt = self._cm_queue.get()
             # Terminate when CBT is None
             if cbt is None:
+                self._cm_queue.task_done()
                 self._cm_instance.terminate()
                 break
             else:
