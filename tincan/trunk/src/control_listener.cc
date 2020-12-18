@@ -113,6 +113,6 @@ ControlListener::Run()
 void
 ControlListener::Quit()
 {
-  ctrl_thread_->Stop();
+  ctrl_thread_->Quit();
 }
 }  // namespace tincan
