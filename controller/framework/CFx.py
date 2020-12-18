@@ -203,7 +203,7 @@ class CFX():
     def _set_nid_file_name(self):
         NID_FILENAME = "nid"
         if os.name == "posix":
-            DIRNAME_PREFIX = os.path.normpath("/var/opt/edge-vpnio")
+            DIRNAME_PREFIX = os.path.normpath("/var/opt/evio")
         else:
             DIRNAME_PREFIX = "."
         self._config["CFx"]["NidFileName"] = os.path.join(DIRNAME_PREFIX, NID_FILENAME)

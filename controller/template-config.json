@@ -6,7 +6,7 @@
   "Logger": {
     "LogLevel": "WARNING",
     "Device": "File",
-    "Directory": "/var/log/edge-vpnio/",
+    "Directory": "/var/log/evio/",
     "CtrlLogFileName": "ctrl.log",
     "TincanLogFileName": "tincan_log",
     "MaxFileSize": 10000000,
@@ -52,7 +52,7 @@
     "Dependencies": [ "Logger", "LinkManager" ],
     "BoundedFlood": {
         "OverlayId": "A0FB389",
-        "LogDir": "/var/log/edge-vpnio/",
+        "LogDir": "/var/log/evio/",
         "LogFilename": "bf.log",
         "LogLevel": "INFO",
         "BridgeName": "evio",
