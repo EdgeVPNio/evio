@@ -431,12 +431,12 @@ config("compiler") {
     ldflags += ["-nostdlib++"]
 
   if (target_cpu == "x64"){
-    ldflags += ["-L../../../../external/debian_sid_amd64-sysroot/lib/x86_64-linux-gnu"]
-    ldflags += ["-L../../../../external/debian_sid_amd64-sysroot/usr/lib/x86_64-linux-gnu"]
+    ldflags += ["-L../../../../../external/debian_sid_amd64-sysroot/lib/x86_64-linux-gnu"]
+    ldflags += ["-L../../../../../external/debian_sid_amd64-sysroot/usr/lib/x86_64-linux-gnu"]
   }
   if (target_cpu == "arm"){
-    ldflags += ["-L../../../../external/debian_sid_arm-sysroot/lib/arm-linux-gnueabihf"]
-    ldflags += ["-L../../../../external/debian_sid_arm-sysroot/usr/lib/arm-linux-gnueabihf"]
+    ldflags += ["-L../../../../../external/debian_sid_arm-sysroot/lib/arm-linux-gnueabihf"]
+    ldflags += ["-L../../../../../external/debian_sid_arm-sysroot/usr/lib/arm-linux-gnueabihf"]
   }
  }
 }

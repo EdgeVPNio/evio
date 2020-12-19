@@ -30,6 +30,7 @@ if (use_sysroot && target_sysroot != "") {
       sysroot = "$target_sysroot_dir/debian_sid_mips64el-sysroot"
     } else if (current_cpu == "arm") {
       sysroot = "$target_sysroot_dir/debian_sid_arm-sysroot"
+      libs = ["c++", "c++abi"]
     } else if (current_cpu == "arm64") {
       sysroot = "$target_sysroot_dir/debian_sid_arm64-sysroot"
     } else {
