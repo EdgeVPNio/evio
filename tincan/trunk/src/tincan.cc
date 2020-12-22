@@ -302,17 +302,17 @@ Tincan::Run()
   self_ = this;
   SetConsoleCtrlHandler(ControlHandler, TRUE);
 #endif // _TNC_WIN
-#if defined(_TNC_LINUX)
-  //Registering signal with signal handler
-  self_ = this;
-  struct sigaction newact;
-  memset(&newact, 0, sizeof(struct sigaction));
-  newact.sa_handler = onStopHandler;
-  sigemptyset(&newact.sa_mask);
-  newact.sa_flags = 0;
-  sigaction(SIGINT, &newact, NULL);
-  sigaction(SIGTERM, &newact, NULL);
-#endif
+// #if defined(_TNC_LINUX)
+//   //Registering signal with signal handler
+//   self_ = this;
+//   struct sigaction newact;
+//   memset(&newact, 0, sizeof(struct sigaction));
+//   newact.sa_handler = onStopHandler;
+//   sigemptyset(&newact.sa_mask);
+//   newact.sa_flags = 0;
+//   sigaction(SIGINT, &newact, NULL);
+//   sigaction(SIGTERM, &newact, NULL);
+// #endif
   //Start tincan control to get config from Controller
   unique_ptr<ControlDispatch> ctrl_dispatch(new ControlDispatch);
   ctrl_dispatch->SetDispatchToTincanInf(this);
