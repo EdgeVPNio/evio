@@ -54,18 +54,18 @@
         "OverlayId": "A0FB389",
         "LogDir": "/var/log/evio/",
         "LogFilename": "bf.log",
-        "LogLevel": "INFO",
+        "LogLevel": "WARNING",
         "BridgeName": "evio",
         "DemandThreshold": "100M",
         "FlowIdleTimeout": 60,
         "FlowHardTimeout": 60,
         "MulticastBroadcastInterval": 60,
         "MaxBytes": 10000000,
-        "BackupCount": 0,
+        "BackupCount": 2,
         "ProxyListenAddress": "",
         "ProxyListenPort": 5802,
         "MonitorInterval": 60,
-        "MaxOnDemandEdges": 0
+        "MaxOnDemandEdges": 3
     },
     "Overlays": {
         "A0FB389": {
