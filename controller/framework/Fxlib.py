@@ -21,7 +21,7 @@
 
 import framework.Version as ver
 
-EVIO_VER_REL = "{0}.{1}.{2}".format(ver.EVIO_VER_MJR, ver.EVIO_VER_MNR, ver.EVIO_VER_REV)
+EVIO_VER_REL = "{0}.{1}.{2}.{3}".format(ver.EVIO_VER_MJR, ver.EVIO_VER_MNR, ver.EVIO_VER_REV, ver.EVIO_VER_BLD)
 
 CONFIG = {
     "CFx": {
