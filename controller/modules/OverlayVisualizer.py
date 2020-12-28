@@ -33,15 +33,13 @@ class OverlayVisualizer(ControllerModule):
     def __init__(self, cfx_handle, module_config, module_name):
         super(OverlayVisualizer, self).__init__(cfx_handle,
                                                 module_config, module_name)
-        # Visualizer webservice URL
-        self.vis_address = "http://" + self._cm_config["WebServiceAddress"]
+        self._vis_ds_lock = threading.Lock()
         self._vis_req_publisher = None
         self._evio_version = self._cfx_handle.query_param("Version")
-
-        # The visualizer dataset which is forwarded to the collector service
         self._vis_ds = dict(NodeId=self.node_id, VizData=defaultdict(dict))
-        # Its lock
-        self._vis_ds_lock = threading.Lock()
+        # Visualizer webservice URL
+        self._vis_address = "http://" + self._cm_config["WebServiceAddress"]
+        self._req_url = "{}/EVIO/nodes/{}".format(self._vis_address, self.node_id)
 
     def initialize(self):
         # We're using the pub-sub model here to gather data for the visualizer
@@ -82,54 +80,32 @@ class OverlayVisualizer(ControllerModule):
             self.req_handler_default(cbt)
 
     def timer_method(self):
+        collector_msg = None
         with self._vis_ds_lock:
-            vis_ds = self._vis_ds
+            collector_msg = self._vis_ds
             # flush old data, next itr provides new data
             self._vis_ds = dict(NodeId=self.node_id,
                                 VizData=defaultdict(dict))
+        if "NodeName" in self._cm_config:
+            collector_msg["NodeName"] = self._cm_config["NodeName"]
+        if "GeoCoordinate" in self._cm_config:
+            collector_msg["GeoCoordinate"] = self._cm_config["GeoCoordinate"]
+        collector_msg["Version"] = self._evio_version
+        data_log = "Submitting collector data {}".format(collector_msg)
+        self.register_cbt("Logger", "LOG_DEBUG", data_log)
+        try:
+            resp = requests.put(self._req_url,
+                                data=json.dumps(collector_msg),
+                                headers={"Content-Type":
+                                            "application/json"})
+            resp.raise_for_status()
+        except requests.exceptions.RequestException as err:
+            err_msg = "Failed to send data to the collector webservice" \
+                " ({0}). Exception: {1}" \
+                .format(self._req_url, str(err))
+            self.register_cbt("Logger", "LOG_WARNING", err_msg)
 
-        collector_msg = dict(VizData=dict())
-
-        # Filter out overlays for which we do not have LinkManager data
-        for overlay_id in vis_ds["VizData"]:
-            overlay_data = vis_ds["VizData"][overlay_id]
-            if "LinkManager" in overlay_data and overlay_data["LinkManager"]:
-                collector_msg["VizData"][overlay_id] = overlay_data
-
-        if collector_msg["VizData"]:
-
-            # Read the optional human-readable node name specified in the
-            # configuration and pass it along to the collector
-            if "NodeName" in self._cm_config:
-                collector_msg["NodeName"] = self._cm_config["NodeName"]
-
-            collector_msg["Version"] = self._evio_version
-            # data_log = "Submitting VizData {}".format(collector_msg)
-            # self.register_cbt("Logger", "LOG_DEBUG", data_log)
-
-            req_url = "{}/EVIO/nodes/{}".format(self.vis_address, self.node_id)
-
-            try:
-                resp = requests.put(req_url,
-                                    data=json.dumps(collector_msg),
-                                    headers={"Content-Type":
-                                             "application/json"},
-                                    timeout=3)
-                resp.raise_for_status()
-
-            except requests.exceptions.RequestException as err:
-                err_msg = "Failed to send data to the Visualizer" \
-                    " webservice({0}). Exception: {1}" \
-                    .format(self.vis_address, str(err))
-                self.register_cbt("Logger", "LOG_WARNING", err_msg)
-        else:
-            warn_msg = "Don't have enough data to send. Not forwarding" \
-                    " anything to the collector service. Data:" \
-                    " {}".format(collector_msg)
-            self.register_cbt("Logger", "LOG_WARNING", warn_msg)
-
-        # Now that all the accumulated data has been dealt with, we request
-        # more data
+        # Now that all the accumulated data has been dealt with, we request more data
         self._vis_req_publisher.post_update(None)
 
     def terminate(self):
