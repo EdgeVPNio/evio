@@ -95,12 +95,12 @@ class XmppTransport(slixmpp.ClientXMPP):
     @staticmethod
     def factory(overlay_id, overlay_descr, cm_mod, presence_publisher, jid_cache,
                 outgoing_rem_acts):
+        keyring_installed = False
         try:
-            keyring_installed = False
             import keyring
             keyring_installed = True
         except ImportError as err:
-            cm_mod.sig_log("No key-ring found", "LOG_INFO")
+            cm_mod.log("LOG_INFO", "No key-ring found")
         host = overlay_descr["HostAddress"]
         port = overlay_descr["Port"]
         user = overlay_descr.get("Username", None)
@@ -109,7 +109,7 @@ class XmppTransport(slixmpp.ClientXMPP):
         if auth_method == "x509" and (user is not None or pswd is not None):
             er_log = "x509 Authentication is enbabled but credentials " \
                 "exists in evio configuration file; x509 will be used."
-            cm_mod.sig_log(er_log, "LOG_WARNING")
+            cm_mod.log("LOG_WARNING", er_log)
         if auth_method == "x509":
             transport = XmppTransport(None, None, sasl_mech="EXTERNAL")
             transport.ssl_version = ssl.PROTOCOL_TLSv1
@@ -119,17 +119,17 @@ class XmppTransport(slixmpp.ClientXMPP):
         elif auth_method == "PASSWORD":
             if user is None:
                 raise RuntimeError("No username is provided in evio configuration file.")
-            if pswd is None and keyring_installed is True:
+            if pswd is None and keyring_installed:
                 pswd = keyring.get_password("evio", overlay_descr["Username"])
             if pswd is None:
                 print("{0} XMPP Password: ".format(user))
                 pswd = str(input())
-                if keyring_installed is True:
+                if keyring_installed:
                     try:
                         keyring.set_password("evio", user, pswd)
                     except keyring.errors.PasswordSetError as err:
-                        cm_mod.sig_log("Failed to store password in keyring. {0}".format(str(err)),
-                                       "LOG_ERROR")
+                        cm_mod.log("LOG_ERROR", "Failed to store password in keyring. %S", str(err))
+                                       
             transport = XmppTransport(user, pswd, sasl_mech="PLAIN")
             del pswd
         else:
@@ -153,10 +153,11 @@ class XmppTransport(slixmpp.ClientXMPP):
 
     def start_event_handler(self, event):
         """Registers custom event handlers at the start of XMPP session"""
-        self._sig.sig_log("XMPP Signalling started for overlay: {0}".format(self._overlay_id))
+        self._sig.log("LOG_DEBUG", "XMPP Signalling started for overlay: %s",
+                      self._overlay_id)
         # pylint: disable=broad-except
         try:
-            # Notification of peer signon
+            # Notification of peer sign-on
             self.add_event_handler("presence_available",
                                    self.presence_event_handler)
             # Register evio message with the server
@@ -168,8 +169,7 @@ class XmppTransport(slixmpp.ClientXMPP):
             # Send sign-on presence
             self.send_presence(pstatus="ident#" + self._node_id)
         except Exception as err:
-            self._sig.sig_log("XmppTransport: Exception:{0} Event:{1}"
-                              .format(err, event), "LOG_ERROR")
+            self._sig.log("LOG_ERROR", "XmppTransport: Exception:%s Event:%s", err, event)
 
     def presence_event_handler(self, presence):
         """
@@ -181,8 +181,8 @@ class XmppTransport(slixmpp.ClientXMPP):
             presence_receiver = str(presence_receiver_jid.user) + "@" \
                 + str(presence_receiver_jid.domain)
             status = presence["status"]
-            # self._sig.sig_log("Presence Overlay:{0} Local JID:{1} Msg:{2}".
-            #                   format(self._overlay_id, self.boundjid, presence))
+            self._sig.log("LOG_DEBUG", "Presence Overlay:%s Local JID:%s Msg:%s",
+                          self._overlay_id, self.boundjid, presence)
             if(presence_receiver == self.boundjid.bare and presence_sender != self.boundjid.full):
                 if (status != "" and "#" in status):
                     pstatus, peer_id = status.split("#")
@@ -194,8 +194,8 @@ class XmppTransport(slixmpp.ClientXMPP):
                         self._presence_publisher.post_update(
                             dict(PeerId=peer_id, OverlayId=self._overlay_id,
                                  PresenceTimestamp=pts))
-                        self._sig.sig_log("Resolved {0}@{1}->{2}"
-                                          .format(peer_id[:7], self._overlay_id, presence_sender))
+                        self._sig.log("LOG_DEBUG", "Resolved %s@%s->%s", 
+                                      peer_id[:7], self._overlay_id, presence_sender)
                         payload = self.boundjid.full + "#" + self._node_id
                         self.send_msg(presence_sender, "announce", payload)
                     elif pstatus == "uid?":
@@ -204,11 +204,11 @@ class XmppTransport(slixmpp.ClientXMPP):
                             payload = self.boundjid.full + "#" + self._node_id
                             self.send_msg(presence_sender, "uid!", payload)
                     else:
-                        self._sig.sig_log("Unrecognized PSTATUS:{0} on overlay:{1}"
-                                          .format(pstatus, self._overlay_id), "LOG_WARNING")
+                        self._sig.log("LOG_WARNING", "Unrecognized PSTATUS:%s on overlay:%s",
+                                      pstatus, self._overlay_id)
         except Exception as err:
-            self._sig.sig_log("XmppTransport:Exception:{0} overlay:{1} presence:{2}"
-                              .format(err, self._overlay_id, presence), "LOG_ERROR")
+            self._sig.log("LOG_ERROR", "XmppTransport:Exception:%s overlay:%s presence:%s",
+                          err, self._overlay_id, presence)
 
     def message_listener(self, msg):
         """
@@ -233,7 +233,7 @@ class XmppTransport(slixmpp.ClientXMPP):
                     entry = rm_que.get()
                     msg_type, msg_data = entry[0], entry[1]
                     self.send_msg(match_jid, msg_type, json.dumps(msg_data))
-                    self._sig.sig_log("Sent remote action: {0}".format(msg_payload))
+                    self._sig.log("LOG_DEBUG", "Sent remote action: %s", msg_payload)
             elif msg_type == "announce":
                 peer_jid, peer_id = msg_payload.split("#")
                 if peer_id == self._sig.node_id:
@@ -247,11 +247,9 @@ class XmppTransport(slixmpp.ClientXMPP):
                 rem_act = json.loads(msg_payload)
                 self._sig.handle_remote_action(self._overlay_id, rem_act, msg_type)
             else:
-                self._sig.sig_log("Invalid message type received {0}".format(str(msg)),
-                                  "LOG_WARNING")
+                self._sig.log("LOG_WARNING", "Invalid message type received %s", str(msg))
         except Exception as err:
-            self._sig.sig_log("XmppTransport:Exception:{0} msg:{1}".format(err, msg),
-                              "LOG_ERROR")
+            self._sig.log("LOG_ERROR", "XmppTransport:Exception:%s msg:%s", err, msg)
 
     def send_msg(self, peer_jid, msg_type, payload):
         """Send a message to Peer JID via XMPP server"""
@@ -266,11 +264,10 @@ class XmppTransport(slixmpp.ClientXMPP):
     def connect_to_server(self,):
         try:
             self.connect(address=(self._host, self._port))
-            self._sig.sig_log("Starting overlay {0} connection to XMPP server {1}:{2}"
-                                  .format(self._overlay_id, self._host, self._port))
+            self._sig.log("LOG_DEBUG", "Starting overlay %s connection to XMPP server %s:%s",
+                            self._overlay_id, self._host, self._port)
         except Exception as err:
-            self._sig.sig_log("Failed to initialize XMPP transport instanace {}".format(str(err)),
-                              "LOG_ERROR")
+            self._sig.log("LOG_ERROR", "Failed to initialize XMPP transport instanace %s", str(err))
 
     def start_process(self):
         # Make sure all methods called on the transport instance are called in a thread safe manner.
@@ -321,7 +318,7 @@ class Signal(ControllerModule):
                 self._create_transport_instance(overlay_id, overlay_descr,
                                                 self._circles[overlay_id]["JidCache"],
                                                 self._circles[overlay_id]["OutgoingRemoteActs"])
-        self.sig_log("Module loaded", "LOG_INFO")
+        self.log("LOG_INFO", "Module loaded")
 
     def req_handler_query_reporting_data(self, cbt):
         rpt = {}
@@ -335,8 +332,8 @@ class Signal(ControllerModule):
 
     def handle_remote_action(self, overlay_id, rem_act, act_type):
         if not overlay_id == rem_act["OverlayId"]:
-            self.sig_log("The Overlay ID in the rcvd remote action conflicts with the local "
-                         "configuration. It was discarded: {}".format(rem_act), "LOG_WARNING")
+            self.log("LOG_WARNING", "The Overlay ID in the rcvd remote action conflicts "
+                     "with the local configuration. It was discarded: %s", rem_act)
             return
         if act_type == "invk":
             self.invoke_remote_action_on_target(rem_act)
@@ -348,8 +345,8 @@ class Signal(ControllerModule):
         # if the intended recipient is offline the XMPP server broadcasts the msg to all
         # matching ejabber ids. Verify recipient using Node ID and discard if mismatch
         if rem_act["RecipientId"] != self.node_id:
-            self.sig_log("A mis-delivered remote action was discarded: {0}"
-                         .format(rem_act), "LOG_WARNING")
+            self.log("LOG_WARNING", "A mis-delivered remote action was discarded: %s",
+                         rem_act)
             return
         n_cbt = self.create_cbt(self._module_name, rem_act["RecipientCM"],
                                 rem_act["Action"], rem_act["Params"])
@@ -363,8 +360,8 @@ class Signal(ControllerModule):
         # if the intended recipient is offline the XMPP server broadcasts the msg to all
         # matching ejabber ids. Verify recipient using Node ID and discard if mismatch
         if rem_act["InitiatorId"] != self.node_id:
-            self.sig_log("A mis-delivered remote action was discarded: {0}"
-                         .format(rem_act), "LOG_WARNING")
+            self.log("LOG_WARNING", "A mis-delivered remote action was discarded: %s",
+                         rem_act)
             return
         tag = rem_act["ActionTag"]
         cbt_status = rem_act["Status"]
@@ -426,8 +423,8 @@ class Signal(ControllerModule):
         else:
             payload = json.dumps(rem_act)
             transport.send_msg(str(target_jid), act_type, payload)
-            self.sig_log("Sent remote act to peer ID: {0}\n Payload: {1}"
-                         .format(peer_id, payload))
+            self.log("LOG_DEBUG", "Sent remote act to peer ID: %s\n Payload: %s",
+                         peer_id, payload)
 
     def process_cbt(self, cbt):
         with self._lock:
@@ -467,9 +464,6 @@ class Signal(ControllerModule):
         for overlay_id in self._circles:
             self._circles[overlay_id]["Transport"].shutdown()
 
-    def sig_log(self, msg, level="LOG_DEBUG"):
-        self.register_cbt("Logger", level, msg)
-
     def scavenge_pending_cbts(self):
         scavenge_list = []
         for item in self._cfx_handle._pending_cbts.items():
@@ -491,8 +485,8 @@ class Signal(ControllerModule):
             remact_descr = outgoing_rem_acts[peer_id].queue[0] # peek at the first/oldest entry
             if time.time() - remact_descr[2] >= self.request_timeout:
                 peer_ids.append(peer_id)
-                self.sig_log("Remote acts scavenged for removal peer id {0} qlength {1}"
-                             .format(peer_id, peer_qlen))
+                self.log("LOG_DEBUG", "Remote acts scavenged for removal peer id %s qlength %d",
+                             peer_id, peer_qlen)
         for peer_id in peer_ids:
             rem_act_que = outgoing_rem_acts.pop(peer_id, Queue())
             while not rem_act_que.empty():
