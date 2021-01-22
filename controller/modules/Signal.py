@@ -145,33 +145,37 @@ class XmppTransport(slixmpp.ClientXMPP):
         transport._jid_cache = jid_cache
         transport._outgoing_rem_acts = outgoing_rem_acts
         # event handler for session start and roster update
-        transport.add_event_handler("session_start", transport.start_event_handler)
+        transport.add_event_handler("session_start", transport.handle_start_event)
+        transport.add_event_handler("failed_auth", transport.handle_failed_auth_event)        
         return transport
 
     def host(self):
         return self._host
 
-    def start_event_handler(self, event):
+    def handle_failed_auth_event(self, event):
+        self._sig.log("LOG_ERROR", "XMPP authentication failure, verify credentials for overlay %s", self._overlay_id)
+
+    def handle_start_event(self, event):
         """Registers custom event handlers at the start of XMPP session"""
         self._sig.log("LOG_DEBUG", "XMPP Signalling started for overlay: %s",
                       self._overlay_id)
         # pylint: disable=broad-except
         try:
             # Notification of peer sign-on
-            self.add_event_handler("presence_available",
-                                   self.presence_event_handler)
+            self.add_event_handler("presence_available", self.handle_presence_event)
+                      
             # Register evio message with the server
             register_stanza_plugin(Message, EvioSignal)
             self.register_handler(
-                Callback("evio", StanzaPath("message/evio"), self.message_listener))
+                Callback("evio", StanzaPath("message/evio"), self.handle_message))
             # Get the friends list for the user
             asyncio.ensure_future(self.get_roster(), loop=self.loop)
             # Send sign-on presence
-            self.send_presence(pstatus="ident#" + self._node_id)
+            self.send_presence(pstatus="ident#" + self._node_id) #TODO: check if this should be done on self loop
         except Exception as err:
             self._sig.log("LOG_ERROR", "XmppTransport: Exception:%s Event:%s", err, event)
 
-    def presence_event_handler(self, presence):
+    def handle_presence_event(self, presence):
         """
         Handle peer presence event messages
         """
@@ -181,7 +185,7 @@ class XmppTransport(slixmpp.ClientXMPP):
             presence_receiver = str(presence_receiver_jid.user) + "@" \
                 + str(presence_receiver_jid.domain)
             status = presence["status"]
-            self._sig.log("LOG_DEBUG", "Presence Overlay:%s Local JID:%s Msg:%s",
+            self._sig.log("LOG_DEBUG", "New Presence On Overlay:%s Local JID:%s Msg:%s",
                           self._overlay_id, self.boundjid, presence)
             if(presence_receiver == self.boundjid.bare and presence_sender != self.boundjid.full):
                 if (status != "" and "#" in status):
@@ -199,7 +203,7 @@ class XmppTransport(slixmpp.ClientXMPP):
                         payload = self.boundjid.full + "#" + self._node_id
                         self.send_msg(presence_sender, "announce", payload)
                     elif pstatus == "uid?":
-                        # a request for our node id
+                        # a request for our jid
                         if self._node_id == peer_id:
                             payload = self.boundjid.full + "#" + self._node_id
                             self.send_msg(presence_sender, "uid!", payload)
@@ -209,8 +213,8 @@ class XmppTransport(slixmpp.ClientXMPP):
         except Exception as err:
             self._sig.log("LOG_ERROR", "XmppTransport:Exception:%s overlay:%s presence:%s",
                           err, self._overlay_id, presence)
-
-    def message_listener(self, msg):
+            
+    def handle_message(self, msg):
         """
         Listen for matched messages on the xmpp stream, extract the header
         and payload, and takes suitable action.
@@ -264,8 +268,6 @@ class XmppTransport(slixmpp.ClientXMPP):
     def connect_to_server(self,):
         try:
             self.connect(address=(self._host, self._port))
-            self._sig.log("LOG_DEBUG", "Starting overlay %s connection to XMPP server %s:%s",
-                            self._overlay_id, self._host, self._port)
         except Exception as err:
             self._sig.log("LOG_ERROR", "Failed to initialize XMPP transport instanace %s", str(err))
 
@@ -283,8 +285,8 @@ class XmppTransport(slixmpp.ClientXMPP):
         asyncio.set_event_loop(asyncio.new_event_loop())
         asyncio.get_event_loop().run_until_complete(asyncio.gather(*pending)) # After stopping the loop wait for all tasks to finish
         self.event_loop.stop()
-        self.xmpp_thread.join(timeout=0.05)
-        self.disconnect()
+        self.xmpp_thread.join(timeout=0.5)
+        self.disconnect(reason="controller shutdown")
 
 class Signal(ControllerModule):
     def __init__(self, cfx_handle, module_config, module_name):
@@ -304,20 +306,23 @@ class Signal(ControllerModule):
         xport.xmpp_thread.start()
         return xport
 
+    def _setup_circle(self, overlay_id):
+        overlay_descr = self.overlays[overlay_id]
+        self._circles[overlay_id] = {}
+        self._circles[overlay_id]["Announce"] = time.time() + \
+            (int(self.config["PresenceInterval"]) * random.randint(1, 3))
+        self._circles[overlay_id]["JidCache"] = \
+            JidCache(self, self._cm_config["CacheExpiry"])
+        self._circles[overlay_id]["OutgoingRemoteActs"] = {}
+        self._circles[overlay_id]["Transport"] = \
+            self._create_transport_instance(overlay_id, overlay_descr,
+                                            self._circles[overlay_id]["JidCache"],
+                                            self._circles[overlay_id]["OutgoingRemoteActs"])
+
     def initialize(self):
         self._presence_publisher = self._cfx_handle.publish_subscription("SIG_PEER_PRESENCE_NOTIFY")
         for overlay_id in self.overlays:
-            overlay_descr = self.overlays[overlay_id]
-            self._circles[overlay_id] = {}
-            self._circles[overlay_id]["Announce"] = time.time() + \
-                (int(self.config["PresenceInterval"]) * random.randint(1, 3))
-            self._circles[overlay_id]["JidCache"] = \
-                JidCache(self, self._cm_config["CacheExpiry"])
-            self._circles[overlay_id]["OutgoingRemoteActs"] = {}
-            self._circles[overlay_id]["Transport"] = \
-                self._create_transport_instance(overlay_id, overlay_descr,
-                                                self._circles[overlay_id]["JidCache"],
-                                                self._circles[overlay_id]["OutgoingRemoteActs"])
+            self._setup_circle(overlay_id)
         self.log("LOG_INFO", "Module loaded")
 
     def req_handler_query_reporting_data(self, cbt):
@@ -450,6 +455,11 @@ class Signal(ControllerModule):
     def timer_method(self):
         with self._lock:
             for overlay_id in self._circles:
+                if not self._circles[overlay_id]["Transport"].is_connected():
+                    self.log("LOG_WARNING", "OverlayID %s is disconnected", overlay_id)
+                    self._circles[overlay_id]["Transport"].shutdown()
+                    self._setup_circle(overlay_id)
+                    continue
                 anc = self._circles[overlay_id]["Announce"]
                 if time.time() >= anc:
                     self._circles[overlay_id]["Transport"].send_presence(pstatus="ident#" + self.node_id)
