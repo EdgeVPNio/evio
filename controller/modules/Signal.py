@@ -89,18 +89,16 @@ class XmppTransport(slixmpp.ClientXMPP):
         # TLS enabled by default.
         self._enable_tls = True
         self._enable_ssl = False
-        self.event_loop = None
         self.xmpp_thread = None
 
     @staticmethod
     def factory(overlay_id, overlay_descr, cm_mod, presence_publisher, jid_cache,
                 outgoing_rem_acts):
-        keyring_installed = False
+        keyring = None
         try:
             import keyring
-            keyring_installed = True
         except ImportError as err:
-            cm_mod.log("LOG_INFO", "No key-ring found")
+            cm_mod.log("LOG_INFO", "No keyring available")
         host = overlay_descr["HostAddress"]
         port = overlay_descr["Port"]
         user = overlay_descr.get("Username", None)
@@ -119,12 +117,12 @@ class XmppTransport(slixmpp.ClientXMPP):
         elif auth_method == "PASSWORD":
             if user is None:
                 raise RuntimeError("No username is provided in evio configuration file.")
-            if pswd is None and keyring_installed:
+            if pswd is None and not keyring is None:
                 pswd = keyring.get_password("evio", overlay_descr["Username"])
             if pswd is None:
                 print("{0} XMPP Password: ".format(user))
                 pswd = str(input())
-                if keyring_installed:
+                if not keyring is None:
                     try:
                         keyring.set_password("evio", user, pswd)
                     except keyring.errors.PasswordSetError as err:
@@ -153,7 +151,9 @@ class XmppTransport(slixmpp.ClientXMPP):
         return self._host
 
     def handle_failed_auth_event(self, event):
-        self._sig.log("LOG_ERROR", "XMPP authentication failure, verify credentials for overlay %s", self._overlay_id)
+        emsg = "XMPP authentication failure. Verify credentials for overlay {} and restart EVIO".format(self._overlay_id)
+        self._sig.log("LOG_ERROR", emsg)
+        raise RuntimeError(emsg)
 
     def handle_start_event(self, event):
         """Registers custom event handlers at the start of XMPP session"""
@@ -170,8 +170,8 @@ class XmppTransport(slixmpp.ClientXMPP):
                 Callback("evio", StanzaPath("message/evio"), self.handle_message))
             # Get the friends list for the user
             asyncio.ensure_future(self.get_roster(), loop=self.loop)
-            # Send sign-on presence
-            self.send_presence(pstatus="ident#" + self._node_id) #TODO: check if this should be done on self loop
+            # Send initial sign-on presence
+            self.send_presence(pstatus="ident#" + self._node_id)
         except Exception as err:
             self._sig.log("LOG_ERROR", "XmppTransport: Exception:%s Event:%s", err, event)
 
@@ -185,7 +185,7 @@ class XmppTransport(slixmpp.ClientXMPP):
             presence_receiver = str(presence_receiver_jid.user) + "@" \
                 + str(presence_receiver_jid.domain)
             status = presence["status"]
-            self._sig.log("LOG_DEBUG", "New Presence On Overlay:%s Local JID:%s Msg:%s",
+            self._sig.log("LOG_DEBUG", "Presence recv - Overlay:%s Local JID:%s Msg:%s",
                           self._overlay_id, self.boundjid, presence)
             if(presence_receiver == self.boundjid.bare and presence_sender != self.boundjid.full):
                 if (status != "" and "#" in status):
@@ -265,29 +265,17 @@ class XmppTransport(slixmpp.ClientXMPP):
         msg["evio"]["payload"] = payload
         self.loop.call_soon_threadsafe(msg.send)
 
-    def connect_to_server(self,):
+    def start(self):
         try:
             self.connect(address=(self._host, self._port))
+            self.process(forever=True)
         except Exception as err:
             self._sig.log("LOG_ERROR", "Failed to initialize XMPP transport instanace %s", str(err))
 
-    def start_process(self):
-        # Make sure all methods called on the transport instance are called in a thread safe manner.
-        self.event_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self.event_loop)
-        self.loop.set_debug(enabled=False)  # Make it true if you want to debug the event loop
-        self.loop.run_forever()  # transport.process is calling the same so directly running the loop here
-
     def shutdown(self,):
-        self.event_loop.close()
-        pending = asyncio.Task.all_tasks(loop=self.event_loop)
-        # Setting a new event loop to make sure all the tasks are gracefully stopped.
-        asyncio.set_event_loop(asyncio.new_event_loop())
-        asyncio.get_event_loop().run_until_complete(asyncio.gather(*pending)) # After stopping the loop wait for all tasks to finish
-        self.event_loop.stop()
-        self.xmpp_thread.join(timeout=0.5)
-        self.disconnect(reason="controller shutdown")
-
+        self.loop.call_soon_threadsafe(self.disconnect(reason="controller shutdown"))
+        self.loop.stop()
+        self.loop.close()
 class Signal(ControllerModule):
     def __init__(self, cfx_handle, module_config, module_name):
         super(Signal, self).__init__(cfx_handle, module_config, module_name)
@@ -298,26 +286,30 @@ class Signal(ControllerModule):
         self.request_timeout = self._cfx_handle.query_param("RequestTimeout")
         self._scavenge_timer = time.time()
 
-    def _create_transport_instance(self, overlay_id, overlay_descr, jid_cache, outgoing_rem_acts):
-        xport = XmppTransport.factory(overlay_id, overlay_descr, self, self._presence_publisher,
-                                      jid_cache, outgoing_rem_acts)
-        xport.connect_to_server()
-        xport.xmpp_thread = threading.Thread(target=xport.start_process, daemon=True)
-        xport.xmpp_thread.start()
-        return xport
+    def _setup_transport_instance(self, overlay_id):
+        '''
+        The ClientXMPP object must be instantiated on its own thread. ClientXMPP->BaseXMPP->XMLStream->asyncio.queue 
+        attempts to get the eventloop associate with this thread. This means an eventloop must be created
+        and set for the current thread, if one does not  already exist, before instantiating ClientXMPP.
+        '''
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        xport = XmppTransport.factory(overlay_id, self.overlays[overlay_id],
+                                      self, self._presence_publisher,
+                                      self._circles[overlay_id]["JidCache"],
+                                      self._circles[overlay_id]["OutgoingRemoteActs"])
+        self._circles[overlay_id]["Transport"] = xport
+        xport.start()
 
     def _setup_circle(self, overlay_id):
-        overlay_descr = self.overlays[overlay_id]
         self._circles[overlay_id] = {}
         self._circles[overlay_id]["Announce"] = time.time() + \
             (int(self.config["PresenceInterval"]) * random.randint(1, 3))
         self._circles[overlay_id]["JidCache"] = \
             JidCache(self, self._cm_config["CacheExpiry"])
         self._circles[overlay_id]["OutgoingRemoteActs"] = {}
-        self._circles[overlay_id]["Transport"] = \
-            self._create_transport_instance(overlay_id, overlay_descr,
-                                            self._circles[overlay_id]["JidCache"],
-                                            self._circles[overlay_id]["OutgoingRemoteActs"])
+        xmpp_thread = threading.Thread(target=self._setup_transport_instance, kwargs={"overlay_id":overlay_id}, daemon=True)
+        self._circles[overlay_id]["TransportThread"] = xmpp_thread
+        xmpp_thread.start()
 
     def initialize(self):
         self._presence_publisher = self._cfx_handle.publish_subscription("SIG_PEER_PRESENCE_NOTIFY")
@@ -456,8 +448,9 @@ class Signal(ControllerModule):
         with self._lock:
             for overlay_id in self._circles:
                 if not self._circles[overlay_id]["Transport"].is_connected():
-                    self.log("LOG_WARNING", "OverlayID %s is disconnected", overlay_id)
+                    self.log("LOG_WARNING", "OverlayID %s is disconnected; attempting reconnection", overlay_id)
                     self._circles[overlay_id]["Transport"].shutdown()
+                    self._circles[overlay_id]["TransportThread"].join(timeout=0.5)
                     self._setup_circle(overlay_id)
                     continue
                 anc = self._circles[overlay_id]["Announce"]
@@ -473,6 +466,7 @@ class Signal(ControllerModule):
     def terminate(self):
         for overlay_id in self._circles:
             self._circles[overlay_id]["Transport"].shutdown()
+            self._circles[overlay_id]["XMPPThread"].join(timeout=0.5)
 
     def scavenge_pending_cbts(self):
         scavenge_list = []
