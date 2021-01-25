@@ -806,6 +806,7 @@ class LinkManager(ControllerModule):
             self.register_cbt("Logger", "LOG_DEBUG",
                               "A response to an aborted add peer CAS operation was discarded: {0}".
                               format(str(cbt)))
+            return
 
         self._tunnels[tnlid].link.creation_state = 0xB3
         self.register_cbt("Logger", "LOG_DEBUG", "Create Link:{} Phase 3/4 Node B - Peer: {}"
