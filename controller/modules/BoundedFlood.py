@@ -290,6 +290,8 @@ class netNode():
                 msg = resp["Response"]
             self.logger.warning("- Failed to update topo for node:%s dpid:%s, response:%s",
                                 self.node_id, self.datapath.id, msg)
+            raise RuntimeError("Failed to update topo for node:%s dpid:%s, response:%s",
+                                self.node_id, self.datapath.id, msg)
 
     def update_links(self):
         self.links.clear()
@@ -349,7 +351,7 @@ class netNode():
         recv_data = None
         sd = json.dumps(send_data)
         attempts = 0
-        while attempts < 2:
+        while attempts < 3:
             try:
                 attempts += 1
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
