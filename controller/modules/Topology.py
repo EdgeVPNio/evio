@@ -97,9 +97,8 @@ class Topology(ControllerModule, CFX):
         self._cfx_handle.start_subscription("LinkManager", "LNK_TUNNEL_EVENTS")
         nid = self.node_id
         for olid in self._cfx_handle.query_param("Overlays"):
-            max_wrk_ld = int(self.config["Overlays"][olid].get("MaxConcurrentEdgeSetup", 3))
             self._net_ovls[olid] = dict(RelinkCount=1, NewPeerCount=0, NumAvailblePeers=0,
-                                        NetBuilder=NetworkBuilder(self, olid, nid, max_wrk_ld),
+                                        NetBuilder=NetworkBuilder(self, olid, nid),
                                         KnownPeers=dict(), NegoConnEdges=dict(),
                                         OndPeers=[])
         try:
@@ -205,8 +204,6 @@ class Topology(ControllerModule, CFX):
         elif params["UpdateType"] == "LnkEvConnected":
             self._net_ovls[olid]["KnownPeers"][peer_id].restore()
             self._do_topo_change_post(olid)
-        #elif params["UpdateType"] == "LnkEvDisconnected" or \
-        #    params["UpdateType"] == "LnkEvDeauthorized":
         elif params["UpdateType"] == "LnkEvDisconnected":
             pass
         elif params["UpdateType"] == "LnkEvDeauthorized":
@@ -289,10 +286,9 @@ class Topology(ControllerModule, CFX):
         peer_id = cbt.request.params["PeerId"]
         if cbt.response.status:
             _, edge_resp = self._net_ovls[olid]["NegoConnEdges"].pop(peer_id)
-            # self._net_ovls[olid]["NetBuilder"].add_incoming_auth_conn_edge(peer_id)
         else:
-            self._net_ovls[olid]["NegoConnEdges"].pop(peer_id, None) #pop fails as no matching
-            #peer_id, posssible duplication of create edge request
+            self._net_ovls[olid]["NegoConnEdges"].pop(peer_id, None) # pop fails as no matching
+            # peer_id, posssible duplication of create edge request
             edge_resp = EdgeResponse("E4 - Tunnel nego failed {0}"
                                      .format(cbt.response.data), False)
         nego_cbt = cbt.parent
@@ -360,8 +356,8 @@ class Topology(ControllerModule, CFX):
                         self.complete_cbt(parent_cbt)
 
     def _manage_topology(self):
-        # Periodically refresh the topology, making sure desired links exist and exipred ones are
-        # removed.
+        # Periodically refresh the topology, making sure desired links exist and exipred
+        # ones are removed.
         for olid in self._net_ovls:
             self._update_overlay(olid)
 
@@ -384,9 +380,6 @@ class Topology(ControllerModule, CFX):
                           .format(overlay_id, self.node_id[:7], peer_id[:7]))
         params = {"OverlayId": overlay_id, "PeerId": peer_id}
         self.register_cbt("LinkManager", "LNK_REMOVE_TUNNEL", params)
-
-    #def top_log(self, *msg, level="LOG_DEBUG"):
-    #    self.log(level, *msg)
 
     def top_send_negotiate_edge_req(self, edge_req):
         """Role Node A, Send a request to create an edge to the peer """
