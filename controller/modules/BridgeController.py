@@ -234,8 +234,10 @@ class BoundedFloodProxy(socketserver.ThreadingMixIn, socketserver.TCPServer):
     def __init__(self, host_port_tuple, streamhandler, netman):
         super().__init__(host_port_tuple, streamhandler)
         self.netman = netman
+        self._bf_proc = None
+
+    def start_bf_client_module(self):
         config = self.netman.config["BoundedFlood"]
-        # start the BF RYU module
         cmd = [
             BoundedFloodProxy.RyuManager,
             "--user-flags", "modules/BFFlags.py",
@@ -245,8 +247,9 @@ class BoundedFloodProxy(socketserver.ThreadingMixIn, socketserver.TCPServer):
         self._bf_proc = Modlib.create_process(cmd)
 
     def server_close(self):
-        self._bf_proc.kill()
-        self._bf_proc.wait()
+        if self._bf_proc:    
+            self._bf_proc.kill()
+            self._bf_proc.wait()
         socketserver.TCPServer.server_close(self)
 
 class BFRequestHandler(socketserver.BaseRequestHandler):
@@ -335,6 +338,7 @@ def BridgeFactory(overlay_id, dev_type, config, cm, sdn_config=None):
 ###################################################################################################
 
 class BridgeController(ControllerModule):
+
     def __init__(self, cfx_handle, module_config, module_name):
         super(BridgeController, self).__init__(cfx_handle, module_config, module_name)
         self._bfproxy = None
@@ -369,6 +373,9 @@ class BridgeController(ControllerModule):
                                                    name="BFProxyServer")
             self._server_thread.setDaemon(True)
             self._server_thread.start()
+            # start the BF RYU module
+            self._bfproxy.start_bf_client_module()
+                        
         self.register_cbt("LinkManager", "LNK_ADD_IGN_INF", ign_br_names)
         #try:
         #    # Subscribe for data request notifications from OverlayVisualizer
@@ -434,8 +441,8 @@ class BridgeController(ControllerModule):
     def terminate(self):
         try:
             if self._bfproxy:
-                self._bfproxy.shutdown()
                 self._bfproxy.server_close()
+                self._bfproxy.shutdown()
             for olid in self._ovl_net:
                 if olid in self._appbr and self.overlays[olid]["NetDevice"]["AppBridge"].get("AutoDelete", False):
                     self._appbr[olid].del_br()
