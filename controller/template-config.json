@@ -1,21 +1,14 @@
 {
   "CFx": {
-    "Model": "Default",
-    "Overlays": [ "A0FB389" ]
+    "Overlays": [ "TMPLOVL1" ]
   },
   "Logger": {
     "LogLevel": "WARNING",
-    "Device": "File",
-    "Directory": "/var/log/evio/",
-    "CtrlLogFileName": "ctrl.log",
-    "TincanLogFileName": "tincan_log",
-    "MaxFileSize": 10000000,
-    "MaxArchives": 2
+    "Directory": "/var/log/evio/"
   },
   "Signal": {
-    "Enabled": true,
     "Overlays": {
-      "A0FB389": {
+      "TMPLOVL1": {
         "HostAddress": "***.***.***.***",
         "Port": "5222",
         "Username": "***@***",
@@ -25,33 +18,31 @@
     }
   },
   "Topology": {
-    "PeerDiscoveryCoalesce": 1,
     "Overlays": {
-      "A0FB389": {
-        "Name": "ApplicationOverlay",
-        "Description": "Scalable Structured Ring Overlay",
+      "TMPLOVL1": {
         "MaxSuccessors": 2,
         "MaxOnDemandEdges": 3,
-        "MaxConcurrentEdgeSetup": 3,
         "Role": "Switch"
       }
     }
   },
   "LinkManager": {
-    "Dependencies": [ "Logger", "TincanInterface", "Signal" ],
     "Stun": [ "stun.l.google.com:19302", "stun1.l.google.com:19302" ],
+    "Turn": [{
+      "Address": "***.***.***:3478",
+      "User": "***",
+      "Password": "***"
+     }],
     "Overlays": {
-      "A0FB389": {
+      "TMPLOVL1": {
         "Type": "TUNNEL",
         "TapName": "tnl-"
       }
     }
   },
   "BridgeController": {
-    "Enabled": true,
-    "Dependencies": [ "Logger", "LinkManager" ],
     "BoundedFlood": {
-        "OverlayId": "A0FB389",
+        "OverlayId": "TMPLOVL1",
         "LogDir": "/var/log/evio/",
         "LogFilename": "bf.log",
         "LogLevel": "WARNING",
@@ -68,7 +59,7 @@
         "MaxOnDemandEdges": 3
     },
     "Overlays": {
-        "A0FB389": {
+        "TMPLOVL1": {
             "NetDevice": {
                 "AutoDelete": true,
                 "Type": "OVS",
@@ -95,7 +86,6 @@
     }
   },
   "UsageReport": {
-    "Enabled": true,
     "TimerInterval": 86400,
     "WebService": "https://qdscz6pg37.execute-api.us-west-2.amazonaws.com/default/EvioUsageReport"
   }
