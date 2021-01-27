@@ -77,7 +77,6 @@ class XmppTransport(slixmpp.ClientXMPP):
     def __init__(self, jid, password, sasl_mech):
         slixmpp.ClientXMPP.__init__(self, jid, password, sasl_mech=sasl_mech)
         self._overlay_id = None
-        # self.overlay_descr = None
         self._sig = None
         self._node_id = None
         self._presence_publisher = None
@@ -90,6 +89,9 @@ class XmppTransport(slixmpp.ClientXMPP):
         self._enable_tls = True
         self._enable_ssl = False
         self.xmpp_thread = None
+
+    def host(self):
+        return self._host
 
     @staticmethod
     def factory(overlay_id, overlay_descr, cm_mod, presence_publisher, jid_cache,
@@ -142,32 +144,34 @@ class XmppTransport(slixmpp.ClientXMPP):
         transport._presence_publisher = presence_publisher
         transport._jid_cache = jid_cache
         transport._outgoing_rem_acts = outgoing_rem_acts
-        # event handler for session start and roster update
+        # register event handlers of interest
         transport.add_event_handler("session_start", transport.handle_start_event)
-        transport.add_event_handler("failed_auth", transport.handle_failed_auth_event)        
+        transport.add_event_handler("failed_auth", transport.handle_failed_auth_event)      
+        transport.add_event_handler("disconnected", transport.handle_disconnect_event)
+        transport.add_event_handler("presence_available", transport.handle_presence_event)      
         return transport
-
-    def host(self):
-        return self._host
 
     def handle_failed_auth_event(self, event):
         emsg = "XMPP authentication failure. Verify credentials for overlay {} and restart EVIO".format(self._overlay_id)
         self._sig.log("LOG_ERROR", emsg)
-        raise RuntimeError(emsg)
 
+    def handle_disconnect_event(self, reason):
+        self._sig.log("LOG_DEBUG", "XMPP disconnected event triggered, reason=%s. "
+                      "Stopping event loop", reason)
+        self.loop.stop()
+        
     def handle_start_event(self, event):
         """Registers custom event handlers at the start of XMPP session"""
         self._sig.log("LOG_DEBUG", "XMPP Signalling started for overlay: %s",
                       self._overlay_id)
         # pylint: disable=broad-except
         try:
-            # Notification of peer sign-on
-            self.add_event_handler("presence_available", self.handle_presence_event)
-                      
-            # Register evio message with the server
+           # Register evio message with the server
             register_stanza_plugin(Message, EvioSignal)
             self.register_handler(
-                Callback("evio", StanzaPath("message/evio"), self.handle_message))
+                Callback("evio", StanzaPath("message/evio"),
+                self.handle_message)
+            )
             # Get the friends list for the user
             asyncio.ensure_future(self.get_roster(), loop=self.loop)
             # Send initial sign-on presence
@@ -208,7 +212,8 @@ class XmppTransport(slixmpp.ClientXMPP):
                             payload = self.boundjid.full + "#" + self._node_id
                             self.send_msg(presence_sender, "uid!", payload)
                     else:
-                        self._sig.log("LOG_WARNING", "Unrecognized PSTATUS:%s on overlay:%s",
+                        self._sig.log("LOG_WARNING",
+                                      "Unrecognized PSTATUS:%s on overlay:%s",
                                       pstatus, self._overlay_id)
         except Exception as err:
             self._sig.log("LOG_ERROR", "XmppTransport:Exception:%s overlay:%s presence:%s",
@@ -265,17 +270,34 @@ class XmppTransport(slixmpp.ClientXMPP):
         msg["evio"]["payload"] = payload
         self.loop.call_soon_threadsafe(msg.send)
 
-    def start(self):
+    def run(self):
         try:
             self.connect(address=(self._host, self._port))
             self.process(forever=True)
+            self._sig.log("LOG_DEBUG", "Attempting graceful shutdown of XMPP overlay=%s", self._overlay_id)
+            # Do not show `asyncio.CancelledError` exceptions during shutdown
+            def shutdown_exception_handler(loop, context):
+                if "exception" not in context \
+                or not isinstance(context["exception"], asyncio.CancelledError):
+                    loop.default_exception_handler(context)
+            self.loop.set_exception_handler(shutdown_exception_handler)
+            # Handle shutdown by waiting for all tasks to be cancelled
+            tasks = asyncio.gather(*asyncio.all_tasks(loop=self.loop), loop=self.loop, return_exceptions=True)
+            tasks.add_done_callback(lambda t: self.loop.stop())
+            tasks.cancel()
+            # Keep the event loop running, after stop is called run_forever loops only once
+            while not tasks.done() and not self.loop.is_closed():
+                self.loop.run_forever() 
         except Exception as err:
-            self._sig.log("LOG_ERROR", "Failed to initialize XMPP transport instanace %s", str(err))
+            self._sig.log("LOG_ERROR", "XMPPTransport run exception %s", str(err))           
+        finally:
+            self.loop.run_until_complete(self.loop.shutdown_asyncgens())
+            self.loop.close()
+            self._sig.log("LOG_DEBUG", "Event loop closed on XMPP overlay=%s", self._overlay_id)
 
     def shutdown(self,):
-        self.loop.call_soon_threadsafe(self.disconnect(reason="controller shutdown"))
-        self.loop.stop()
-        self.loop.close()
+        self.loop.call_soon_threadsafe(self.disconnect(reason="controller shutdown"))        
+
 class Signal(ControllerModule):
     def __init__(self, cfx_handle, module_config, module_name):
         super(Signal, self).__init__(cfx_handle, module_config, module_name)
@@ -298,7 +320,7 @@ class Signal(ControllerModule):
                                       self._circles[overlay_id]["JidCache"],
                                       self._circles[overlay_id]["OutgoingRemoteActs"])
         self._circles[overlay_id]["Transport"] = xport
-        xport.start()
+        xport.run()
 
     def _setup_circle(self, overlay_id):
         self._circles[overlay_id] = {}
@@ -448,9 +470,10 @@ class Signal(ControllerModule):
         with self._lock:
             for overlay_id in self._circles:
                 if not self._circles[overlay_id]["Transport"].is_connected():
-                    self.log("LOG_WARNING", "OverlayID %s is disconnected; attempting reconnection", overlay_id)
-                    self._circles[overlay_id]["Transport"].shutdown()
-                    self._circles[overlay_id]["TransportThread"].join(timeout=0.5)
+                    self.log("LOG_WARNING", "ThreadId=%d, OverlayID %s is disconnected; "
+                             "attempting to recreate session",
+                             self._circles[overlay_id]["TransportThread"].ident, overlay_id)
+                    self._circles[overlay_id]["TransportThread"].join()
                     self._setup_circle(overlay_id)
                     continue
                 anc = self._circles[overlay_id]["Announce"]
@@ -466,7 +489,7 @@ class Signal(ControllerModule):
     def terminate(self):
         for overlay_id in self._circles:
             self._circles[overlay_id]["Transport"].shutdown()
-            self._circles[overlay_id]["XMPPThread"].join(timeout=0.5)
+            self._circles[overlay_id]["XMPPThread"].join(0.2)
 
     def scavenge_pending_cbts(self):
         scavenge_list = []
