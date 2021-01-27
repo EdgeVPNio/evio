@@ -40,21 +40,20 @@ Successful auth updates the state to CEStateAuthorized and removes it from nego 
 class NetworkBuilder():
     _DEL_RETRY_INTERVAL = 10
     """description of class"""
-    def __init__(self, top_man, overlay_id, node_id, max_wrkld):
+    def __init__(self, top_man, overlay_id, node_id):
         self._current_adj_list = ConnEdgeAdjacenctList(overlay_id, node_id)
         self._pending_adj_list = None
         self._negotiated_edges = {}
-        self._refresh_in_progress = 0
-        self._max_concurrent_wrkload = max_wrkld
-        #self._lock = threading.Lock()
         self._top = top_man
         self._ops = {}
 
     def __repr__(self):
-        state = "current_adj_list=%s, pending_adj_list=%s, negotiated_edges=%s, "\
-                "refresh_in_progress=%s, _max_concurrent_wrkload=%s" % \
-                (self._current_adj_list, self._pending_adj_list, self._negotiated_edges,
-                 self._refresh_in_progress, self._max_concurrent_wrkload)
+        # state = "current_adj_list=%s, pending_adj_list=%s, negotiated_edges=%s, "\
+        #         "refresh_in_progress=%s, _max_concurrent_wrkload=%s" % \
+        #         (self._current_adj_list, self._pending_adj_list, self._negotiated_edges,
+        #          self._refresh_in_progress, self._max_concurrent_wrkload)
+        state = "current_adj_list=%s, pending_adj_list=%s, negotiated_edges=%s, " % \
+                (self._current_adj_list, self._pending_adj_list, self._negotiated_edges)
         return state
 
     @property
@@ -63,17 +62,12 @@ class NetworkBuilder():
         Is the NetworkBuilder ready for a new NetGraph? This means all the entries in the
         pending adj list has been cleared.
         """
-        #with self._lock:
         return self._is_ready()
 
     def _is_ready(self):
         return not bool(self._pending_adj_list)
 
-    def _is_max_concurrent_workload(self):
-        return self._refresh_in_progress >= self._max_concurrent_wrkload
-
     def get_adj_list(self):
-        #with self._lock:
         return deepcopy(self._current_adj_list)
 
     def refresh(self, net_graph=None):
@@ -81,7 +75,6 @@ class NetworkBuilder():
         Transitions the overlay network overlay to the desired state specified by pending
         adjacency list.
         """
-        #with self._lock:
         self._top.log("LOG_DEBUG", "New net graph: %s", str(net_graph))
         assert ((self._is_ready() and bool(net_graph)) or
                 (not self._is_ready() and not bool(net_graph))),\
@@ -106,7 +99,6 @@ class NetworkBuilder():
         peer_id = event["PeerId"]
         edge_id = event["TunnelId"]
         overlay_id = event["OverlayId"]
-        #with self._lock:
         if event["UpdateType"] == "LnkEvAuthorized":
             self._add_incoming_auth_conn_edge(peer_id)
         elif event["UpdateType"] == "LnkEvDeauthorized":
@@ -115,7 +107,6 @@ class NetworkBuilder():
             ce.edge_state = "CEStateDeleting"
             del self._current_adj_list[peer_id]
             del self._pending_adj_list[peer_id]
-            self._refresh_in_progress -= 1
         elif event["UpdateType"] == "LnkEvCreating":
             conn_edge = self._current_adj_list.conn_edges.get(peer_id, None)
             conn_edge.edge_state = "CEStateCreated"
@@ -124,29 +115,24 @@ class NetworkBuilder():
             self._current_adj_list[peer_id].connected_time = \
                 event["ConnectedTimestamp"]
             del self._pending_adj_list[peer_id]
-            self._refresh_in_progress -= 1
         elif event["UpdateType"] == "LnkEvDisconnected":
             # the local topology did not request removal of the connection
             self._top.log("LOG_DEBUG", "CEStateDisconnected event recvd peer_id: %s, edge_id: %s",
                           peer_id, edge_id)
             self._current_adj_list[peer_id].edge_state = "CEStateDisconnected"
-            self._refresh_in_progress += 1
             self._top.top_remove_edge(overlay_id, peer_id)
         elif event["UpdateType"] == "LnkEvRemoved":
             self._current_adj_list[peer_id].edge_state = "CEStateDeleting"
             del self._current_adj_list[peer_id]
             del self._pending_adj_list[peer_id]
-            self._refresh_in_progress -= 1
         elif event["UpdateType"] == "RemoveEdgeFailed":
             # leave the node in the adj list and marked for removal to be retried.
             # the retry occurs too quickly and causes too many attempts before it succeeds
-            self._refresh_in_progress -= 1
+            # self._refresh_in_progress -= 1
             self._current_adj_list[peer_id].created_time = \
                 time.time() + NetworkBuilder._DEL_RETRY_INTERVAL
         else:
             self._top.log("LOG_WARNING", "Invalid UpdateType specified for event")
-        assert self._refresh_in_progress >= 0, "refresh in progress is negative {}"\
-            .format(self._refresh_in_progress)
 
     def _mark_edges_for_removal(self):
         """
@@ -175,19 +161,14 @@ class NetworkBuilder():
         """
         overlay_id = self._current_adj_list.overlay_id
         for peer_id in self._current_adj_list:
-            if self._is_max_concurrent_workload():
-                return
             ce = self._current_adj_list[peer_id]
             if (ce.marked_for_delete and ce.edge_state == "CEStateConnected"):
-                self._refresh_in_progress += 1
                 ce.edge_state = "CEStateDeleting"
                 self._top.top_remove_edge(overlay_id, peer_id)
                 return
 
     def _create_new_edges(self):
         for peer_id, ce in self._negotiated_edges.items():
-            if self._is_max_concurrent_workload():
-                return
             if ce.edge_state == "CEStateInitialized":
                 # avoid repeat auth request by only acting on CEStateInitialized
                 ce.edge_state = "CEStatePreAuth"
@@ -222,7 +203,6 @@ class NetworkBuilder():
 
     def _negotiate_new_edge(self, edge_id, edge_type, peer_id):
         """ Role A1 """
-        self._refresh_in_progress += 1
         olid = self._current_adj_list.overlay_id
         nid = self._current_adj_list.node_id
         er = EdgeRequest(overlay_id=olid, edge_id=edge_id, edge_type=edge_type,
@@ -293,7 +273,6 @@ class NetworkBuilder():
 
     def _add_incoming_auth_conn_edge(self, peer_id):
         """ Role B2 """
-        self._refresh_in_progress += 1
         ce = self._negotiated_edges.pop(peer_id)
         ce.edge_state = "CEStateAuthorized"
         self._current_adj_list.add_conn_edge(ce)
@@ -301,7 +280,6 @@ class NetworkBuilder():
     def complete_edge_negotiation(self, edge_nego):
         """ Role A2 """
         self._top.log("LOG_DEBUG", "EdgeNegotiate=%s", str(edge_nego))
-        #with self._lock:
         if edge_nego.recipient_id not in self._current_adj_list and \
             edge_nego.recipient_id not in self._negotiated_edges:
             self._top.log("LOG_ERROR", "Peer Id from edge negotiation not in current adjacency " \
@@ -315,7 +293,6 @@ class NetworkBuilder():
             return # OK - Collision override occurred, CE was popped in role B2 (above). Completion
                    # order can vary, in other case handled below.
         if not edge_nego.is_accepted:
-            self._refresh_in_progress -= 1
             # if E2 (request superceeded) do nothing here. The corresponding CE instance will
             # be converted in resolve_collision_request().
             if edge_nego.data[:2] != "E2":
@@ -331,7 +308,6 @@ class NetworkBuilder():
                 self._negotiated_edges.pop(ce.peer_id)
                 del self._pending_adj_list[peer_id]
                 del self._current_adj_list[ce.peer_id]
-                self._refresh_in_progress -= 1
             else:
                 ce.edge_state = "CEStateAuthorized"
                 self._negotiated_edges.pop(ce.peer_id)
