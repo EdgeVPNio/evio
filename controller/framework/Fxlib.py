@@ -43,13 +43,14 @@ CONFIG = {
     },
     "OverlayVisualizer": {
         "Enabled": False,
+        "Dependencies": ["Logger"],
         "TimerInterval": 30,                # Timer thread interval
         "WebServiceAddress": ":5000",       # Visualizer webservice URL
-        "NodeName": "",                     # Node Name as seen from the UI
-        "Dependencies": ["Logger"]
+        "NodeName": ""                     # Node Name as seen from the UI
     },
     "TincanInterface": {
         "Enabled": True,
+        "Dependencies": ["Logger"],
         "MaxReadSize": 65507,               # Max buffer size for Tincan Messages
         "SocketReadWaitTime": 15,           # Socket read wait time for Tincan Messages
         "RcvServiceAddress": "127.0.0.1",   # Controller server address
@@ -57,14 +58,13 @@ CONFIG = {
         "RcvServiceAddress6": "::1",
         "SndServiceAddress6": "::1",
         "CtrlRecvPort": 5801,               # Controller Listening Port
-        "CtrlSendPort": 5800,               # Tincan Listening Port
-        "Dependencies": ["Logger"]
+        "CtrlSendPort": 5800               # Tincan Listening Port
     },
     "Signal": {
         "Enabled": True,
+        "Dependencies": ["Logger"],
         "TimerInterval": 30,
         "CacheExpiry": 30,          # Min duration an entry remains in the JID cache in seconds
-        "Dependencies": ["Logger"],
         "PresenceInterval": 30      # seconds between presence broadcast
     },
     "LinkManager": {
@@ -75,14 +75,10 @@ CONFIG = {
     },
     "Topology": {
         "Enabled": True,
+        "Dependencies": ["Logger", "TincanInterface", "LinkManager"],
         "TimerInterval": 30,
         "PeerDiscoveryCoalesce": 1,
-        "ExclusionBaseInterval": 240,
-        "MaxSuccessors": 2,
-        "MaxOnDemandEdges": 1,
-        "MaxConcurrentEdgeSetup": 2,
-        "Role": "Switch",
-        "Dependencies": ["Logger", "TincanInterface", "LinkManager"]
+        "ExclusionBaseInterval": 240
     },
     "BridgeController": {
         "Enabled": True,
