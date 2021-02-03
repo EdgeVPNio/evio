@@ -97,7 +97,7 @@ class Topology(ControllerModule, CFX):
         self._cfx_handle.start_subscription("LinkManager", "LNK_TUNNEL_EVENTS")
         nid = self.node_id
         for olid in self._cfx_handle.query_param("Overlays"):
-            self._net_ovls[olid] = dict(RelinkCount=1, NewPeerCount=0, NumAvailblePeers=0,
+            self._net_ovls[olid] = dict(NewPeerCount=0, NumAvailblePeers=0,
                                         NetBuilder=NetworkBuilder(self, olid, nid),
                                         KnownPeers=dict(), NegoConnEdges=dict(),
                                         OndPeers=[])
@@ -364,7 +364,7 @@ class Topology(ControllerModule, CFX):
     def timer_method(self):
         with self._lock:
             self._manage_topology()
-            self.log("LOG_INFO", "State=%s", str(self))
+            self.trace_state()
 
     def top_add_edge(self, overlay_id, peer_id, edge_id):
         """
@@ -398,7 +398,7 @@ class Topology(ControllerModule, CFX):
             if adjl.conn_edges[peer_id].edge_state == "CEStateConnected":
                 topo[peer_id] = dict(adjl.conn_edges[peer_id]) # create a dict from CE
         update = {"OverlayId": overlay_id, "Topology": topo}
-        self._topo_changed_publisher.post_update(update)
+        self._topo_changed_publisher.post_update(update)    
 
     def _update_overlay(self, olid):
         net_ovl = self._net_ovls[olid]
@@ -406,15 +406,11 @@ class Topology(ControllerModule, CFX):
         if nb.is_ready:
             net_ovl["NewPeerCount"] = 0
             ovl_cfg = self.config["Overlays"][olid]
-            self.register_cbt("Logger", "LOG_DEBUG", "Netbuilder initiating refresh ...")
             enf_lnks = ovl_cfg.get("EnforcedEdges", [])
             peer_list = [peer_id for peer_id in net_ovl["KnownPeers"] \
                 if net_ovl["KnownPeers"][peer_id].is_available]
             if not peer_list:
                 return
-            self.register_cbt("Logger", "LOG_DEBUG", "Peerlist for Netbuilder {0}"
-                              .format(peer_list))
-
             max_succ = int(ovl_cfg.get("MaxSuccessors", 1))
             max_ond = int(ovl_cfg.get("MaxOnDemandEdges", 2))
             num_peers = len(peer_list) if len(peer_list) > 1 else 2
@@ -428,17 +424,9 @@ class Topology(ControllerModule, CFX):
                       "MaxLongDistEdges": max_ldl, "MaxOnDemandEdges": max_ond}
             gb = GraphBuilder(params, top=self)
             curr_adjl = nb.get_adj_list()
-            rlc = net_ovl["RelinkCount"]
-            is_relink = False
-            if (len(peer_list) / rlc <= 0.5) or (len(peer_list) / rlc >= 1.5):
-                # perform relink op for LDL
-                net_ovl["RelinkCount"] = len(peer_list) if peer_list else 1
-                is_relink = True
-                self.log("LOG_INFO", "RELINKing condition met but currently ignored!")
             adjl = gb.build_adj_list(peer_list, curr_adjl, net_ovl["OndPeers"], relink=False)
             nb.refresh(adjl)
         else:
-            self.log("LOG_DEBUG", "Resuming Netbuilder refresh")
             nb.refresh()
 
     def _authorize_edge(self, overlay_id, peer_id, edge_id, parent_cbt):

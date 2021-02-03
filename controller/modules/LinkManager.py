@@ -1030,7 +1030,7 @@ class LinkManager(ControllerModule):
         with self._lock:
             self._cleanup_expired_incomplete_links()
             self._query_link_stats()
-            self.log("LOG_DEBUG", "Timer LNK State=%s", str(self))
+            self.trace_state()
 
     def terminate(self):
         pass

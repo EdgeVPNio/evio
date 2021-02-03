@@ -20,7 +20,7 @@
 # THE SOFTWARE.
 
 from abc import ABCMeta, abstractmethod
-
+import hashlib
 
 # abstract ControllerModule (CM) class
 # all CM implementations inherit the variables declared here
@@ -34,6 +34,7 @@ class ControllerModule():
         self._cfx_handle = cfx_handle
         self._cm_config = module_config
         self._module_name = module_name
+        self._state_digest = None
 
     @abstractmethod
     def initialize(self):
@@ -110,3 +111,11 @@ class ControllerModule():
 
     def log(self, level, msg, *args):
         self.register_cbt("Logger", level, _params=(msg, args))
+
+    def trace_state(self):
+        if self.config.get("StateTracingEnabled", False):
+            state = str(self)
+            new_digest = hashlib.sha256(state.encode("utf-8")).hexdigest()
+            if self._state_digest != new_digest:
+                self._state_digest = new_digest
+                self.log("LOG_INFO", "State=%s", state)
