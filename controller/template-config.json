@@ -1,6 +1,6 @@
 {
   "CFx": {
-    "Overlays": [ "TMPLOVL1" ]
+    "Overlays": [ "OVERLAYNAME" ]
   },
   "Logger": {
     "LogLevel": "WARNING",
@@ -8,7 +8,7 @@
   },
   "Signal": {
     "Overlays": {
-      "TMPLOVL1": {
+      "OVERLAYNAME": {
         "HostAddress": "***.***.***.***",
         "Port": "5222",
         "Username": "***@***",
@@ -19,7 +19,7 @@
   },
   "Topology": {
     "Overlays": {
-      "TMPLOVL1": {
+      "OVERLAYNAME": {
         "MaxSuccessors": 2,
         "MaxOnDemandEdges": 3,
         "Role": "Switch"
@@ -34,7 +34,7 @@
       "Password": "***"
      }],
     "Overlays": {
-      "TMPLOVL1": {
+      "OVERLAYNAME": {
         "Type": "TUNNEL",
         "TapName": "tnl-"
       }
@@ -42,7 +42,7 @@
   },
   "BridgeController": {
     "BoundedFlood": {
-        "OverlayId": "TMPLOVL1",
+        "OverlayId": "OVERLAYNAME",
         "LogDir": "/var/log/evio/",
         "LogFilename": "bf.log",
         "LogLevel": "WARNING",
@@ -59,7 +59,7 @@
         "MaxOnDemandEdges": 3
     },
     "Overlays": {
-        "TMPLOVL1": {
+        "OVERLAYNAME": {
             "NetDevice": {
                 "AutoDelete": true,
                 "Type": "OVS",
