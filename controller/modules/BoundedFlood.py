@@ -302,7 +302,8 @@ class netNode():
         self.logger.info("+ Updated links %s", self.links)
 
     def update_leaf_ports(self):
-        self._leaf_prts = set(pno for pno in self.port_state if pno not in self.links)
+        # self._leaf_prts = set(pno for pno in self.port_state if pno not in self.links)
+        self._leaf_prts = {1, 4294967294}
         self.logger.info("+ Updated leaf ports: %s", str(self._leaf_prts))
 
     def add_port(self, ofpport):
@@ -385,6 +386,9 @@ class PeerSwitch():
             format(self.rnid[:7], self.port_no, self.hop_count, self.leaf_macs)
 
 class LearningTable():
+    NoTrackMac = ["00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff", "01:00:5e:00:00:00",
+                  "ff:ff:ff:ff:ff:00", "33:33:00:00:00:00", "ff:ff:00:00:00:00"]
+    
     def __init__(self, ryu):
         self._dpid = None
         self._nid = None         # local node id
@@ -433,6 +437,9 @@ class LearningTable():
         return self.ingress_tbl.get(key_mac, None)
 
     def __setitem__(self, key_mac, value):
+        if key_mac in self.NoTrackMac:
+            self.logger.debug("Ignoring source mac {0} from {1}".format(key_mac, value))
+            return
         self._ts_tbl[key_mac] = time.time()
         if isinstance(value, tuple):
             self.learn(src_mac=key_mac, in_port=value[0], rnid=value[1])
@@ -484,10 +491,12 @@ class LearningTable():
         """
         self.ingress_tbl[src_mac] = in_port
         if in_port in self.leaf_ports:
+            self.logger.debug("learn: add loocal leaf mac %s", src_mac)
             self.peersw_tbl[self._nid].leaf_macs.add(src_mac)
         elif rnid:
             if rnid not in self.peersw_tbl:
                 self.peersw_tbl[rnid] = PeerSwitch(rnid)
+            self.logger.debug("learn: peerid: %s, leaf_mac %s", rnid, src_mac)
             self.peersw_tbl[rnid].leaf_macs.add(src_mac)
             self.rootsw_tbl[src_mac] = self.peersw_tbl[rnid]
 
@@ -515,7 +524,7 @@ class LearningTable():
             self.peersw_tbl[peer_id].port_no = None
 
     def remote_leaf_macs(self, rnid):
-        return self.peersw_tbl[rnid]
+        return self.peersw_tbl[rnid].leaf_macs
 
     def clear(self):
         self._dpid = None
@@ -702,6 +711,9 @@ class BoundedFlood(app_manager.RyuApp):
                 # this dst mac is not in our LT
                 self.logger.debug("Default packet in %s %s %s %s", dpid, src, dst, in_port)
                 self.lt[src] = in_port
+                frb_type=0    
+                if in_port != 1:
+                    frb_type=2      # this node did not initiate the frame but it has no data on how to switch it so it must brdcast with an FRB
                 # check if this is a multicast frame
                 if eth.dst.split(':')[0] == '01':
                     if self._handle_multicast_frame(msg,is_igmp,is_dvmrp):
@@ -711,7 +723,7 @@ class BoundedFlood(app_manager.RyuApp):
                 if not fld:
                     fld = FloodingBounds(self.nodes[dpid])
                     self.flooding_bounds[dpid] = fld
-                out_bounds = fld.bounds(None, [in_port])
+                out_bounds = fld.bounds(None, [in_port], frb_type)
                 self.logger.info("<--\nGenerated FRB(s)=%s", out_bounds)
                 if out_bounds:
                     self.do_bounded_flood(datapath, in_port, out_bounds, src, msg.data)
@@ -1238,12 +1250,14 @@ class BoundedFlood(app_manager.RyuApp):
                                                   in_port=datapath.ofproto.OFPP_LOCAL,
                                                   actions=actions, data=graft_msg.data)
                         datapath.send_msg(out)
-        #learn src mac and rnid
-        self.lt[src] = (in_port, rcvd_frb.root_nid)
+
         if rcvd_frb.frb_type == FloodRouteBound.FRB_LEAF_TX:
             self.update_leaf_macs_and_flows(datapath, rcvd_frb.root_nid, payload,
                                             rcvd_frb.pl_count, in_port)
         else:
+            if rcvd_frb.frb_type == FloodRouteBound.FRB_BRDCST:
+                #learn src mac and rnid only for frb_type == 1
+                self.lt[src] = (in_port, rcvd_frb.root_nid)                
             self.lt.peersw_tbl[rcvd_frb.root_nid].hop_count = rcvd_frb.hop_count
             if rcvd_frb.hop_count > self.nodes[dpid].counters.get("MaxFloodingHopCount", 1):
                 self.nodes[dpid].counters["MaxFloodingHopCount"] = rcvd_frb.hop_count
@@ -1272,8 +1286,9 @@ class BoundedFlood(app_manager.RyuApp):
         mlen = num_items*6
         for mactup in struct.iter_unpack("!6s", macs[:mlen]):
             macstr = mac_lib.haddr_to_str(mactup[0])
+            self.logger.debug("update_leaf_macs_and_flows: add leaf mac %s", macstr)
             self.lt.peersw_tbl[rnid].leaf_macs.add(macstr)
-        for mac in self.lt.remote_leaf_macs(rnid).leaf_macs:
+        for mac in self.lt.remote_leaf_macs(rnid):
             self.update_flow_match_dstmac(datapath, mac, ingress, tblid=0)
 
 ###################################################################################################
@@ -1345,7 +1360,7 @@ class FloodingBounds():
         self._hops = None
         self._net_node = net_node
 
-    def bounds(self, prev_frb=None, exclude_ports=None):
+    def bounds(self, prev_frb=None, exclude_ports=None, frb_type=0):
         """
         Creates a list of tuples in the format (egress, frb) which indicates the output port
         number that the frb should be sent.
@@ -1380,7 +1395,7 @@ class FloodingBounds():
             bound_nid = my_nid
             if not prev_frb:
                 bound_nid = peer2
-                frb_hdr = FloodRouteBound(root_nid, bound_nid, hops)
+                frb_hdr = FloodRouteBound(root_nid, bound_nid, hops, frb_type)
                 if frb_hdr:
                     prtno = self._net_node.query_port_no(peer1)
                     if prtno and prtno not in exclude_ports:
@@ -1413,7 +1428,7 @@ class FloodingBounds():
                             bound_nid = prev_frb.bound_nid
                         else:
                             bound_nid = peer2
-                frb_hdr = FloodRouteBound(root_nid, bound_nid, hops)
+                frb_hdr = FloodRouteBound(root_nid, bound_nid, hops, frb_type)
                 if frb_hdr:
                     prtno = self._net_node.query_port_no(peer1)
                     if prtno and prtno not in exclude_ports:
