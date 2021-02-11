@@ -91,7 +91,9 @@ class OvsBridge(BridgeABC):
             net = "{0}/{1}".format(ip_addr, prefix_len)
             Modlib.runshell([OvsBridge.iptool, "addr", "flush", "dev", self.name])
             Modlib.runshell([OvsBridge.iptool, "addr", "add", net, "dev", self.name])
-
+        else:
+            Modlib.runshell(["sysctl", "net.ipv6.conf.{}.disable_ipv6=1".format(self.name)])
+            Modlib.runshell([OvsBridge.iptool, "addr", "flush", self.name])
         try:
             Modlib.runshell([OvsBridge.brctl, "set", "int", self.name,
                               "mtu_request=" + str(self.mtu)])
@@ -128,6 +130,8 @@ class OvsBridge(BridgeABC):
     def add_port(self, port_name):
         Modlib.runshell([OvsBridge.iptool, "link", "set", "dev", port_name, "mtu",
                           str(self.mtu)])
+        Modlib.runshell(["sysctl", "net.ipv6.conf.{}.disable_ipv6=1".format(port_name)])
+        Modlib.runshell([OvsBridge.iptool, "addr", "flush", port_name])
         Modlib.runshell([OvsBridge.brctl,
                           "--may-exist", "add-port", self.name, port_name])
         self.ports.add(port_name)
