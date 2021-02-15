@@ -128,10 +128,7 @@ class OvsBridge(BridgeABC):
                           "--if-exists", "del-br", self.name])
 
     def add_port(self, port_name):
-        Modlib.runshell([OvsBridge.iptool, "link", "set", "dev", port_name, "mtu",
-                          str(self.mtu)])
-        Modlib.runshell(["sysctl", "net.ipv6.conf.{}.disable_ipv6=1".format(port_name)])
-        Modlib.runshell([OvsBridge.iptool, "addr", "flush", port_name])
+        Modlib.runshell([OvsBridge.iptool, "link", "set", "dev", port_name, "mtu", str(self.mtu)])
         Modlib.runshell([OvsBridge.brctl,
                           "--may-exist", "add-port", self.name, port_name])
         self.ports.add(port_name)
@@ -398,7 +395,13 @@ class BridgeController(ControllerModule):
             olid = cbt.request.params["OverlayId"]
             br = self._ovl_net[olid]
             tnlid = cbt.request.params["TunnelId"]
-            if cbt.request.params["UpdateType"] == "LnkEvConnected":
+            if cbt.request.params["UpdateType"] == "LnkEvCreated":
+                # block external system components from attempting to configure our
+                # tunnel as a source of traffic
+                port_name = cbt.request.params["TapName"]
+                Modlib.runshell(["sysctl", "net.ipv6.conf.{}.disable_ipv6=1".format(port_name)])
+                Modlib.runshell([OvsBridge.iptool, "addr", "flush", port_name])
+            elif cbt.request.params["UpdateType"] == "LnkEvConnected":
                 port_name = cbt.request.params["TapName"]
                 self._tunnels[olid][tnlid] = {
                     "PeerId": cbt.request.params["PeerId"],

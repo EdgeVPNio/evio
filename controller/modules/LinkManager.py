@@ -26,7 +26,7 @@ import time
 from framework.ControllerModule import ControllerModule
 
 
-LinkEvent = ["LnkEvCreating", "LnkEvConnected", "LnkEvDisconnected", "LnkEvRemoved",
+LinkEvent = ["LnkEvCreating", "LnkEvCreated", "LnkEvConnected", "LnkEvDisconnected", "LnkEvRemoved",
              "LnkEvAuthorized", "LnkEvDeauthorized"]
 
 class Link():
@@ -407,9 +407,6 @@ class LinkManager(ControllerModule):
             "StunServers": self.config.get("Stun", []),
             "Type": ol_type,
             "TapName": tap_name,
-            "IP4": self.config["Overlays"][overlay_id].get("IP4"),
-            "MTU4": self.config["Overlays"][overlay_id].get("MTU4"),
-            "IP4PrefixLen": self.config["Overlays"][overlay_id].get("IP4PrefixLen"),
             "IgnoredNetInterfaces": list(
                 self._get_ignored_tap_names(overlay_id, tap_name))
         }
@@ -575,8 +572,10 @@ class LinkManager(ControllerModule):
     def resp_handler_create_tunnel(self, cbt):
         # Create Link: Phase 2 Node A
         parent_cbt = cbt.parent
-        lnkid = cbt.request.params["LinkId"]  # config overlay id
+        lnkid = cbt.request.params["LinkId"]
         tnlid = cbt.request.params["TunnelId"]
+        peer_id = parent_cbt.request.params["PeerId"]
+        tap_name = cbt.request.params["TapName"]
         resp_data = cbt.response.data
         if not cbt.response.status:
             self._cleanup_removed_tunnel(lnkid)
@@ -593,6 +592,9 @@ class LinkManager(ControllerModule):
         self.register_cbt("Logger", "LOG_DEBUG", "Create Link:{} Phase 2/5 Node A"
                           .format(lnkid[:7]))
         self._update_tunnel_descriptor(resp_data, tnlid)
+        lnkupd_param = {"UpdateType": "LnkEvCreated", "OverlayId": overlay_id, "PeerId": peer_id,
+                        "TunnelId": tnlid, "LinkId": lnkid, "TapName": tap_name}
+        self._link_updates_publisher.post_update(lnkupd_param)        
         # create and send remote action to request endpoint from peer
         params = {"OverlayId": overlay_id, "TunnelId": tnlid, "LinkId": lnkid}
         self._request_peer_endpoint(params, parent_cbt)
@@ -646,9 +648,6 @@ class LinkManager(ControllerModule):
             "StunServers": self.config.get("Stun", []),
             "Type": ol_type,
             "TapName": tap_name,
-            "IP4": self.config["Overlays"][olid].get("IP4"),
-            "MTU4": self.config["Overlays"][olid].get("MTU4"),
-            "IP4PrefixLen": self.config["Overlays"][olid].get("IP4PrefixLen"),
             "IgnoredNetInterfaces": list(
                 self._get_ignored_tap_names(olid, tap_name)),
             # link params
@@ -690,6 +689,10 @@ class LinkManager(ControllerModule):
         node_data = cbt.request.params["NodeData"]
         self._tunnels[tnlid].peer_mac = node_data["MAC"]
         self._tunnels[tnlid].link.creation_state = 0xB2
+        tap_name = cbt.request.params["TapName"]
+        lnkupd_param = {"UpdateType": "LnkEvCreated", "OverlayId": cbt.request.params["OverlayId"],
+                        "PeerId": peer_id, "TunnelId": tnlid, "LinkId": lnkid, "TapName": tap_name}
+        self._link_updates_publisher.post_update(lnkupd_param)        
         # respond with this nodes connection parameters
         node_data = {
             "MAC": resp_data["MAC"],

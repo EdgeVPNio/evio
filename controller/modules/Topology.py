@@ -35,7 +35,7 @@ from .GraphBuilder import GraphBuilder
 
 
 class DiscoveredPeer():
-    ExclusionBaseInterval = 60
+    ExclusionBaseInterval = 60 #Todo: parameterize
     def __init__(self, peer_id):
         self.peer_id = peer_id
         self.is_banned = False # bars conn attempts from local node, the peer can still recon
@@ -199,7 +199,7 @@ class Topology(ControllerModule, CFX):
                 disc = DiscoveredPeer(peer_id)
                 self._net_ovls[olid]["KnownPeers"][peer_id] = disc
             disc.presence()
-        elif params["UpdateType"] == "LnkEvCreating":
+        elif params["UpdateType"] in ["LnkEvCreating", "LnkEvCreated"]:
             pass
         elif params["UpdateType"] == "LnkEvConnected":
             self._net_ovls[olid]["KnownPeers"][peer_id].restore()
