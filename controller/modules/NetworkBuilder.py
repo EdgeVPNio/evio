@@ -110,6 +110,8 @@ class NetworkBuilder():
         elif event["UpdateType"] == "LnkEvCreating":
             conn_edge = self._current_adj_list.conn_edges.get(peer_id, None)
             conn_edge.edge_state = "CEStateCreated"
+        elif event["UpdateType"] == "LnkEvCreated":
+            pass
         elif event["UpdateType"] == "LnkEvConnected":
             self._current_adj_list[peer_id].edge_state = "CEStateConnected"
             self._current_adj_list[peer_id].connected_time = \
