@@ -41,13 +41,6 @@ CONFIG = {
         "MaxArchives": 5,   # Keep up to 5 files of history
         "ConsoleLevel": None
     },
-    "OverlayVisualizer": {
-        "Enabled": False,
-        "TimerInterval": 30,                # Timer thread interval
-        "WebServiceAddress": ":5000",       # Visualizer webservice URL
-        "NodeName": "",                     # Node Name as seen from the UI
-        "Dependencies": ["Logger"]
-    },
     "TincanInterface": {
         "Enabled": True,
         "MaxReadSize": 65507,               # Max buffer size for Tincan Messages
@@ -78,10 +71,6 @@ CONFIG = {
         "TimerInterval": 30,
         "PeerDiscoveryCoalesce": 1,
         "ExclusionBaseInterval": 240,
-        "MaxSuccessors": 2,
-        "MaxOnDemandEdges": 1,
-        "MaxConcurrentEdgeSetup": 2,
-        "Role": "Switch",
         "Dependencies": ["Logger", "TincanInterface", "LinkManager"]
     },
     "BridgeController": {
