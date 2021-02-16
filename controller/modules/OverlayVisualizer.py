@@ -26,6 +26,7 @@ except ImportError:
 import threading
 from collections import defaultdict
 import requests
+import zlib
 from framework.ControllerModule import ControllerModule
 
 
@@ -95,9 +96,10 @@ class OverlayVisualizer(ControllerModule):
         self.register_cbt("Logger", "LOG_DEBUG", data_log)
         try:
             resp = requests.put(self._req_url,
-                                data=json.dumps(collector_msg),
+                                data=zlib.compress(json.dumps(collector_msg).encode('utf-8')),
                                 headers={"Content-Type":
-                                            "application/json"})
+                                             "application/json",
+                                         "Content-Encoding": "deflate"})
             resp.raise_for_status()
         except requests.exceptions.RequestException as err:
             err_msg = "Failed to send data to the collector webservice" \
