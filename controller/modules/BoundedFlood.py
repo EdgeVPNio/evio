@@ -70,6 +70,17 @@ def runcmd(cmd):
     p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     return p
 
+def is_multicast(mac_addr):
+
+    """
+    :param addr: An IEEE EUI-48 (MAC) address in UNIX/WINDOWS string form.
+
+    :return: ``True`` if MAC address string is multicast, ``False`` otherwise.
+    """
+    if not isinstance(mac_addr, (str, type(''.encode()))):
+        return False
+    return bool(int(mac_addr.split(":")[0], 16) & 1)
+    
 ##########################################################################
 #     Custom datastores supporting expiration of stale entries           #
 ##########################################################################
@@ -303,7 +314,7 @@ class netNode():
 
     def update_leaf_ports(self):
         # self._leaf_prts = set(pno for pno in self.port_state if pno not in self.links)
-        self._leaf_prts = {1, 4294967294}
+        self._leaf_prts = {1} #, 4294967294}
         self.logger.info("+ Updated leaf ports: %s", str(self._leaf_prts))
 
     def add_port(self, ofpport):
@@ -491,7 +502,7 @@ class LearningTable():
         """
         self.ingress_tbl[src_mac] = in_port
         if in_port in self.leaf_ports:
-            self.logger.debug("learn: add loocal leaf mac %s", src_mac)
+            self.logger.debug("learn: add local leaf mac %s", src_mac)
             self.peersw_tbl[self._nid].leaf_macs.add(src_mac)
         elif rnid:
             if rnid not in self.peersw_tbl:
@@ -630,6 +641,7 @@ class BoundedFlood(app_manager.RyuApp):
         if node.port_state:
             node.update() # necessary as the DP can sometimes have existing ports at this event
         self.lt.node_id = node.node_id
+        self.lt.leaf_ports = node.leaf_ports()
 
     @set_ev_cls(event.EventSwitchLeave, [MAIN_DISPATCHER, CONFIG_DISPATCHER, DEAD_DISPATCHER])
     def handler_switch_leave(self, ev):
@@ -678,17 +690,17 @@ class BoundedFlood(app_manager.RyuApp):
         dst = eth.dst
         src = eth.src
         dpid = datapath.id
-        req_igmp = pkt.get_protocol(igmp.igmp)
-        req_ip = pkt.get_protocol(ipv4.ipv4)
-        is_igmp = False
-        is_dvmrp = False
-        if req_ip and req_ip.proto == 200:
-            is_dvmrp=True
-        if req_igmp:
-            is_igmp = True
-            self._handle_igmp(msg)
-        elif is_dvmrp:
-            self._handle_dvmrp(msg)
+        # req_igmp = pkt.get_protocol(igmp.igmp)
+        # req_ip = pkt.get_protocol(ipv4.ipv4)
+        # is_igmp = False
+        # is_dvmrp = False
+        # if req_ip and req_ip.proto == 200:
+        #     is_dvmrp=True
+        # if req_igmp:
+        #     is_igmp = True
+        #     self._handle_igmp(msg)
+        # elif is_dvmrp:
+        #     self._handle_dvmrp(msg)
 
         with self._lock:
             if eth.ethertype == 0xc0c0:
@@ -709,15 +721,20 @@ class BoundedFlood(app_manager.RyuApp):
                 datapath.send_msg(out)
             else:
                 # this dst mac is not in our LT
-                self.logger.debug("Default packet in %s %s %s %s", dpid, src, dst, in_port)
+                self.logger.debug("Default packet in dpid:%s src:%s dst:%s ingress:%s", dpid, src, dst, in_port)
+                if in_port not in self.lt.leaf_ports and is_multicast(dst):
+                    # a broadcast or multicast frame was received on a peer sw link.
+                    # This is invalid as these tunnel interfaces should not be used the src of a request.
+                    self.logger.debug("Dropping multi/broadcast frame to %s on ingress %s", dst, in_port)
+                    return
                 self.lt[src] = in_port
                 frb_type=0    
                 if in_port != 1:
                     frb_type=2      # this node did not initiate the frame but it has no data on how to switch it so it must brdcast with an FRB
                 # check if this is a multicast frame
-                if eth.dst.split(':')[0] == '01':
-                    if self._handle_multicast_frame(msg,is_igmp,is_dvmrp):
-                        return
+                # if eth.dst.split(':')[0] == '01':
+                #     if self._handle_multicast_frame(msg,is_igmp,is_dvmrp):
+                        # return
                 #perform bounded flood same as leaf case
                 fld = self.flooding_bounds.get(dpid, None)
                 if not fld:
