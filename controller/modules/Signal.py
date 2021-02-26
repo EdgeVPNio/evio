@@ -30,6 +30,7 @@ try:
 except ImportError:
     import json
 import random
+import socket
 import slixmpp
 from slixmpp import ElementBase, register_stanza_plugin, Message, Callback, StanzaPath, JID
 from framework.ControllerModule import ControllerModule
@@ -89,6 +90,7 @@ class XmppTransport(slixmpp.ClientXMPP):
         self._enable_tls = True
         self._enable_ssl = False
         self.xmpp_thread = None
+        self._init_event = threading.Event()
 
     def host(self):
         return self._host
@@ -176,6 +178,7 @@ class XmppTransport(slixmpp.ClientXMPP):
             asyncio.ensure_future(self.get_roster(), loop=self.loop)
             # Send initial sign-on presence
             self.send_presence(pstatus="ident#" + self._node_id)
+            self._init_event.set()
         except Exception as err:
             self._sig.log("LOG_ERROR", "XmppTransport: Exception:%s Event:%s", err, event)
 
@@ -270,9 +273,25 @@ class XmppTransport(slixmpp.ClientXMPP):
         msg["evio"]["payload"] = payload
         self.loop.call_soon_threadsafe(msg.send)
 
-    def run(self):
+    def wait_until_initialized(self):
+        return self._init_event.wait(10.0)
+
+    def _check_network(self):
+        # handle boot time start where the network is not yet available
+        res = []
         try:
-            self.connect(address=(self._host, self._port))
+            res = socket.getaddrinfo(self._host, self._port, 0, socket.SOCK_STREAM)
+        except socket.gaierror as err:
+                    self._sig.log("LOG_ERROR", "Check network failed, unable to retrieve address info for %s:%s.", self._host, self._port)
+        return bool(res)
+
+    def run(self):
+        if not self._check_network():
+            self._init_event.set()
+            return
+
+        try:
+            self.connect(address=(self._host, int(self._port)))
             self.process(forever=True)
             self._sig.log("LOG_DEBUG", "Attempting graceful shutdown of XMPP overlay=%s", self._overlay_id)
             # Do not show `asyncio.CancelledError` exceptions during shutdown
@@ -469,10 +488,11 @@ class Signal(ControllerModule):
     def timer_method(self):
         with self._lock:
             for overlay_id in self._circles:
+                self._circles[overlay_id]["Transport"].wait_until_initialized()
                 if not self._circles[overlay_id]["Transport"].is_connected():
                     self.log("LOG_WARNING", "ThreadId=%d, OverlayID %s is disconnected; "
-                             "attempting to recreate session",
-                             self._circles[overlay_id]["TransportThread"].ident, overlay_id)
+                            "attempting to recreate session",
+                            self._circles[overlay_id]["TransportThread"].ident, overlay_id)
                     self._circles[overlay_id]["TransportThread"].join()
                     self._setup_circle(overlay_id)
                     continue
@@ -489,7 +509,7 @@ class Signal(ControllerModule):
     def terminate(self):
         for overlay_id in self._circles:
             self._circles[overlay_id]["Transport"].shutdown()
-            self._circles[overlay_id]["XMPPThread"].join(0.2)
+            self._circles[overlay_id]["TransportThread"].join(0.2)
 
     def scavenge_pending_cbts(self):
         scavenge_list = []
