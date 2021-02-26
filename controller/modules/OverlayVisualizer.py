@@ -63,10 +63,6 @@ class OverlayVisualizer(ControllerModule):
                         for mod_name in msg:
                             for ovrl_id in msg[mod_name]:
                                 self._vis_ds["VizData"][ovrl_id][mod_name] = msg[mod_name][ovrl_id]
-                else:
-                    warn_msg = "Got no data in CBT response from module" \
-                        " {}".format(cbt.request.recipient)
-                    self.register_cbt("Logger", "LOG_WARNING", warn_msg)
                 self.free_cbt(cbt)
             else:
                 parent_cbt = cbt.parent
@@ -92,11 +88,11 @@ class OverlayVisualizer(ControllerModule):
         if "GeoCoordinate" in self._cm_config:
             collector_msg["GeoCoordinate"] = self._cm_config["GeoCoordinate"]
         collector_msg["Version"] = self._evio_version
-        data_log = "Submitting collector data {}".format(collector_msg)
-        self.register_cbt("Logger", "LOG_DEBUG", data_log)
+        viz_data = json.dumps(collector_msg).encode('utf-8')
+        self.log("LOG_DEBUG", "Submitting collector data %s", viz_data)
         try:
             resp = requests.put(self._req_url,
-                                data=zlib.compress(json.dumps(collector_msg).encode('utf-8')),
+                                data=zlib.compress(viz_data),
                                 headers={"Content-Type":
                                              "application/json",
                                          "Content-Encoding": "deflate"})

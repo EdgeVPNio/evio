@@ -180,7 +180,8 @@ class Topology(ControllerModule, CFX):
                                "ConnectedTime": ce.connected_time,
                                "State": ce.edge_state, "Type": ce.edge_type}
                         edges[ce.edge_id] = ced
-                    topo_data[olid] = edges
+                    if edges:
+                        topo_data[olid] = edges
             cbt.set_response({"Topology": topo_data}, bool(topo_data))
             self.complete_cbt(cbt)
         except KeyError:
