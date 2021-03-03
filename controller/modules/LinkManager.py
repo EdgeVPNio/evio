@@ -98,7 +98,7 @@ class Tunnel():
         self._tunnel_state = new_state
 
 class LinkManager(ControllerModule):
-
+    TAPNAME_MAXLEN = 15
     def __init__(self, cfx_handle, module_config, module_name):
         super(LinkManager, self).__init__(cfx_handle, module_config, module_name)
         self._tunnels = {}   # maps tunnel id to its descriptor
@@ -394,7 +394,9 @@ class LinkManager(ControllerModule):
         tnlid = params["TunnelId"]
         lnkid = params["LinkId"]
         peer_id = params["PeerId"]
-        tap_name = self.config["Overlays"][overlay_id]["TapName"][:8] + str(peer_id[:7])
+        tap_name_prefix = self.config["Overlays"][overlay_id].get("TapNamePrefix", "")
+        end_i = self.TAPNAME_MAXLEN - len(tap_name_prefix)
+        tap_name = tap_name_prefix + str(peer_id[:end_i])
         if os.name == "nt":
             tap_name = self.config["Overlays"][overlay_id]["TapName"]
         self.log("LOG_DEBUG", "IgnoredNetInterfaces: %s",
@@ -630,6 +632,8 @@ class LinkManager(ControllerModule):
         self._tunnels[tnlid].tunnel_state = Tunnel.STATES.TNL_CREATING
         self._tunnels[tnlid].timeout = time.time() + self.config["LinkSetupTimeout"]
         self._assign_link_to_tunnel(tnlid, lnkid, 0xB1)
+        self.register_cbt("Logger", "LOG_DEBUG", "Create Link:{} Phase 1/4 Node B"
+                          .format(lnkid[:7]))        
         # publish notification of link creation initiated Node B
         lnkupd_param = {
             "UpdateType": "LnkEvCreating", "OverlayId": olid, "PeerId": peer_id,
@@ -637,7 +641,9 @@ class LinkManager(ControllerModule):
         self._link_updates_publisher.post_update(lnkupd_param)
         # Send request to Tincan
         ol_type = self.config["Overlays"][olid]["Type"]
-        tap_name = self.config["Overlays"][olid]["TapName"][:8] + str(peer_id[:7])
+        tap_name_prefix = self.config["Overlays"][olid].get("TapNamePrefix", "")[:3]
+        end_i = self.TAPNAME_MAXLEN - len(tap_name_prefix)
+        tap_name = tap_name_prefix + str(peer_id[:end_i])
         self.log("LOG_DEBUG", "IgnoredNetInterfaces: %s",
                  self._get_ignored_tap_names(olid, tap_name))
         create_link_params = {

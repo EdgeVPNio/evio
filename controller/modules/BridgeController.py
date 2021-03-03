@@ -313,6 +313,7 @@ class VNIC(BridgeABC):
 ###################################################################################################
 
 def BridgeFactory(overlay_id, dev_type, config, cm, sdn_config=None):
+    BR_NAME_MAX_LENGTH = 15
     br = None
     if dev_type == VNIC.bridge_type:
         br = VNIC(ip_addr=config.get("IP4", None),
@@ -320,14 +321,20 @@ def BridgeFactory(overlay_id, dev_type, config, cm, sdn_config=None):
                   mtu=config.get("MTU", 1410),
                   cm=cm)
     elif dev_type == LinuxBridge.bridge_type:
-        br = LinuxBridge(name=config["NamePrefix"][:8] + overlay_id[:7],
+        name_prefix = config.get("NamePrefix", "")[:3]
+        end_i = BR_NAME_MAX_LENGTH - len(name_prefix)
+        br_name = name_prefix + overlay_id[:end_i]
+        br = LinuxBridge(name=br_name,
                          ip_addr=config.get("IP4", None),
                          prefix_len=config.get("PrefixLen", None),
                          mtu=config.get("MTU", 1410),
                          cm=cm,
                          stp_enable=(True if config.get("SwitchProtocol", "STP").casefold() == "stp" else False))
     elif dev_type == OvsBridge.bridge_type:
-        br = OvsBridge(name=config["NamePrefix"][:8] + overlay_id[:7],
+        name_prefix = config.get("NamePrefix", "")[:3]
+        end_i = BR_NAME_MAX_LENGTH - len(name_prefix)
+        br_name = name_prefix + overlay_id[:end_i]       
+        br = OvsBridge(name=br_name,
                        ip_addr=config.get("IP4", None),
                        prefix_len=config.get("PrefixLen", None),
                        mtu=config.get("MTU", 1410),
@@ -358,6 +365,7 @@ class BridgeController(ControllerModule):
             self._ovl_net[olid] = BridgeFactory(olid, br_cfg["NetDevice"]["Type"],
                                                 br_cfg["NetDevice"], self,
                                                 br_cfg.get("SDNController", {}))
+            self.config["BoundedFlood"]["BridgeName"] = self._ovl_net[olid].name
             if "AppBridge" in br_cfg["NetDevice"]:
                 name = self._create_app_bridge(olid, br_cfg["NetDevice"]["AppBridge"])
                 ign_br_names[olid].add(name)
@@ -482,7 +490,9 @@ class BridgeController(ControllerModule):
         self.complete_cbt(cbt)
 
     def _create_app_bridge(self, olid, abr_cfg):
-        name = abr_cfg["NamePrefix"] + olid[:7]
+        name_prefix = abr_cfg.get("NamePrefix", "")[:3]
+        end_i = 15 - len(name_prefix)
+        name = name_prefix[:3] + olid[:end_i]
         gbr = BridgeFactory(olid, abr_cfg["Type"], abr_cfg, self)
 
         gbr.add_patch_port(self._ovl_net[olid].get_patch_port_name())
