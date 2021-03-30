@@ -36,7 +36,7 @@
     "Overlays": {
       "OVERLAYNAME": {
         "Type": "TUNNEL",
-        "TapName": "tnl-"
+        "TapNamePrefix": "tnl"
       }
     }
   },
@@ -46,7 +46,7 @@
         "LogDir": "/var/log/evio/",
         "LogFilename": "bf.log",
         "LogLevel": "WARNING",
-        "BridgeName": "evio",
+        "BridgeName": "",
         "DemandThreshold": "100M",
         "FlowIdleTimeout": 60,
         "FlowHardTimeout": 60,
@@ -64,14 +64,14 @@
                 "AutoDelete": true,
                 "Type": "OVS",
                 "SwitchProtocol": "BF",
-                "NamePrefix": "evio",
+                "NamePrefix": "evi",
                 "IP4": "10.10.10.*",
                 "PrefixLen": 24,
                 "MTU": 1410,
                 "AppBridge": {
                    "AutoDelete": true,
                     "Type": "OVS",
-                    "NamePrefix": "appbr",
+                    "NamePrefix": "abr",
                     "IP4": "10.10.10.*",
                     "PrefixLen": 24,
                     "MTU": 1410
