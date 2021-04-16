@@ -169,6 +169,7 @@ class Topology(ControllerModule, CFX):
         try:
             edges = {}
             for olid in self._net_ovls:
+                topo_data[olid] = {}
                 nb = self._net_ovls[olid]["NetBuilder"]
                 if nb:
                     adjl = nb.get_adj_list()
