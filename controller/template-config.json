@@ -1,6 +1,6 @@
 {
   "CFx": {
-    "Overlays": [ "OVERLAYNAME" ]
+    "Overlays": ["OVERLAYNAME"]
   },
   "Logger": {
     "LogLevel": "WARNING",
@@ -17,6 +17,22 @@
       }
     }
   },
+  "LinkManager": {
+    "Stun": ["stun.l.google.com:19302", "stun1.l.google.com:19302"],
+    "Turn": [
+      {
+        "Address": "***.***.***:3478",
+        "User": "***",
+        "Password": "***"
+      }
+    ],
+    "Overlays": {
+      "OVERLAYNAME": {
+        "Type": "TUNNEL",
+        "TapName": "tnl-"
+      }
+    }
+  },
   "Topology": {
     "Overlays": {
       "OVERLAYNAME": {
@@ -26,66 +42,53 @@
       }
     }
   },
-  "LinkManager": {
-    "Stun": [ "stun.l.google.com:19302", "stun1.l.google.com:19302" ],
-    "Turn": [{
-      "Address": "***.***.***:3478",
-      "User": "***",
-      "Password": "***"
-     }],
+  "BridgeController": {
+    "BoundedFlood": {
+      "OverlayId": "OVERLAYNAME",
+      "LogDir": "/var/log/evio/",
+      "LogFilename": "bf.log",
+      "LogLevel": "WARNING",
+      "BridgeName": "evio",
+      "DemandThreshold": "100M",
+      "FlowIdleTimeout": 60,
+      "FlowHardTimeout": 60,
+      "MulticastBroadcastInterval": 60,
+      "MaxBytes": 10000000,
+      "BackupCount": 2,
+      "ProxyListenAddress": "",
+      "ProxyListenPort": 5802,
+      "MonitorInterval": 60,
+      "MaxOnDemandEdges": 3
+    },
     "Overlays": {
       "OVERLAYNAME": {
-        "Type": "TUNNEL",
-        "TapName": "tnl-"
+        "NetDevice": {
+          "AutoDelete": true,
+          "Type": "OVS",
+          "SwitchProtocol": "BF",
+          "NamePrefix": "evio",
+          "IP4": "10.10.10.*",
+          "PrefixLen": 24,
+          "MTU": 1410,
+          "AppBridge": {
+            "AutoDelete": true,
+            "Type": "OVS",
+            "NamePrefix": "appbr",
+            "IP4": "10.10.10.*",
+            "PrefixLen": 24,
+            "MTU": 1410
+          }
+        },
+        "SDNController": {
+          "ConnectionType": "tcp",
+          "HostName": "127.0.0.1",
+          "Port": "6633"
+        }
       }
     }
   },
-  "BridgeController": {
-    "BoundedFlood": {
-        "OverlayId": "OVERLAYNAME",
-        "LogDir": "/var/log/evio/",
-        "LogFilename": "bf.log",
-        "LogLevel": "WARNING",
-        "BridgeName": "evio",
-        "DemandThreshold": "100M",
-        "FlowIdleTimeout": 60,
-        "FlowHardTimeout": 60,
-        "MulticastBroadcastInterval": 60,
-        "MaxBytes": 10000000,
-        "BackupCount": 2,
-        "ProxyListenAddress": "",
-        "ProxyListenPort": 5802,
-        "MonitorInterval": 60,
-        "MaxOnDemandEdges": 3
-    },
-    "Overlays": {
-        "OVERLAYNAME": {
-            "NetDevice": {
-                "AutoDelete": true,
-                "Type": "OVS",
-                "SwitchProtocol": "BF",
-                "NamePrefix": "evio",
-                "IP4": "10.10.10.*",
-                "PrefixLen": 24,
-                "MTU": 1410,
-                "AppBridge": {
-                   "AutoDelete": true,
-                    "Type": "OVS",
-                    "NamePrefix": "appbr",
-                    "IP4": "10.10.10.*",
-                    "PrefixLen": 24,
-                    "MTU": 1410
-                }
-            },
-            "SDNController": {
-                "ConnectionType": "tcp",
-                "HostName": "127.0.0.1",
-                "Port": "6633"
-            }
-        }
-    }
-  },
   "UsageReport": {
+    "Dependencies": ["Logger", "Topology"],
     "TimerInterval": 86400,
     "WebService": "https://qdscz6pg37.execute-api.us-west-2.amazonaws.com/default/EvioUsageReport"
   }
