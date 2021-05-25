@@ -245,11 +245,11 @@ class XmppTransport(slixmpp.ClientXMPP):
                     entry = rm_que.get()
                     msg_type, msg_data = entry[0], entry[1]
                     self.send_msg(match_jid, msg_type, json.dumps(msg_data))
-                    self._sig.log("LOG_DEBUG", "Sent remote action: %s", msg_payload)
+                    self._sig.log("LOG_DEBUG", "Sent buffered remote action: %s", msg_data)
             elif msg_type == "announce":
                 peer_jid, peer_id = msg_payload.split("#")
                 if peer_id == self._sig.node_id:
-                    self._sig.log("UID Announce msg returned to self msg=%s", msg)
+                    self._sig.log("LOG_INFO", "UID Announce msg returned to self msg=%s", msg)
                     return
                 # a notification of a peers node id to jid mapping
                 pts = self._jid_cache.add_entry(node_id=peer_id, jid=peer_jid)
