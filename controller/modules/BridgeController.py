@@ -24,6 +24,7 @@ try:
     import simplejson as json
 except ImportError:
     import json
+import copy
 import threading
 import os
 import socketserver
@@ -83,7 +84,7 @@ class OvsBridge(BridgeABC):
         if OvsBridge.brctl is None or OvsBridge.iptool is None:
             raise RuntimeError("openvswitch-switch was not found" if not OvsBridge.brctl else
                                "iproute2 was not found")
-        self._patch_port = self.name[:3]+"-pp0"
+        self._patch_port = "pp-"+self.name[:12]
         Modlib.runshell([OvsBridge.brctl, "--may-exist", "add-br", self.name])
 
 
@@ -264,8 +265,8 @@ class BFRequestHandler(socketserver.BaseRequestHandler):
 
     def process_task(self, task):
         # task structure
-        # dict(Request=dict(Action=None, Params=None),
-        #      Response=dict(Status=False, Data=None))
+        # dict(SSeq=seqi, Request=dict(Action=None, Params=None),
+        #      DSeq=seqo, Response=dict(Status=False, Data=None))
         if task["Request"]["Action"] == "GetTunnels":
             task = self._handle_get_topo(task)
         elif task["Request"]["Action"] == "GetNodeId":
@@ -284,8 +285,9 @@ class BFRequestHandler(socketserver.BaseRequestHandler):
 
     def _handle_get_topo(self, task):
         olid = task["Request"]["Params"]["OverlayId"]
-        topo = self.server.netman.get_ovl_topo(olid)
-        task["Response"] = dict(Status=True, Data=topo)
+        topo = copy.deepcopy(self.server.netman.get_ovl_topo(olid))
+        dseq = topo.pop("DSeq") #Todo: possible fail
+        task["Response"] = dict(DSeq= dseq, Status=True, Data=topo)
         return task
 
 ###################################################################################################
@@ -358,19 +360,6 @@ class BridgeController(ControllerModule):
 
     def initialize(self):
         ign_br_names = dict()
-        for olid in self.overlays:
-            self._tunnels[olid] = dict()
-            br_cfg = self.overlays[olid]
-            ign_br_names[olid] = set()
-            self._ovl_net[olid] = BridgeFactory(olid, br_cfg["NetDevice"]["Type"],
-                                                br_cfg["NetDevice"], self,
-                                                br_cfg.get("SDNController", {}))
-            self.config["BoundedFlood"]["BridgeName"] = self._ovl_net[olid].name
-            if "AppBridge" in br_cfg["NetDevice"]:
-                name = self._create_app_bridge(olid, br_cfg["NetDevice"]["AppBridge"])
-                ign_br_names[olid].add(name)
-            ign_br_names[olid].add(self._ovl_net[olid].name)
-            self.log("LOG_DEBUG", "ignored bridges=%s", ign_br_names)
         # start the BF proxy if at least one overlay is configured for it
         if "BoundedFlood" in self.config:
             proxy_listen_address = self.config["BoundedFlood"]["ProxyListenAddress"]
@@ -383,7 +372,20 @@ class BridgeController(ControllerModule):
             self._server_thread.setDaemon(True)
             self._server_thread.start()
             # start the BF RYU module
-            self._bfproxy.start_bf_client_module()
+            # self._bfproxy.start_bf_client_module()
+        for olid in self.overlays:
+            self._tunnels[olid] = dict(DSeq=0)
+            br_cfg = self.overlays[olid]
+            ign_br_names[olid] = set()
+            self._ovl_net[olid] = BridgeFactory(olid, br_cfg["NetDevice"]["Type"],
+                                                br_cfg["NetDevice"], self,
+                                                br_cfg.get("SDNController", {}))
+            self.config["BoundedFlood"]["BridgeName"] = self._ovl_net[olid].name
+            if "AppBridge" in br_cfg["NetDevice"]:
+                name = self._create_app_bridge(olid, br_cfg["NetDevice"]["AppBridge"])
+                ign_br_names[olid].add(name)
+            ign_br_names[olid].add(self._ovl_net[olid].name)
+            self.log("LOG_DEBUG", "ignored bridges=%s", ign_br_names)
                         
         self.register_cbt("LinkManager", "LNK_ADD_IGN_INF", ign_br_names)
         #try:
@@ -402,16 +404,17 @@ class BridgeController(ControllerModule):
         try:
             olid = cbt.request.params["OverlayId"]
             br = self._ovl_net[olid]
+            port_name = cbt.request.params.get("TapName")
             tnlid = cbt.request.params["TunnelId"]
             if cbt.request.params["UpdateType"] == "LnkEvCreated":
                 # block external system components from attempting to configure our
                 # tunnel as a source of traffic
-                port_name = cbt.request.params["TapName"]
+                #port_name = cbt.request.params["TapName"]
                 Modlib.runshell(["sysctl", "net.ipv6.conf.{}.disable_ipv6=1".format(port_name)])
                 Modlib.runshell([OvsBridge.iptool, "addr", "flush", port_name])
             elif cbt.request.params["UpdateType"] == "LnkEvConnected":
-                port_name = cbt.request.params["TapName"]
-                self._tunnels[olid][tnlid] = {
+                #port_name = cbt.request.params["TapName"]
+                self._tunnels[olid][port_name] = {
                     "PeerId": cbt.request.params["PeerId"],
                     "TunnelId": tnlid,
                     "ConnectedTimestamp": cbt.request.params["ConnectedTimestamp"],
@@ -419,15 +422,15 @@ class BridgeController(ControllerModule):
                     "MAC": Modlib.delim_mac_str(cbt.request.params["MAC"]),
                     "PeerMac": Modlib.delim_mac_str(cbt.request.params["PeerMac"])
                     }
+                self._tunnels[olid]["DSeq"] = self._tunnels[olid]["DSeq"] +1
                 br.add_port(port_name)
                 self.log("LOG_INFO", "Port %s added to bridge %s", port_name, str(br))
             elif cbt.request.params["UpdateType"] == "LnkEvRemoved":
-                self._tunnels[olid].pop(tnlid, None)
+                self._tunnels[olid].pop(port_name, None)
                 if br.bridge_type == OvsBridge.bridge_type:
-                    port_name = cbt.request.params.get("TapName")
-                    if port_name:
-                        br.del_port(port_name)
-                        self.log("LOG_INFO", "Port %s removed from bridge %s", port_name, str(br))
+                    self._tunnels[olid]["DSeq"] = self._tunnels[olid]["DSeq"] +1
+                    br.del_port(port_name)
+                    self.log("LOG_INFO", "Port %s removed from bridge %s", port_name, str(br))
         except RuntimeError as err:
             self.register_cbt("Logger", "LOG_WARNING", str(err))
         cbt.set_response(None, True)
