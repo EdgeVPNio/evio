@@ -1062,8 +1062,8 @@ class LinkManager(ControllerModule):
                 tnl_data["MAC"] = self._tunnels[tnlid].mac
             #if "IceRole" in self._tunnels[tnlid]["Link"]:
             #    tnl_data["IceRole"] = self._tunnels[tnlid]["Link"]["IceRole"]
-            if self._tunnels[tnlid].link.stats:
-                tnl_data["Stats"] = self._tunnels[tnlid].link.stats
+            # if self._tunnels[tnlid].link.stats:
+            #     tnl_data["Stats"] = self._tunnels[tnlid].link.stats
             overlay_id = self._tunnels[tnlid].overlay_id
 
             if overlay_id not in tnls:
