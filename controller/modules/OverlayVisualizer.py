@@ -36,11 +36,11 @@ class OverlayVisualizer(ControllerModule):
                                                 module_config, module_name)
         self._vis_ds_lock = threading.Lock()
         self._vis_req_publisher = None
-        self._evio_version = self._cfx_handle.query_param("Version")
-        self._vis_ds = dict(NodeId=self.node_id, VizData=defaultdict(dict))
         # Visualizer webservice URL
         self._vis_address = "http://" + self._cm_config["WebServiceAddress"]
-        self._req_url = "{}/EVIO/nodes/{}".format(self._vis_address, self.node_id)
+        self._req_url = "{}/EVIO/nodes/{}".format(
+            self._vis_address, self.node_id)
+        self._vis_ds = None
 
     def initialize(self):
         # We're using the pub-sub model here to gather data for the visualizer
@@ -48,16 +48,26 @@ class OverlayVisualizer(ControllerModule):
         # Using this publisher, the OverlayVisualizer publishes events in the
         # timer_method() and all subscribing modules are expected to reply
         # with the data they want to forward to the visualiser
+        self.init_viz_data()
         self._vis_req_publisher = \
             self._cfx_handle.publish_subscription("VIS_DATA_REQ")
 
         self.register_cbt("Logger", "LOG_INFO", "Module loaded")
 
+    def init_viz_data(self):
+        self._vis_ds = dict(NodeId=self.node_id, VizData=defaultdict(dict))
+        self._vis_ds["Version"] = self._cfx_handle.query_param("Version")
+        for olid in self._cfx_handle.query_param("Overlays"):
+            self._vis_ds["VizData"][olid] = defaultdict(dict)
+        if "NodeName" in self._cm_config:
+            self._vis_ds["NodeName"] = self._cm_config["NodeName"]
+        if "GeoCoordinate" in self._cm_config:
+            self._vis_ds["GeoCoordinate"] = self._cm_config["GeoCoordinate"]
+
     def process_cbt(self, cbt):
         if cbt.op_type == "Response":
             if cbt.request.action == "VIS_DATA_REQ":
                 msg = cbt.response.data
-
                 if cbt.response.status and msg:
                     with self._vis_ds_lock:
                         for mod_name in msg:
@@ -81,20 +91,14 @@ class OverlayVisualizer(ControllerModule):
         with self._vis_ds_lock:
             collector_msg = self._vis_ds
             # flush old data, next itr provides new data
-            self._vis_ds = dict(NodeId=self.node_id,
-                                VizData=defaultdict(dict))
-        if "NodeName" in self._cm_config:
-            collector_msg["NodeName"] = self._cm_config["NodeName"]
-        if "GeoCoordinate" in self._cm_config:
-            collector_msg["GeoCoordinate"] = self._cm_config["GeoCoordinate"]
-        collector_msg["Version"] = self._evio_version
+            self.init_viz_data()
         viz_data = json.dumps(collector_msg).encode('utf-8')
         self.log("LOG_DEBUG", "Submitting collector data %s", viz_data)
         try:
             resp = requests.put(self._req_url,
                                 data=zlib.compress(viz_data),
                                 headers={"Content-Type":
-                                             "application/json",
+                                         "application/json",
                                          "Content-Encoding": "deflate"})
             resp.raise_for_status()
         except requests.exceptions.RequestException as err:
