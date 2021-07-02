@@ -314,8 +314,8 @@ class LinkManager(ControllerModule):
 
     def _cleanup_tunnel(self, tnl):
         """ Remove the tunnel data """
-        del self._peers[tnl.overlay_id][tnl.peer_id]
-        del self._tunnels[tnl.tnlid]
+        self._peers[tnl.overlay_id].pop(tnl.peer_id, None)
+        self._tunnels.pop(tnl.tnlid, None)
 
     def _cleanup_removed_tunnel(self, tnlid):
         """ Remove the tunnel data """
@@ -1077,17 +1077,10 @@ class LinkManager(ControllerModule):
         pass
 
     def req_handler_query_viz_data(self, cbt):
-        nid = self.node_id
         tnls = dict()
         for tnlid in self._tunnels:
             if self._tunnels[tnlid].link is None:
                 continue
-            tnl_data = {
-                "NodeId": nid,
-                "PeerId": self._tunnels[tnlid].peer_id,
-                "TunnelState": self._tunnels[tnlid].tunnel_state
-            }
-
             if self._tunnels[tnlid].tap_name:
                 tnl_data["TapName"] = self._tunnels[tnlid].tap_name
             if self._tunnels[tnlid].mac:
@@ -1097,12 +1090,9 @@ class LinkManager(ControllerModule):
             # if self._tunnels[tnlid].link.stats:
             #     tnl_data["Stats"] = self._tunnels[tnlid].link.stats
             overlay_id = self._tunnels[tnlid].overlay_id
-
             if overlay_id not in tnls:
                 tnls[overlay_id] = dict()
-            if nid not in tnls[overlay_id]:
-                tnls[overlay_id][nid] = dict()
-            tnls[overlay_id][nid][tnlid] = tnl_data
+            tnls[overlay_id][tnlid] = tnl_data
 
         cbt.set_response({"LinkManager": tnls}, bool(tnls))
         self.complete_cbt(cbt)
