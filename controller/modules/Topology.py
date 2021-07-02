@@ -174,8 +174,7 @@ class Topology(ControllerModule, CFX):
                     adjl = nb.get_adj_list()
                     for k in adjl.conn_edges:
                         ce = adjl.conn_edges[k]
-                        ced = {"PeerId": ce.peer_id, "EdgeId": ce.edge_id,
-                               "MarkedForDeleted": ce.marked_for_delete,
+                        ced = {"PeerId": ce.peer_id,
                                "CreatedTime": ce.created_time,
                                "ConnectedTime": ce.connected_time,
                                "State": ce.edge_state, "Type": ce.edge_type}

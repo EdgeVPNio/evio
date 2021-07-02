@@ -296,8 +296,8 @@ class LinkManager(ControllerModule):
 
     def _cleanup_tunnel(self, tnl):
         """ Remove the tunnel data """
-        del self._peers[tnl.overlay_id][tnl.peer_id]
-        del self._tunnels[tnl.tnlid]
+        self._peers[tnl.overlay_id].pop(tnl.peer_id, None)
+        self._tunnels.pop(tnl.tnlid, None)
 
     def _cleanup_removed_tunnel(self, tnlid):
         """ Remove the tunnel data """
@@ -1045,32 +1045,32 @@ class LinkManager(ControllerModule):
         pass
 
     def req_handler_query_viz_data(self, cbt):
-        nid = self.node_id
         tnls = dict()
         for tnlid in self._tunnels:
             if self._tunnels[tnlid].link is None:
                 continue
-            tnl_data = {
-                "NodeId": nid,
-                "PeerId": self._tunnels[tnlid].peer_id,
-                "TunnelState": self._tunnels[tnlid].tunnel_state
-                }
-
+            tnl_data = {}
             if self._tunnels[tnlid].tap_name:
                 tnl_data["TapName"] = self._tunnels[tnlid].tap_name
             if self._tunnels[tnlid].mac:
                 tnl_data["MAC"] = self._tunnels[tnlid].mac
-            #if "IceRole" in self._tunnels[tnlid]["Link"]:
+            # if "IceRole" in self._tunnels[tnlid]["Link"]:
             #    tnl_data["IceRole"] = self._tunnels[tnlid]["Link"]["IceRole"]
-            if self._tunnels[tnlid].link.stats:
-                tnl_data["Stats"] = self._tunnels[tnlid].link.stats
+            for stat_entry in self._tunnels[tnlid].link.stats:
+                if stat_entry["best_conn"] == True:
+                    lvals = stat_entry["local_candidate"].split(":")
+                    rvals = stat_entry["remote_candidate"].split(":")
+                    if len(lvals) < 10 or len(rvals) < 8:
+                        continue
+                    tnl_data["LocalEndpoint"] = {
+                        "Proto": lvals[7], "External": lvals[5]+":"+lvals[6], "Internal": lvals[8]+":"+lvals[9]}
+                    tnl_data["RemoteEndpoint"] = {
+                        "Proto": rvals[7], "External": rvals[5]+":"+rvals[6]}
+                    continue
             overlay_id = self._tunnels[tnlid].overlay_id
-
             if overlay_id not in tnls:
                 tnls[overlay_id] = dict()
-            if nid not in tnls[overlay_id]:
-                tnls[overlay_id][nid] = dict()
-            tnls[overlay_id][nid][tnlid] = tnl_data
+            tnls[overlay_id][tnlid] = tnl_data
 
         cbt.set_response({"LinkManager": tnls}, bool(tnls))
         self.complete_cbt(cbt)
