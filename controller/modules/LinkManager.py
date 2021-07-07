@@ -1081,14 +1081,22 @@ class LinkManager(ControllerModule):
         for tnlid in self._tunnels:
             if self._tunnels[tnlid].link is None:
                 continue
+            tnl_data = {}
             if self._tunnels[tnlid].tap_name:
                 tnl_data["TapName"] = self._tunnels[tnlid].tap_name
             if self._tunnels[tnlid].mac:
                 tnl_data["MAC"] = self._tunnels[tnlid].mac
             # if "IceRole" in self._tunnels[tnlid]["Link"]:
             #    tnl_data["IceRole"] = self._tunnels[tnlid]["Link"]["IceRole"]
-            # if self._tunnels[tnlid].link.stats:
-            #     tnl_data["Stats"] = self._tunnels[tnlid].link.stats
+            for stat_entry in self._tunnels[tnlid].link.stats:
+                if stat_entry["best_conn"] == True:
+                    lvals = stat_entry["local_candidate"].split(":")
+                    rvals = stat_entry["remote_candidate"].split(":")
+                    if len(lvals) < 10 or len(rvals) < 8:
+                        continue
+                    tnl_data["LocalEndpoint"] = {"Proto": lvals[7], "External": lvals[5]+":"+lvals[6], "Internal": lvals[8]+":"+lvals[9]}
+                    tnl_data["RemoteEndpoint"] = {"Proto": rvals[7], "External": rvals[5]+":"+rvals[6]}
+                    continue
             overlay_id = self._tunnels[tnlid].overlay_id
             if overlay_id not in tnls:
                 tnls[overlay_id] = dict()
