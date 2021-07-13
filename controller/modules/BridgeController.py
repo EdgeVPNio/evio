@@ -372,7 +372,7 @@ class BridgeController(ControllerModule):
             self._server_thread.setDaemon(True)
             self._server_thread.start()
             # start the BF RYU module
-            # self._bfproxy.start_bf_client_module()
+            self._bfproxy.start_bf_client_module()
         for olid in self.overlays:
             self._tunnels[olid] = dict(DSeq=0)
             br_cfg = self.overlays[olid]

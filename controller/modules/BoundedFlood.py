@@ -19,10 +19,8 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-try:
-    import simplejson as json
-except ImportError:
-    import json
+
+import json
 import copy
 import socket
 import threading
@@ -258,16 +256,13 @@ class PeerData():
         self.port_no = None         # valid only when a peer tunnel exists
 
     def __repr__(self):
-        # msg = ("{{hw_addr: \'{0}\', node_id: {1}, hop_count: {2}, leaf_macs: {3}, port_no: {4}}}"
-        #        .format(self.hw_addr, self.node_id, self.hop_count, self.leaf_macs, self.port_no))
-        # return msg
         msg = {"hw_addr": self.hw_addr, "node_id": self.node_id,
-               "hop_count": self.hop_count, "leaf_macs": [*self.leaf_macs], "port_no": self.port_no}
+               "hop_count": self.hop_count, "leaf_macs": list(self.leaf_macs), "port_no": self.port_no}
         return json.dumps(msg)
 
     def __str__(self):
-        return "" #self.__repr__()
-    
+        return self.__repr__()
+
     def update(self, peer_hw_addr=None, leaf_macs: list = None, hop_count=None, port_no=None):
         if peer_hw_addr:
             self.hw_addr = peer_hw_addr
@@ -293,23 +288,12 @@ class PortDescriptor():
         self.peer_data = None               # valid if TNL_TYPE_PEER
 
     def __repr__(self):
-        # msg = ("{{port_no: {0}, name: {1}, hw_addr: \'{2}\', tnl_type: {3}, peer_data: {4}}}"
-        #        .format(self.port_no, self.name, self.hw_addr, self.tnl_type, self.peer_data))
-        # return msg
-        msg = {"port_no": self.port_no, "name": self.name, "hw_addr": self.hw_addr, "tnl_type": self.tnl_type, "peer_data": self.peer_data}
-        return json.dumps(msg)
+        msg = {"port_no": self.port_no, "name": self.name, "hw_addr": self.hw_addr,
+               "tnl_type": self.tnl_type, "peer_data": self.peer_data.__dict__ if self.peer_data else None}
+        return json.dumps(msg, default=lambda o: list(o) if isinstance(o, set) else o)
 
     def __str__(self):
         return self.__repr__()
-
-    # @property
-    # def tnl_type(self):
-    #     return self.tnl_type
-
-    # @tnl_type.setter
-    # def tnl_type(self, ptype):
-    #     assert self.tnl_type != 0, "Port {0} being reclassified to {1}".format(self.port_no, ptype)
-    #     self.tnl_type = ptype
 
     @property
     def peer(self):
@@ -355,30 +339,14 @@ class EvioSwitch(MutableMapping):
         self._topo_seq = 0
         self.idle_timeout = kwargs["FlowIdleTimeout"]
         self.hard_timeout = kwargs["FlowHardTimeout"]
-        # multicast
-        # grp->[ports interested]
-        # 24 hours timeout, leaf nodes don't refresh.
-        #self.leaf_interest = container(ttl=24*60*self.kwargs["MulticastBroadcastInterval"])
-        # (src,grp)-> port on which multicast transmission recvd
-        #self.upstream_reception = container(ttl=self.kwargs["MulticastBroadcastInterval"]*4)
-        # (src,grp)-> [downstream ports from which join for this transmission recvd]
-        #self.downstream_interest = container(ttl=self.kwargs["MulticastBroadcastInterval"]*4)
-        # grp -> [(src_1,grp),....,(src_n,grp)]
-        #self.multicast_groups = container(ttl=self.kwargs["MulticastBroadcastInterval"]*4)
-        # (src,mcast_dst)->time_in_secs_of_last_broadcast.
-        #self.broadcast_timeout = {}
 
-    def __repr__(self):
-        msg = {"EvioSwitch": {"overlay_id": self._overlay_id, "node_id": self._overlay_id,
-                              "datapath_id": self._datapath_id, "leaf_ports": [*self._leaf_prts],
-                              "link_ports": [*self._link_prts], "leaf_macs": [*self._leaf_macs],
-                              "ingress_tbl": self._ingress_tbl}}
-        # msg = {"EvioSwitch": {"overlay_id": self._overlay_id, "node_id": self._overlay_id,
-        #                       "datapath_id": self._datapath_id, "leaf_ports": [*self._leaf_prts],
-        #                       "link_ports": [*self._link_prts], "leaf_macs": [*self._leaf_macs],
-        #                       "ingress_tbl": self._ingress_tbl, #"port_tbl": self._port_tbl,
-        #                       "root_sw_tbl": self._root_sw_tbl, "peer_table": self._peer_tbl}}
-        return json.dumps(msg)
+    def __repr__(self):       
+        msg = {"EvioSwitch": {"overlay_id": self._overlay_id, "node_id": self._node_id,
+                              "datapath_id": self._datapath_id, "leaf_ports": list(self._leaf_prts),
+                              "link_ports": list(self._link_prts), "leaf_macs": list(self._leaf_macs),
+                              "ingress_tbl": self._ingress_tbl, "port_tbl": self._port_tbl,
+                              "root_sw_tbl": self._root_sw_tbl, "peer_table": self._peer_tbl}}
+        return str(msg)
 
     def __str__(self):
         return self.__repr__()
@@ -838,9 +806,6 @@ class BoundedFlood(app_manager.RyuApp):
         self.logger.addHandler(handler)
 
     def load_config(self):
-        with open("/home/kcratie/workspace/EdgeVPNio/bf-config.json", "r") as content:
-            self.config = json.load(content)
-        return
         if CONF["bf"]["config_file"]:
             if not os.path.isfile(CONF["bf"]["config_file"]):
                 raise RuntimeError("The specified configuration file was not found: {}"
@@ -851,12 +816,6 @@ class BoundedFlood(app_manager.RyuApp):
             self.config = json.loads(CONF["bf"]["config_string"])
         else:
             raise RuntimeError("No valid configuration found")
-
-    # def _find_protocol(self, pkt, name):
-    #     for p in pkt.protocols:
-    #         if hasattr(p, 'protocol_name'):
-    #             if p.protocol_name == name:
-    #                 return p
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)  # pylint: disable=no-member
     def switch_features_handler(self, ev):
@@ -950,18 +909,6 @@ class BoundedFlood(app_manager.RyuApp):
         dst = eth.dst
         src = eth.src
         dpid = datapath.id
-
-        # req_igmp = pkt.get_protocol(igmp.igmp)
-        # req_ip = pkt.get_protocol(ipv4.ipv4)
-        # is_igmp = False
-        # is_dvmrp = False
-        # if req_ip and req_ip.proto == 200:
-        #     is_dvmrp=True
-        # if req_igmp:
-        #     is_igmp = True
-        #     self._handle_igmp(msg)
-        # elif is_dvmrp:
-        #     self._handle_dvmrp(msg)
 
         with self._lock:
             if not self._lt[dpid].is_valid_port(in_port):
@@ -1462,105 +1409,24 @@ class BoundedFlood(app_manager.RyuApp):
             self.logger.warning(
                 "FRB leaf exchange failed, OFPPacketOut=%s", pkt_out)
 
-    # def frame_graft_msg(self,source_address, group_address):
-    #     dvmrp = DVMRP(src_address=source_address,
-    #                   grp_address=group_address)
-    #     # src and dst MAC addresses do not matter.
-    #     eth = ethernet.ethernet(dst='01:00:5E:0A:0A:0A',
-    #                             src='00:00:00:00:00:00',
-    #                             ethertype=ether.ETH_TYPE_IP)
-    #     pkt = packet.Packet()
-    #     total_length = 20 + dvmrp.min_len
-    #     nw_proto = 200 # custom network protocol payload type
-    #     nw_dst = '255.255.255.255'
-    #     nw_src = '0.0.0.0'
-    #     i = ipv4.ipv4(total_length=total_length,
-    #                   src=nw_src,
-    #                   dst=nw_dst,
-    #                   proto=nw_proto)
-    #     pkt.add_protocol(eth)
-    #     pkt.add_protocol(i)
-    #     pkt.add_protocol(dvmrp)
-    #     pkt.serialize()
-    #     return pkt
-
-    # def frame_igmp_query(self):
-    #     igmp_query = igmp.igmpv3_query(maxresp=igmp.QUERY_RESPONSE_INTERVAL * 10,
-    #                       csum=0,
-    #                       address='0.0.0.0')
-    #     eth = ethernet.ethernet(dst=igmp.MULTICAST_MAC_ALL_HOST,
-    #                             src='00:00:00:00:00:00',
-    #                             ethertype=ether.ETH_TYPE_IP)
-    #     ip = ipv4.ipv4(total_length=len(ipv4.ipv4()) + len(igmp_query),
-    #                    proto=inet.IPPROTO_IGMP, ttl=1,
-    #                    src='0.0.0.0',
-    #                    dst=igmp.MULTICAST_IP_ALL_HOST)
-    #     pkt = packet.Packet()
-    #     pkt.add_protocol(eth)
-    #     pkt.add_protocol(ip)
-    #     pkt.add_protocol(igmp_query)
-    #     pkt.serialize()
-    #     return pkt
-
     def handle_bounded_flood_msg(self, datapath, pkt, in_port, msg):
         eth = pkt.protocols[0]
         src = eth.src
         dpid = datapath.id
         parser = datapath.ofproto_parser
         rcvd_frb = pkt.protocols[1]
+        payload = None
         self.logger.info("-->\nReceived sw:%s FRB=%s",
                          self._lt[dpid].name, rcvd_frb)
-        if len(pkt.protocols) < 2:
-            return
-        payload = pkt.protocols[2]
-        # Check for a multicast payload.
+        if len(pkt.protocols) == 3:
+            payload = pkt.protocols[2]
         is_multicast = False
-        payload_pkt = packet.Packet(payload)
-        pload_eth = payload_pkt.protocols[0]
-        eth_dst = None
-
-        # if rcvd_frb.frb_type == FloodRouteBound.FRB_IDENT:
-        #     self._lt[dpid].categorize_port(in_port, "TNL_TYPE_PEER", payload)
-        #     self.logger.info("Update port=%d to peer type", in_port)
-        #     return
-
-        # if pload_eth and rcvd_frb.frb_type == FloodRouteBound.FRB_BRDCST:
-        #     eth_dst = pload_eth.dst
-        #     pload_ip = payload_pkt.get_protocol(ipv4.ipv4)
-        # if eth_dst and eth_dst.split(':')[0] == '01':
-        #     self.logger.info("Received a FRB multicast packet with dst {} from {} on port {}".format(eth_dst,
-        #                      pload_eth.src, in_port))
-        #     # self.logger.info("More details: ip dst {} ip src {}".format(pload_ip.dst, pload_ip.src))
-        #     is_multicast = True
-        #     netnode.upstream_reception.put((pload_ip.src, pload_ip.dst), in_port)
-        #     netnode.multicast_groups.put(pload_ip.dst, (pload_ip.src, pload_ip.dst))
-        #     # good time to send igmp queries to leaf ports
-        #     self._send_igmp_query(msg)
-        #     # check if any leaf nodes are interested and in_port is not the same as interested port.
-        #     if netnode.leaf_interest.containsKey(pload_ip.dst):
-        #         for outport in netnode.leaf_interest.get(pload_ip.dst):
-        #             if outport != in_port:
-        #                 actions = [parser.OFPActionOutput(outport)]
-        #                 if msg.buffer_id == datapath.ofproto.OFP_NO_BUFFER:
-        #                     data = msg.data
-        #                 out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
-        #                                           in_port=in_port, actions=actions, data=data)
-        #                 datapath.send_msg(out)
-        #                 # send out a graft message upstream (because leaf is interested.)
-        #                 self.logger.info("Sending a graft message upstream for src {} dst {}".format(pload_ip.src,
-        #                                                                                         pload_ip.dst))
-        #                 graft_msg = self.frame_graft_msg(pload_ip.src, pload_ip.dst)
-        #                 actions = [parser.OFPActionOutput(in_port)]
-        #                 out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
-        #                                           in_port=datapath.ofproto.OFPP_LOCAL,
-        #                                           actions=actions, data=graft_msg.data)
-        #                 datapath.send_msg(out)
-
         if rcvd_frb.frb_type == FloodRouteBound.FRB_LEAF_TX:
             self._lt[dpid].categorize_port(in_port, "TNL_TYPE_PEER", {
                                            "PeerId": rcvd_frb.root_nid, "PeerMac": src})
-            self.update_leaf_macs_and_flows(datapath, rcvd_frb.root_nid, payload,
-                                            rcvd_frb.pl_count, in_port)
+            if payload:
+                self.update_leaf_macs_and_flows(
+                    datapath, rcvd_frb.root_nid, payload, rcvd_frb.pl_count, in_port)
         else:
             if rcvd_frb.frb_type == FloodRouteBound.FRB_BRDCST:
                 # learn src mac and rnid only for frb_type == 1
@@ -1569,7 +1435,7 @@ class BoundedFlood(app_manager.RyuApp):
             if rcvd_frb.hop_count > self._lt[dpid].counters.get("MaxFloodingHopCount", 1):
                 self._lt[dpid].counters["MaxFloodingHopCount"] = rcvd_frb.hop_count
             # deliver the broadcast frame to leaf devices
-            if not is_multicast:
+            if not is_multicast and payload:
                 self.logger.info("Sending FRB payload to leaf ports=%s/%s",
                                  self._lt[dpid].name, self._lt[dpid].leaf_ports)
                 for out_port in self._lt[dpid].leaf_ports:
