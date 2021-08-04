@@ -340,7 +340,7 @@ class EvioSwitch(MutableMapping):
         self.idle_timeout = kwargs["FlowIdleTimeout"]
         self.hard_timeout = kwargs["FlowHardTimeout"]
 
-    def __repr__(self):       
+    def __repr__(self):
         msg = {"EvioSwitch": {"overlay_id": self._overlay_id, "node_id": self._node_id,
                               "datapath_id": self._datapath_id, "leaf_ports": list(self._leaf_prts),
                               "link_ports": list(self._link_prts), "leaf_macs": list(self._leaf_macs),
@@ -365,10 +365,8 @@ class EvioSwitch(MutableMapping):
             self.learn(key_mac, value)
 
     def __delitem__(self, mac):
-        del self._ingress_tbl[mac]
-        nid = self._root_sw_tbl.pop(mac, None)
-        # if nid and nid in self._leaf_macs_tbl and len(self._leaf_macs_tbl[nid] == 1):
-        #     self._leaf_macs_tbl.pop(nid, None)
+        self._ingress_tbl.pop(mac, None)
+        self._root_sw_tbl.pop(mac, None)
 
     def __iter__(self):
         return iter(self._ingress_tbl)
@@ -536,8 +534,17 @@ class EvioSwitch(MutableMapping):
             if port.tnl_type == "TNL_TYPE_PEER":
                 self._deregister_peer(port.peer_data.node_id)
                 self._link_prts.remove(port_no)
+                for mac in port.peer_data.leaf_macs:
+                    self._ingress_tbl.pop(mac, None)
+                    self._root_sw_tbl.pop(mac, None)
             if port.tnl_type == "TNL_TYPE_LEAF":
                 self._leaf_prts.remove(port_no)
+            tbr = []  # build a list of all mac that ingress via this port
+            for mac_key, port_val in self._ingress_tbl.items():
+                if port_val == port_no:
+                    tbr.append(mac_key)
+            for mac_entry in tbr:  # remove these mac entries from the ingress table
+                self._ingress_tbl.pop(mac_entry, None)
 
     def update(self, ports=None):
         if ports:
@@ -880,13 +887,13 @@ class BoundedFlood(app_manager.RyuApp):
         port_no = msg.desc.port_no
         with self._lock:
             if msg.reason == ofp.OFPPR_ADD:
-                # self.logger.info("OFPPortStatus: port ADDED desc=%s", msg.desc)
+                self.logger.info("OFPPortStatus: port ADDED desc=%s", msg.desc)
                 self._lt[dp.id].add_port(msg.desc)
                 if self._lt[dp.id].port_descriptor(port_no).is_peer:
                     self.do_bf_leaf_transfer(dp, port_no)
             elif msg.reason == ofp.OFPPR_DELETE:
-                # self.logger.info(
-                #    "OFPPortStatus: port DELETED desc=%s", msg.desc)
+                self.logger.info(
+                   "OFPPortStatus: port DELETED desc=%s", msg.desc)
                 self.del_flows_port(dp, port_no, tblid=0)
                 self._lt[dp.id].delete_port(port_no)
             elif msg.reason == ofp.OFPPR_MODIFY:
@@ -1315,12 +1322,31 @@ class BoundedFlood(app_manager.RyuApp):
         # if not resp:
         #    self.logger.warning("Delete flow operation failed, egress=%s, OFPFlowMod=%s",
         #                        port_no, mod)
-        resp = runcmd([BoundedFlood.OFCTL, "del-flows", self._lt[datapath.id].name,
-                       "in_port={0}".format(port_no)])
-        self.logger.debug("Deleted flows with in_port=%s", port_no)
-        resp = runcmd([BoundedFlood.OFCTL, "del-flows", self._lt[datapath.id].name,
-                       "out_port={0}".format(port_no)])
-        self.logger.debug("deleted flows with out_port=%s", port_no)
+        try:
+            resp1 = runcmd([BoundedFlood.OFCTL, "del-flows", self.config["BridgeName"],
+                            "in_port={0}".format(port_no)])
+            resp2 = runcmd([BoundedFlood.OFCTL, "del-flows", self.config["BridgeName"],
+                            "out_port={0}".format(port_no)])
+
+            chk = runcmd([BoundedFlood.OFCTL, "dump-flows", self.config["BridgeName"],
+                          "in_port={0}".format(port_no)])
+            lines = chk.stdout.splitlines()
+            if (len(lines) > 1):
+                self.logger.error(
+                    "Failed to delete flows rules, the response is: %s", resp1)
+            else:
+                self.logger.debug("Deleted flows with in_port=%s", port_no)
+
+            chk = runcmd([BoundedFlood.OFCTL, "dump-flows", self.config["BridgeName"],
+                          "out_port={0}".format(port_no)])
+            lines = chk.stdout.splitlines()
+            if (len(lines) > 1):
+                self.logger.error(
+                    "Failed to delete flows rules, the response is: %s", resp2)
+            else:
+                self.logger.debug("deleted flows with out_port=%s", port_no)
+        except Exception as err:
+            self.logger.error(err)
 
     def update_flow_match_dstmac(self, datapath, dst_mac, new_egress, tblid=None):
         self.logger.debug("Updating all flows matching dst mac %s-%s",
