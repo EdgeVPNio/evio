@@ -21,6 +21,7 @@
 
 from abc import ABCMeta, abstractmethod
 import hashlib
+import copy
 
 # abstract ControllerModule (CM) class
 # all CM implementations inherit the variables declared here
@@ -110,7 +111,7 @@ class ControllerModule():
         self._cfx_handle.submit_cbt(cbt)
 
     def log(self, level, msg, *args):
-        self.register_cbt("Logger", level, _params=(msg, args))
+        self.register_cbt("Logger", level, _params=(msg, copy.deepcopy(args)))
 
     def trace_state(self):
         if self.config.get("StateTracingEnabled", False):
