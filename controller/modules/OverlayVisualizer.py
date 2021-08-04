@@ -38,7 +38,7 @@ class OverlayVisualizer(ControllerModule):
         # Visualizer webservice URL
         self._vis_address = "http://" + self._cm_config["WebServiceAddress"]
         self._req_url = "{}/EVIO/nodes/{}".format(self._vis_address, self.node_id)
-        self._vis_ds = None
+        self._vis_ds:dict
 
     def initialize(self):
         # We're using the pub-sub model here to gather data for the visualizer
@@ -109,21 +109,17 @@ class OverlayVisualizer(ControllerModule):
 
     def build_tunnel_data(self, ds):
         for olid in ds["VizData"]:
-            if (
-                "LinkManager" not in ds["VizData"][olid]
-                or "Topology" not in ds["VizData"][olid]
-            ):
-                continue
-
-            for tnlid in ds["VizData"][olid]["LinkManager"]:
-                ds["VizData"][olid]["Tunnels"][tnlid] = ds["VizData"][olid]["Topology"][
-                    tnlid
-                ]
-                ds["VizData"][olid]["Tunnels"][tnlid].update(
-                    ds["VizData"][olid]["LinkManager"][tnlid]
-                )
-            ds["VizData"][olid].pop("LinkManager")
-            ds["VizData"][olid].pop("Topology")
+            if ("Topology" in ds["VizData"][olid]):
+                for tnlid in ds["VizData"][olid]["Topology"]:
+                    ds["VizData"][olid]["Tunnels"][tnlid] = \
+                        ds["VizData"][olid]["Topology"][tnlid]
+            if ("LinkManager" in ds["VizData"][olid]):
+                for tnlid in ds["VizData"][olid]["LinkManager"]:
+                    ds["VizData"][olid]["Tunnels"][tnlid].update(
+                        ds["VizData"][olid]["LinkManager"][tnlid]
+                    )
+            ds["VizData"][olid].pop("LinkManager", None)
+            ds["VizData"][olid].pop("Topology", None)
         return ds
 
     def timer_method(self):

@@ -154,20 +154,22 @@ class Topology(ControllerModule, CFX):
             disc.presence()
             self._net_ovls[olid]["NewPeerCount"] += 1
             if self._net_ovls[olid]["NewPeerCount"] >= self.config["PeerDiscoveryCoalesce"]:
-                self.register_cbt("Logger", "LOG_DEBUG", "Coalesced {0} new peer discovery, "
-                                  "initiating network refresh"
-                                  .format(self._net_ovls[olid]["NewPeerCount"]))
+                self.log("LOG_DEBUG",
+                         "Overlay %s - Coalesced %s new peer discovery, "
+                         "initiating network refresh",
+                         olid, self._net_ovls[olid]["NewPeerCount"])
                 self._update_overlay(olid)
             else:
-                self.register_cbt("Logger", "LOG_DEBUG", "{0} new peers discovered, delaying "
-                                  "refresh".format(self._net_ovls[olid]["NewPeerCount"]))
+                self.log("LOG_DEBUG",
+                         "Overlay %s, %s new peers discovered, "
+                         "delaying refresh",
+                         olid, self._net_ovls[olid]["NewPeerCount"])
         cbt.set_response(None, True)
         self.complete_cbt(cbt)
 
     def req_handler_vis_data(self, cbt):
         topo_data = {}
         try:
-            edges = {}
             for olid in self._net_ovls:
                 topo_data[olid] = {}
                 nb = self._net_ovls[olid]["NetBuilder"]
@@ -179,9 +181,7 @@ class Topology(ControllerModule, CFX):
                                "CreatedTime": ce.created_time,
                                "ConnectedTime": ce.connected_time,
                                "State": ce.edge_state, "Type": ce.edge_type}
-                        edges[ce.edge_id] = ced
-                    if edges:
-                        topo_data[olid] = edges
+                        topo_data[olid][ce.edge_id] = ced
             cbt.set_response({"Topology": topo_data}, bool(topo_data))
             self.complete_cbt(cbt)
         except KeyError:
