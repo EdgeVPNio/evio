@@ -233,20 +233,23 @@ class BoundedFloodProxy(socketserver.ThreadingMixIn, socketserver.TCPServer):
     RyuManager = spawn.find_executable("ryu-manager")
     if RyuManager is None:
         raise RuntimeError("RyuManager was not found, is it installed?")
-    def __init__(self, host_port_tuple, streamhandler, netman):
+    def __init__(self, host_port_tuple, bf_config, streamhandler, netman):
         super().__init__(host_port_tuple, streamhandler)
+        self.config = bf_config
         self.netman = netman
         self._bf_proc = None
 
     def start_bf_client_module(self):
-        config = self.netman.config["BoundedFlood"]
+        # with open("/etc/opt/evio/bf-config.json", "w", encoding="utf-8") as f:
+        #     json.dump(self.config, f, ensure_ascii=False, indent=4)
         cmd = [
             BoundedFloodProxy.RyuManager,
             "--user-flags", "modules/BFFlags.py",
             "--nouse-stderr",
-            "--bf-config-string", json.dumps(config),
+            "--bf-config-string", json.dumps(self.config),
             "modules/BoundedFlood.py"]
         self._bf_proc = Modlib.create_process(cmd)
+        self.config = None
 
     def server_close(self):
         if self._bf_proc:    
@@ -314,8 +317,14 @@ class VNIC(BridgeABC):
 
 ###################################################################################################
 
-def BridgeFactory(overlay_id, dev_type, config, cm, sdn_config=None):
+def get_br_name(overlay_id, config):
     BR_NAME_MAX_LENGTH = 15
+    name_prefix = config.get("NamePrefix", "")[:3]
+    end_i = BR_NAME_MAX_LENGTH - len(name_prefix)
+    return name_prefix + overlay_id[:end_i]
+
+def BridgeFactory(overlay_id, dev_type, config, cm, sdn_config=None):
+    
     br = None
     if dev_type == VNIC.bridge_type:
         br = VNIC(ip_addr=config.get("IP4", None),
@@ -323,9 +332,7 @@ def BridgeFactory(overlay_id, dev_type, config, cm, sdn_config=None):
                   mtu=config.get("MTU", 1410),
                   cm=cm)
     elif dev_type == LinuxBridge.bridge_type:
-        name_prefix = config.get("NamePrefix", "")[:3]
-        end_i = BR_NAME_MAX_LENGTH - len(name_prefix)
-        br_name = name_prefix + overlay_id[:end_i]
+        br_name = get_br_name(overlay_id, config)
         br = LinuxBridge(name=br_name,
                          ip_addr=config.get("IP4", None),
                          prefix_len=config.get("PrefixLen", None),
@@ -333,9 +340,7 @@ def BridgeFactory(overlay_id, dev_type, config, cm, sdn_config=None):
                          cm=cm,
                          stp_enable=(True if config.get("SwitchProtocol", "STP").casefold() == "stp" else False))
     elif dev_type == OvsBridge.bridge_type:
-        name_prefix = config.get("NamePrefix", "")[:3]
-        end_i = BR_NAME_MAX_LENGTH - len(name_prefix)
-        br_name = name_prefix + overlay_id[:end_i]       
+        br_name = get_br_name(overlay_id, config)
         br = OvsBridge(name=br_name,
                        ip_addr=config.get("IP4", None),
                        prefix_len=config.get("PrefixLen", None),
@@ -364,8 +369,15 @@ class BridgeController(ControllerModule):
         if "BoundedFlood" in self.config:
             proxy_listen_address = self.config["BoundedFlood"]["ProxyListenAddress"]
             proxy_listen_port = self.config["BoundedFlood"]["ProxyListenPort"]
+            bf_config = self.config["BoundedFlood"]
+            bf_config["NodeId"] = self.node_id
+            bf_ovls = bf_config.pop("Overlays")
+            for olid in bf_ovls:
+                br_name = get_br_name(olid, self.overlays[olid]["NetDevice"])
+                bf_config[br_name] = bf_ovls[olid]
+                bf_config[br_name]["OverlayId"] = olid
             self._bfproxy = BoundedFloodProxy(
-                (proxy_listen_address, proxy_listen_port),
+                (proxy_listen_address, proxy_listen_port), bf_config,
                 BFRequestHandler, self)
             self._server_thread = threading.Thread(target=self._bfproxy.serve_forever,
                                                    name="BFProxyServer")
@@ -373,6 +385,7 @@ class BridgeController(ControllerModule):
             self._server_thread.start()
             # start the BF RYU module
             self._bfproxy.start_bf_client_module()
+        # create each configure bridge type
         for olid in self.overlays:
             self._tunnels[olid] = dict(DSeq=0)
             br_cfg = self.overlays[olid]
@@ -380,14 +393,12 @@ class BridgeController(ControllerModule):
             self._ovl_net[olid] = BridgeFactory(olid, br_cfg["NetDevice"]["Type"],
                                                 br_cfg["NetDevice"], self,
                                                 br_cfg.get("SDNController", {}))
-            self.config["BoundedFlood"]["BridgeName"] = self._ovl_net[olid].name
             if "AppBridge" in br_cfg["NetDevice"]:
                 name = self._create_app_bridge(olid, br_cfg["NetDevice"]["AppBridge"])
                 ign_br_names[olid].add(name)
             ign_br_names[olid].add(self._ovl_net[olid].name)
-            self.log("LOG_DEBUG", "ignored bridges=%s", ign_br_names)
-                        
-        self.register_cbt("LinkManager", "LNK_ADD_IGN_INF", ign_br_names)
+            self.register_cbt("LinkManager", "LNK_ADD_IGN_INF", ign_br_names)
+        self.log("LOG_DEBUG", "ignored bridges=%s", ign_br_names)
         #try:
         #    # Subscribe for data request notifications from OverlayVisualizer
         #    self._cfx_handle.start_subscription("OverlayVisualizer", "VIS_DATA_REQ")
