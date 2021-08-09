@@ -35,7 +35,7 @@ from .GraphBuilder import GraphBuilder
 
 
 class DiscoveredPeer():
-    ExclusionBaseInterval = 60 #Todo: parameterize
+    ExclusionBaseInterval = 60 #TODO(ken): parameterize
     def __init__(self, peer_id):
         self.peer_id = peer_id
         self.is_banned = False # bars conn attempts from local node, the peer can still recon
@@ -43,15 +43,9 @@ class DiscoveredPeer():
         self.available_time = time.time()
 
     def __repr__(self):
-        state = "DiscoveredPeer<peer_id=%s, is_banned=%s, successive_fails=%s, available_time=%s>"\
-                % (self.peer_id[:7], self.is_banned, self.successive_fails,
-                   datetime.fromtimestamp(self.available_time))
-        return state
-
-    def __str__(self):
-        state = "DiscoveredPeer<peer_id=%s>" % (self.peer_id[:7])
-        return state
-
+        items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
+        return "{{{}}}".format(", ".join(items))
+      
     def exclude(self):
         self.successive_fails += 1
         self.available_time = (random.randint(2, 5) * DiscoveredPeer.ExclusionBaseInterval *
@@ -75,29 +69,30 @@ class DiscoveredPeer():
         return not self.is_banned and time.time() >= self.available_time
 
 class Topology(ControllerModule, CFX):
+    _REFLECT = set(["_net_ovls"])
     def __init__(self, cfx_handle, module_config, module_name):
         super(Topology, self).__init__(cfx_handle, module_config, module_name)
         self._net_ovls = {}
         self._lock = threading.Lock()
         self._topo_changed_publisher = None
 
-    def __repr__(self):
-        for olid in self._net_ovls:
-            num_avail = 0
-            for peer in self._net_ovls[olid]["KnownPeers"].values():
-                if peer.is_available:
-                    num_avail += 1
-            self._net_ovls[olid]["NumAvailblePeers"] = num_avail
-        state = "Topology<%s>" % (self._net_ovls)
-        return state
-
+    # def __repr__(self):
+    #     for olid in self._net_ovls:
+    #         num_avail = 0
+    #         for peer in self._net_ovls[olid]["KnownPeers"].values():
+    #             if peer.is_available:
+    #                 num_avail += 1
+    #         self._net_ovls[olid]["NumAvailblePeers"] = num_avail
+    #     state = "Topology<%s>" % (self._net_ovls)
+    #     return state
+      
     def initialize(self):
         self._topo_changed_publisher = self._cfx_handle.publish_subscription("TOP_TOPOLOGY_CHANGE")
         self._cfx_handle.start_subscription("Signal", "SIG_PEER_PRESENCE_NOTIFY")
         self._cfx_handle.start_subscription("LinkManager", "LNK_TUNNEL_EVENTS")
         nid = self.node_id
         for olid in self._cfx_handle.query_param("Overlays"):
-            self._net_ovls[olid] = dict(NewPeerCount=0, NumAvailblePeers=0,
+            self._net_ovls[olid] = dict(NewPeerCount=0,
                                         NetBuilder=NetworkBuilder(self, olid, nid),
                                         KnownPeers=dict(), NegoConnEdges=dict(),
                                         OndPeers=[])
@@ -107,10 +102,10 @@ class Topology(ControllerModule, CFX):
                                                 "VIS_DATA_REQ")
         except NameError as err:
             if "OverlayVisualizer" in str(err):
-                self.register_cbt("Logger", "LOG_WARNING",
-                                  "OverlayVisualizer module not loaded."
-                                  " Visualization data will not be sent.")
-        self.register_cbt("Logger", "LOG_INFO", "Module loaded")
+                self.log("LOG_WARNING",
+                         "OverlayVisualizer module not loaded. "
+                         "Visualization data will not be sent.")
+        self.log("LOG_INFO", "Module loaded")
 
     def terminate(self):
         pass
@@ -120,15 +115,14 @@ class Topology(ControllerModule, CFX):
         olid = params["OverlayId"]
         peer_id = params["PeerId"]
         if not cbt.response.status:
-            self.register_cbt("Logger", "LOG_WARNING", "Failed to create topology edge to {0}. {1}"
-                              .format(cbt.request.params["PeerId"], cbt.response.data))
+            self.log("LOG_WARNING", "Failed to create topology edge to %s. %s",
+                     cbt.request.params["PeerId"], cbt.response.data)
             self._net_ovls[olid]["KnownPeers"][peer_id].exclude()
         self.free_cbt(cbt)
 
     def resp_handler_remove_tnl(self, cbt):
         if not cbt.response.status:
-            self.register_cbt("Logger", "LOG_WARNING",
-                              "Failed to remove topology edge {0}".format(cbt.response.data))
+            self.log("LOG_WARNING", "Failed to remove topology edge %s", cbt.response.data)
             params = cbt.request.params
             params["UpdateType"] = "RemoveEdgeFailed"
             params["TunnelId"] = None
@@ -187,8 +181,8 @@ class Topology(ControllerModule, CFX):
         except KeyError:
             cbt.set_response(data=None, status=False)
             self.complete_cbt(cbt)
-            self.register_cbt("Logger", "LOG_WARNING", "Topology data not available {0}".
-                              format(cbt.response.data))
+            self.log("LOG_WARNING", "Topology data not available %s",
+                     cbt.response.data)
 
     def req_handler_tnl_data_update(self, cbt):
         params = cbt.request.params
@@ -232,19 +226,20 @@ class Topology(ControllerModule, CFX):
         if (olid in self._net_ovls and peer_id in self._net_ovls[olid]["KnownPeers"] and
                 self._net_ovls[olid]["KnownPeers"][peer_id].is_available):
             self._net_ovls[olid]["OndPeers"].append(op)
-            self.register_cbt("Logger", "LOG_DEBUG", "Added on-demand tunnel request to queue {0}".
-                              format(op))
+            self.log("LOG_DEBUG", "Added on-demand tunnel request to queue %s", op)
         else:
-            self.register_cbt("Logger", "LOG_WARNING", "Invalid on-demand tunnel request "
-                              "parameter, OverlayId={0}, PeerId={1}".format(olid, peer_id))
+            self.log("LOG_WARNING", 
+                     "Invalid on-demand tunnel request parameter, OverlayId=%s, PeerId=%s",
+                     olid, peer_id)
 
     def req_handler_negotiate_edge(self, edge_cbt):
         """ Role B, decide if the request for an incoming edge is accepted or rejected """
         edge_req = EdgeRequest(**edge_cbt.request.params)
         olid = edge_req.overlay_id
         if olid not in self.config["Overlays"]:
-            self.register_cbt("Logger", "LOG_WARNING", "The requested overlay is not specified in "
-                              "local config, the edge request is discarded")
+            self.log("LOG_WARNING", 
+                     "The requested overlay is not specified in "
+                     "local config, the edge request is discarded")
             edge_cbt.set_response("Unknown overlay id specified in edge request", False)
             self.complete_cbt(edge_cbt)
             return
@@ -253,8 +248,8 @@ class Topology(ControllerModule, CFX):
             # this node miss the presence notification, so add to KnownPeers
             self._net_ovls[olid]["KnownPeers"][peer_id] = DiscoveredPeer(peer_id)
         if self.config["Overlays"][olid].get("Role", "Switch").casefold() == "leaf".casefold():
-            self.register_cbt("Logger", "LOG_INFO", "Rejected edge negotiation, "
-                              "this leaf device is not accepting edge requests")
+            self.log("LOG_INFO", "Rejected edge negotiation, "
+                     "this leaf device is not accepting edge requests")
             edge_cbt.set_response("E6 - Not accepting incoming connections, leaf device", False)
             self.complete_cbt(edge_cbt)
             return
@@ -302,8 +297,8 @@ class Topology(ControllerModule, CFX):
         rem_act = RemoteAction.from_cbt(cbt)
         olid = rem_act.overlay_id
         if olid not in self.config["Overlays"]:
-            self.register_cbt("Logger", "LOG_WARNING", "The specified overlay is not in the"
-                              "local config, the rem act response is discarded")
+            self.log("LOG_WARNING", "The specified overlay is not in the"
+                     "local config, the rem act response is discarded")
             self.free_cbt(cbt)
             return
         if not cbt.response.status:
@@ -318,8 +313,8 @@ class Topology(ControllerModule, CFX):
             self._net_ovls[olid]["NetBuilder"].complete_edge_negotiation(edge_nego)
             self.free_cbt(cbt)
         else:
-            self.register_cbt("Logger", "LOG_WARNING", "Unrecognized remote action {0}"
-                              .format(rem_act.action))
+            self.log("LOG_WARNING", "Unrecognized remote action %s",
+                     rem_act.action)
 
     def process_cbt(self, cbt):
         with self._lock:
@@ -371,14 +366,14 @@ class Topology(ControllerModule, CFX):
         """
         Instruct LinkManager to commence building a tunnel to the specified peer
         """
-        self.register_cbt("Logger", "LOG_INFO", "Creating peer edge {0}:{1}->{2}"
-                          .format(overlay_id[:7], self.node_id[:7], peer_id[:7]))
+        self.log("LOG_INFO", "Creating peer edge %s:%s->%s",
+                 overlay_id[:7], self.node_id[:7], peer_id[:7])
         params = {"OverlayId": overlay_id, "PeerId": peer_id, "TunnelId": edge_id}
         self.register_cbt("LinkManager", "LNK_CREATE_TUNNEL", params)
 
     def top_remove_edge(self, overlay_id, peer_id):
-        self.register_cbt("Logger", "LOG_INFO", "Removing peer edge {0}:{1}->{2}"
-                          .format(overlay_id, self.node_id[:7], peer_id[:7]))
+        self.log("LOG_INFO", "Removing peer edge %s:%s->%s",
+                 overlay_id, self.node_id[:7], peer_id[:7])
         params = {"OverlayId": overlay_id, "PeerId": peer_id}
         self.register_cbt("LinkManager", "LNK_REMOVE_TUNNEL", params)
 
@@ -431,8 +426,8 @@ class Topology(ControllerModule, CFX):
             nb.refresh()
 
     def _authorize_edge(self, overlay_id, peer_id, edge_id, parent_cbt):
-        self.register_cbt("Logger", "LOG_INFO", "Authorizing peer edge from {0}:{1}->{2}"
-                          .format(overlay_id, peer_id[:7], self.node_id[:7]))
+        self.log("LOG_INFO", "Authorizing peer edge from %s:%s->%s",
+                 overlay_id, peer_id[:7], self.node_id[:7])
         params = {"OverlayId": overlay_id, "PeerId": peer_id, "TunnelId": edge_id}
         cbt = self.create_linked_cbt(parent_cbt)
         cbt.set_request(self.module_name, "LinkManager", "LNK_AUTH_TUNNEL", params)

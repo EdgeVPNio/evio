@@ -45,12 +45,21 @@ class EvioSignal(ElementBase):
 
 
 class JidCache:
+    _REFLECT = set(
+        ["_cache", "_expiry"])
+
     def __init__(self, cmod, expiry):
         self._lck = threading.Lock()
         self._cache = {}
         self._sig = cmod
         self._expiry = expiry
-
+        
+    def __repr__(self):
+        items = set()
+        for k in JidCache._REFLECT:
+            items.add(f"\"{k}\": {self.__dict__[k]!r}")
+        return "{{{}}}".format(", ".join(items))
+      
     def add_entry(self, node_id, jid):
         ts = time.time()
         with self._lck:
@@ -75,6 +84,9 @@ class JidCache:
 
 
 class XmppTransport(slixmpp.ClientXMPP):
+    _REFLECT = set(
+        ["_overlay_id", "_node_id", "_cbt_to_action_tag"])
+
     def __init__(self, jid, password, sasl_mech):
         slixmpp.ClientXMPP.__init__(self, jid, password, sasl_mech=sasl_mech)
         self._overlay_id = None
@@ -91,6 +103,12 @@ class XmppTransport(slixmpp.ClientXMPP):
         self._enable_ssl = False
         self.xmpp_thread = None
         self._init_event = threading.Event()
+
+    def __repr__(self):
+        items = set()
+        for k in XmppTransport._REFLECT:
+            items.add(f"\"{k}\": {self.__dict__[k]!r}")
+        return "{{{}}}".format(", ".join(items))
 
     def host(self):
         return self._host
@@ -318,6 +336,8 @@ class XmppTransport(slixmpp.ClientXMPP):
         self.loop.call_soon_threadsafe(self.disconnect(reason="controller shutdown"))        
 
 class Signal(ControllerModule):
+    _REFLECT = set(["_circles", "_remote_acts", "request_timeout"])
+    
     def __init__(self, cfx_handle, module_config, module_name):
         super(Signal, self).__init__(cfx_handle, module_config, module_name)
         self._presence_publisher = None
@@ -325,8 +345,8 @@ class Signal(ControllerModule):
         self._remote_acts = {}
         self._lock = threading.Lock()
         self.request_timeout = self._cfx_handle.query_param("RequestTimeout")
-        self._scavenge_timer = time.time()
-
+        #self._scavenge_timer = time.time()
+   
     def _setup_transport_instance(self, overlay_id):
         '''
         The ClientXMPP object must be instantiated on its own thread. ClientXMPP->BaseXMPP->XMLStream->asyncio.queue 
@@ -487,6 +507,7 @@ class Signal(ControllerModule):
 
     def timer_method(self):
         with self._lock:
+            self.trace_state()
             for overlay_id in self._circles:
                 self._circles[overlay_id]["Transport"].wait_until_initialized()
                 if not self._circles[overlay_id]["Transport"].is_connected():

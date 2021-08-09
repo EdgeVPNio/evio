@@ -31,6 +31,8 @@ LinkEvent = ["LnkEvCreating", "LnkEvCreated", "LnkEvConnected", "LnkEvDisconnect
 
 
 class Link():
+    _REFLECT = set(
+        ["lnkid", "_creation_state", "status_retry"])
     def __init__(self, lnkid, state):
         self.lnkid = lnkid
         self._creation_state = state
@@ -38,15 +40,10 @@ class Link():
         self.stats = {}
 
     def __repr__(self):
-        state = "Link<lnkid=%s, creation_state=0x%02x, status_retry=%s, stats=%s>" % \
-                (self.lnkid[:7], self._creation_state,
-                 self.status_retry, self.stats)
-        return state
-
-    def __str__(self):
-        state = "Link<lnkid=%s, creation_state=0x%02x, status_retry=%s>" % \
-                (self.lnkid[:7], self._creation_state, self.status_retry)
-        return state
+        items = set()
+        for k in Link._REFLECT:
+            items.add(f"\"{k}\": {self.__dict__[k]!r}")
+        return "{{{}}}".format(", ".join(items))
 
     @property
     def creation_state(self):
@@ -81,18 +78,8 @@ class Tunnel():
         self.timeout = time.time() + state_timeout  # timeout for current phase
 
     def __repr__(self):
-        state = "Tunnel<tnlid=%s, overlay_id=%s, peer_id=%s, tap_name=%s, mac=%s, link=%s, "\
-                "peer_mac=%s, tunnel_state=%s, creation_start_time=%s>" % \
-                (self.tnlid[:7], self.overlay_id[:7], self.peer_id[:7], self.tap_name, self.mac,
-                 self.link, self.peer_mac, self.tunnel_state, self.creation_start_time)
-        return state
-
-    def __str__(self):
-        state = "Tunnel<tnlid=%s, overlay_id=%s, peer_id=%s, tap_name=%s, mac=%s, link=%s, "\
-                "peer_mac=%s, tunnel_state=%s, creation_start_time=%s>" % \
-                (self.tnlid[:7], self.overlay_id[:7], self.peer_id[:7], self.tap_name, self.mac,
-                 self.link, self.peer_mac, self.tunnel_state, self.creation_start_time)
-        return state
+        items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
+        return "{{{}}}".format(", ".join(items))
 
     @property
     def tunnel_state(self):
@@ -106,6 +93,7 @@ class Tunnel():
 
 class LinkManager(ControllerModule):
     TAPNAME_MAXLEN = 15
+    _REFLECT = set(["_peers", "_tunnels"])
 
     def __init__(self, cfx_handle, module_config, module_name):
         super(LinkManager, self).__init__(
@@ -116,11 +104,6 @@ class LinkManager(ControllerModule):
         self._lock = threading.Lock()  # serializes access to _overlays, _links
         self._link_updates_publisher = None
         self._ignored_net_interfaces = dict()
-
-    def __repr__(self):
-        state = "LinkManager<_peers=%s, _tunnels=%s>" % (
-            self._peers, str(self._tunnels))
-        return state
 
     def initialize(self):
         self._link_updates_publisher = \
@@ -133,9 +116,9 @@ class LinkManager(ControllerModule):
                                                 "VIS_DATA_REQ")
         except NameError as err:
             if "OverlayVisualizer" in str(err):
-                self.register_cbt("Logger", "LOG_WARNING",
-                                  "OverlayVisualizer module not loaded."
-                                  " Visualization data will not be sent.")
+                self.log("LOG_WARNING",
+                         "OverlayVisualizer module not loaded."
+                         " Visualization data will not be sent.")
 
         for olid in self.config["Overlays"]:
             self._peers[olid] = dict()
@@ -145,7 +128,7 @@ class LinkManager(ControllerModule):
                 for ign_inf in ol_cfg["IgnoredNetInterfaces"]:
                     self._ignored_net_interfaces[olid].add(ign_inf)
 
-        self.register_cbt("Logger", "LOG_INFO", "Module Loaded")
+        self.log("LOG_INFO", "Module Loaded")
 
     def _get_ignored_tap_names(self, overlay_id, new_inf_name=None):
         ign_tap_names = set()
@@ -240,8 +223,7 @@ class LinkManager(ControllerModule):
         self._tunnels[tnlid].mac = tnl_desc["MAC"]
         self._tunnels[tnlid].tap_name = tnl_desc["TapName"]
         self._tunnels[tnlid].fpr = tnl_desc["FPR"]
-        self.register_cbt("Logger", "LOG_DEBUG",
-                          "Updated tunnels:{}".format(self._tunnels[tnlid]))
+        self.log("LOG_DEBUG", "Updated tunnels:%s", self._tunnels[tnlid])
 
     def _query_link_stats(self):
         """Query the status of links that have completed creation process"""
@@ -256,15 +238,15 @@ class LinkManager(ControllerModule):
 
     def resp_handler_query_link_stats(self, cbt):
         if not cbt.response.status:
-            self.register_cbt("Logger", "LOG_WARNING", "Link stats update error: {0}"
-                              .format(cbt.response.data))
+            self.log("LOG_WARNING", "Link stats update error: %s",
+                     cbt.response.data)
             self.free_cbt(cbt)
             return
         if not cbt.response.data:
             self.free_cbt(cbt)
             return
         data = cbt.response.data
-        #self.register_cbt("Logger", "LOG_DEBUG", "Tunnel stats: {0}".format(data))
+        #self.register_cbt("Logger", "LOG_DEBUG", "Tunnel stats: %s", data)
         # Handle any connection failures and update tracking data
         for tnlid in data:
             for lnkid in data[tnlid]:
@@ -308,8 +290,8 @@ class LinkManager(ControllerModule):
                         tnl.link.stats = data[tnlid][lnkid]["Stats"]
                         tnl.link.status_retry = 0
                     else:
-                        self.register_cbt("Logger", "LOG_WARNING", "Unrecognized tunnel state "
-                                          "{0}:{1}".format(lnkid, data[tnlid][lnkid]["Status"]))
+                        self.log("LOG_WARNING", "Unrecognized tunnel state ",
+                                          "%s:%s", lnkid, data[tnlid][lnkid]["Status"])
         self.free_cbt(cbt)
 
     def _cleanup_tunnel(self, tnl):
@@ -371,9 +353,8 @@ class LinkManager(ControllerModule):
         if parent_cbt:
             parent_cbt.set_response("Tunnel removed", True)
             self.complete_cbt(parent_cbt)
-        self.register_cbt("Logger", "LOG_INFO", "Tunnel {0} removed: {1}:{2}<->{3}"
-                          .format(tnlid[:7], olid[:7], self.node_id[:7], peer_id[:7]))
-        #self.register_cbt("Logger", "LOG_DEBUG", "State:\n" + str(self))
+        self.log("LOG_INFO", "Tunnel %s removed: %s:%s<->%s",
+                          tnlid[:7], olid[:7], self.node_id[:7], peer_id[:7])
 
     def resp_handler_remove_link(self, rmv_tnl_cbt):
         parent_cbt = rmv_tnl_cbt.parent
@@ -393,9 +374,8 @@ class LinkManager(ControllerModule):
         if parent_cbt:
             parent_cbt.set_response("Link removed", True)
             self.complete_cbt(parent_cbt)
-        self.register_cbt("Logger", "LOG_INFO", "Link {0} from Tunnel {1} removed: {2}:{3}<->{4}"
-                          .format(lnkid[:7], tnlid[:7], olid[:7], self.node_id[:7],
-                                  peer_id[:7]))
+        self.log("LOG_INFO", "Link %s from Tunnel %s removed: %s:%s<->%s",
+                          lnkid[:7], tnlid[:7], olid[:7], self.node_id[:7], peer_id[:7])
 
     def req_handler_query_tunnels_info(self, cbt):
         results = {}
@@ -488,9 +468,9 @@ class LinkManager(ControllerModule):
                       "TunnelId": tnlid, "LinkId": lnkid}
             self.register_cbt("TincanInterface", "TCI_REMOVE_TUNNEL", params)
 
-            self.register_cbt("Logger", "LOG_INFO", "Initiated removal of incomplete link: "
-                              "PeerId:{2}, LinkId:{0}, CreateState:{1}"
-                              .format(tnlid[:7], format(creation_state, "02X"), peer_id[:7]))
+            self.log("LOG_INFO", "Initiated removal of incomplete link: "
+                     "PeerId:{2}, LinkId:{0}, CreateState:{1}"
+                     .format(tnlid[:7], format(creation_state, "02X"), peer_id[:7]))
 
     def req_handler_auth_tunnel(self, cbt):
         """Node B"""
@@ -503,8 +483,8 @@ class LinkManager(ControllerModule):
         else:
             self._peers[olid][peer_id] = tnlid
             self._tunnels[tnlid] = Tunnel(tnlid, olid, peer_id)
-            self.register_cbt("Logger", "LOG_DEBUG", "TunnelId:{0} auth for Peer:{1} completed"
-                              .format(tnlid[:7], peer_id[:7]))
+            self.log("LOG_DEBUG", "TunnelId:%s auth for Peer:%s completed",
+                              tnlid[:7], peer_id[:7])
             cbt.set_response(
                 "Auth completed, TunnelId:{0}".format(tnlid[:7]), True)
             lnkupd_param = {

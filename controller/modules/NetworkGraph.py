@@ -94,14 +94,9 @@ class ConnectionEdge():
         return hash(self.__key__())
 
     def __repr__(self):
-        msg = ("ConnectionEdge<peer_id = %s, edge_id = %s, created_time = %s, connected_time = %s,"
-               " state = %s, edge_type = %s, marked_for_delete = %s>" %
-               (self.peer_id[:7], self.edge_id[:7], str(self.created_time),
-                str(self.connected_time), self.edge_state, self.edge_type, self.marked_for_delete))
-        #msg = ("ConnectionEdge<peer_id = %s, edge_id = %s, state = %s, edge_type = %s>" %
-        #       (self.peer_id, self.edge_id, self.edge_state, self.edge_type))
-        return msg
-
+        items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
+        return "{{{}}}".format(", ".join(items))
+      
     def __iter__(self):
         yield("peer_id", self.peer_id)
         yield("edge_id", self.edge_id)
@@ -150,7 +145,7 @@ class ConnEdgeAdjacenctList():
         self.overlay_id = overlay_id
         self.node_id = node_id
         self.conn_edges = {}
-        self._successor_nid = node_id
+        # self._successor_nid = node_id
         self.max_successors = max_succ
         self.max_ldl = max_ldl
         self.max_ondemand = max_ond
@@ -165,13 +160,8 @@ class ConnEdgeAdjacenctList():
         return len(self.conn_edges)
 
     def __repr__(self):
-        msg = "ConnEdgeAdjacenctList<overlay_id = %s, node_id = %s, successor_nid=%s, " \
-              "num_edges=%d, num_ildl=%d, num_ldl=%d, max_ldl=%d, max_successors=%d, "\
-              "max_ondemand=%d, conn_edges = %s>" % \
-              (self.overlay_id[:7], self.node_id[:7], self._successor_nid[:7],
-               len(self.conn_edges), self.num_ldli, self.num_ldl, self.max_ldl,
-               self.max_successors, self.max_ondemand, self.conn_edges)
-        return msg
+        items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
+        return "{{{}}}".format(", ".join(items))
 
     def __bool__(self):
         return bool(self.conn_edges)
@@ -193,8 +183,8 @@ class ConnEdgeAdjacenctList():
     def __iter__(self):
         return self.conn_edges.__iter__()
 
-    def is_successor(self, peer_id):
-        return bool(peer_id == self._successor_nid)
+    # def is_successor(self, peer_id):
+    #     return bool(peer_id == self._successor_nid)
 
     def is_threshold_iond(self):
         return bool(self.num_ondi >= self.max_ondemand)

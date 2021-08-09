@@ -21,7 +21,6 @@
 
 from abc import ABCMeta, abstractmethod
 import hashlib
-import copy
 
 # abstract ControllerModule (CM) class
 # all CM implementations inherit the variables declared here
@@ -31,12 +30,18 @@ class ControllerModule():
     __metaclass__ = ABCMeta
 
     def __init__(self, cfx_handle, module_config, module_name):
-        #self._pending_cbt = {}
         self._cfx_handle = cfx_handle
         self._cm_config = module_config
         self._module_name = module_name
         self._state_digest = None
-
+      
+    def __repr__(self):
+        items = set()
+        if hasattr(self, "_REFLECT"):
+            for k in self._REFLECT:
+                items.add(f"\"{k}\": {self.__dict__[k]!r}")
+        return "{{{}}}".format(", ".join(items))
+          
     @abstractmethod
     def initialize(self):
         pass
@@ -111,7 +116,7 @@ class ControllerModule():
         self._cfx_handle.submit_cbt(cbt)
 
     def log(self, level, msg, *args):
-        self.register_cbt("Logger", level, _params=(msg, copy.deepcopy(args)))
+        self.register_cbt("Logger", level, _params=(msg, args))
 
     def trace_state(self):
         if self.config.get("StateTracingEnabled", False):

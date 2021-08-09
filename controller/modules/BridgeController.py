@@ -353,6 +353,7 @@ def BridgeFactory(overlay_id, dev_type, config, cm, sdn_config=None):
 ###################################################################################################
 
 class BridgeController(ControllerModule):
+    _REFLECT = set(["_tunnels"])
 
     def __init__(self, cfx_handle, module_config, module_name):
         super(BridgeController, self).__init__(cfx_handle, module_config, module_name)
@@ -448,7 +449,7 @@ class BridgeController(ControllerModule):
         self.complete_cbt(cbt)
 
     def timer_method(self):
-        pass
+        self.trace_state()
 
     def process_cbt(self, cbt):
         if cbt.op_type == "Request":
