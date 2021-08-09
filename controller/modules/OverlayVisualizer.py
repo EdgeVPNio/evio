@@ -25,7 +25,9 @@ except ImportError:
     import json
 import threading
 from collections import defaultdict
+from datetime import datetime
 import requests
+import time
 import zlib
 from framework.ControllerModule import ControllerModule
 
@@ -39,6 +41,7 @@ class OverlayVisualizer(ControllerModule):
         self._vis_address = "http://" + self._cm_config["WebServiceAddress"]
         self._req_url = "{}/EVIO/nodes/{}".format(self._vis_address, self.node_id)
         self._vis_ds:dict
+        self._boot_time = str(datetime.fromtimestamp(time.time()))
 
     def initialize(self):
         # We're using the pub-sub model here to gather data for the visualizer
@@ -52,8 +55,9 @@ class OverlayVisualizer(ControllerModule):
         self.log("LOG_INFO", "Module loaded")
         self.post_viz_data(self.init_viz_data())
 
-    def init_viz_data(self):
+    def init_viz_data(self, boot_time=None):
         ds = dict(NodeId=self.node_id, VizData=defaultdict(dict))
+        ds["BootTime"] = self._boot_time
         ds["Version"] = self._cfx_handle.query_param("Version")
         for olid in self._cfx_handle.query_param("Overlays"):
             ds["VizData"][olid] = defaultdict(dict, Tunnels=defaultdict(dict))
