@@ -33,6 +33,7 @@ import logging
 from collections.abc import MutableSet
 import random
 import time
+import types
 import math
 import sys
 import logging.handlers as lh
@@ -184,8 +185,8 @@ class EvioPortal():
 
     def __init__(self, svr_addr: tuple, logger):
         self._logger = logger
-        self._sseq = random.randint(1, sys.maxsize)
-        self._rseq = 0
+        #self._sseq = random.randint(1, sys.maxsize)
+        #self._rseq = 0
         self._svr_addr = svr_addr
         self._sock = None
         #req = dict(Request=dict(Action="sync", Params=None))
@@ -225,10 +226,10 @@ class EvioPortal():
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.connect()
         try:
-            req["SSeq"] = self._sseq
+            #req["SSeq"] = self._sseq
             self._logger.debug("EvioPortal send Request={}".format(req))
             self.send(req)
-            self._sseq = self._sseq + 1
+            #self._sseq = self._sseq + 1
             resp = self.recv()
             self._logger.debug("EvioPortal recv'd Response={}".format(resp))
         except Exception as err:
@@ -245,7 +246,6 @@ class EvioPortal():
 
 ###################################################################################################
 ###################################################################################################
-
 
 class PeerData():
     def __init__(self, peer_id):
@@ -274,7 +274,6 @@ class PeerData():
             self.port_no = port_no
 
 ###################################################################################################
-
 
 class PortDescriptor():
     TUNNEL_TYPES = ["TNL_TYPE_UNKNOWN", "TNL_TYPE_LEAF",
@@ -336,9 +335,10 @@ class EvioSwitch(MutableMapping):
         self.traffic_analyzer = TrafficAnalyzer(
             self.logger, kwargs["DemandThreshold"])
         self._is_tunnel_data_good = False
-        self._topo_seq = 0
         self.idle_timeout = kwargs["FlowIdleTimeout"]
         self.hard_timeout = kwargs["FlowHardTimeout"]
+        self._topo_seq = None
+        self._initialize_topology_ds_seq()
 
     def __repr__(self):
         msg = {"EvioSwitch": {"overlay_id": self._overlay_id, "node_id": self._node_id,
@@ -399,14 +399,10 @@ class EvioSwitch(MutableMapping):
 
     @property
     def leaf_ports(self) -> list:
-        if not self.is_br_ready:
-            self.update()
         return list(self._leaf_prts)
 
     @property
     def link_ports(self) -> list:
-        if not self.is_br_ready:
-            self.update()
         return list(self._link_prts)
 
     @property
@@ -414,8 +410,8 @@ class EvioSwitch(MutableMapping):
         return [*self._port_tbl.keys()]
 
     @property
-    def is_br_ready(self):
-        return self._is_tunnel_data_good
+    def is_ready(self):
+        return bool(self._topo_seq) and self._is_tunnel_data_good
 
     @property
     def node_id(self) -> str:
@@ -441,39 +437,47 @@ class EvioSwitch(MutableMapping):
     def is_valid_port(self, port_no) -> bool:
         return bool(port_no in self._port_tbl)
 
+    def _initialize_topology_ds_seq(self):
+        req = dict(Request=dict(Action="GetSeqNum",
+                   Params=dict(OverlayId=self._overlay_id)))
+        resp = self.evio_portal.send_recv(req)
+        if not resp["Response"]["Status"] or not resp["Response"]["Data"]:
+            raise RuntimeError("Failed to initialize the evio topology dataset sequence number for device: {0}/{1}"
+                                   .format(self._overlay_id, self.name))
+        #print("DSeq=%s", resp["Response"]["Data"]["DSeq"])
+        #self._topo_seq = int(resp["Response"]["Data"]["DSeq"], base=10)
+        self._topo_seq = resp["Response"]["Data"]["DSeq"]
+        #self.logger.debug(f"EvioSwitch {self.name} _topo_seq={var} initialized")
+        
     def query_evio_tunnels(self, tapn=None) -> dict:
         self._is_tunnel_data_good = False
         req = dict(Request=dict(Action="GetTunnels",
-                   Params=dict(OverlayId=self._overlay_id)))
+                   Params=dict(OverlayId=self._overlay_id, DSeq=self._topo_seq)))
         resp = self.evio_portal.send_recv(req)
-        if resp["Response"]["Status"]:
-            self._is_tunnel_data_good = True
-            if not resp["Response"]["Data"]:
-                self.logger.info(
-                    "evio controller reported no tunnels for %s", self.name)
-                return {}
-            tunnels = resp["Response"]["Data"]
-            if self._topo_seq >= resp["Response"]["DSeq"]:
-                self.logger.warning("The tunnel data reported by evio controller is unchanged "
-                                    "or invalid since its previous update; dseq: %i, tunnel_data: %s",
-                                    resp["Response"]["DSeq"], tunnels)
-                return {}
-            else:
-                self.logger.debug("The evio tunnel data has been updated to dseq: %i, tunnel_data: %s",
-                                  resp["Response"]["DSeq"], tunnels)
-                self._topo_seq = resp["Response"]["DSeq"]
-            if tapn:
-                if not tapn in tunnels:
-                    self.logger.debug("The queried TAP name (%s) was not available in the evio "
-                                      "tunnel data. It will be treated as a leaf.", tapn)
-                    return {}
-                return tunnels[tapn]
-            else:
-                return tunnels
-        else:
-            self.logger.warning("- Failed to update tunnels for overlay:%s dpid:%s, response:%s",
-                                self._overlay_id, self._datapath_id, resp["Response"])
-            return {}
+        if not resp["Response"]["Status"]:
+            msg = "- Failed to update tunnels for overlay:{0} dpid:{1}, response:{2}" \
+                  .format(self._overlay_id, self._datapath_id, resp["Response"])
+            self.logger.warning(msg)
+            raise RuntimeWarning(msg)
+        if not resp["Response"]["Data"]:
+            self.logger.info(
+                "The evio controller responded with no data for device %s", self.name)
+            raise RuntimeWarning("The evio controller responded with no data")
+        tunnels = resp["Response"]["Data"]
+        if self._topo_seq != tunnels["DSeq"]:
+            self.logger.warning("The topology data reported by evio controller is out of "
+                                "sequence from what was requested; "
+                                "local_dseq: %i, recv_dseq: %i, tunnel_data: %s",
+                                self._topo_seq, tunnels["DSeq"], tunnels)
+            raise RuntimeWarning("The topology data reported is out of sequence")
+          
+        self._is_tunnel_data_good = True    
+        self._topo_seq = tunnels["DSeq"] + 1
+        self.logger.debug("The evio tunnel data has been updated to dseq: %i, tunnel_data: %s",
+                          tunnels["DSeq"], tunnels)
+        if tapn:
+            return tunnels["Snapshot"].get(tapn, {})
+        return tunnels["Snapshot"]
 
     def update_bridge_ports(self, port_set):
         # tries = 0
@@ -513,8 +517,6 @@ class EvioSwitch(MutableMapping):
             ofpport.port_no, ofpport.name.decode("utf-8"), ofpport.hw_addr)
         self._port_tbl[ofpport.port_no] = port
         tnl_data = self.query_evio_tunnels(port.name)
-        if not self.is_br_ready:
-            return
         if tnl_data:
             self.categorize_port(ofpport.port_no, "TNL_TYPE_PEER", tnl_data)
             self._link_prts.add(ofpport.port_no)
@@ -550,8 +552,6 @@ class EvioSwitch(MutableMapping):
         if ports:
             self.update_bridge_ports(ports)
         tnl_data = self.query_evio_tunnels()
-        if not self.is_br_ready:
-            return
         for port_no, port in self._port_tbl.items():
             if port.name in tnl_data:
                 self.categorize_port(
@@ -569,15 +569,19 @@ class EvioSwitch(MutableMapping):
         switch that hosts the leaf mac.
         """
         self._ingress_tbl[src_mac] = in_port
-        if in_port in self._leaf_prts:
-            self._leaf_macs.add(src_mac)
-            self.logger.debug(
-                "learn sw:%s, leaf_mac:%s, ingress:%i", self.name, src_mac, in_port)
-        elif rnid:
+        if rnid:
             pd = self._register_peer(rnid, leaf_macs=[src_mac, ])
             self._root_sw_tbl[src_mac] = pd
             self.logger.debug(
                 "learn sw:%s, leaf_mac:%s, ingress:%i, peerid:%s", self.name, src_mac, in_port, rnid)
+        elif in_port in self._leaf_prts:
+            self._leaf_macs.add(src_mac)
+            self.logger.debug(
+                "learn sw:%s, leaf_mac:%s, ingress:%i", self.name, src_mac, in_port)
+        else:
+            self.logger.info("Unicast on link ingress, will not attemp to track hosting SW for "
+                             "src_mac:%s, in_port:%s, rnid:%s",
+                             src_mac, in_port, rnid)
 
     @property
     def local_leaf_macs(self):
@@ -665,9 +669,10 @@ class EvioSwitch(MutableMapping):
                 continue
             p2i = (i + 1) % num_nodes
             peer2 = node_list[p2i]
-            assert (my_nid < peer1 or peer2 <= my_nid),\
-                "invalid node_id ordering self={0}, peer1={1}, peer2={2}".\
-                format(my_nid, peer1, peer2)
+            if not (my_nid < peer1 or peer2 <= my_nid):
+                self.logger.warning("invalid node_id ordering self={0}, peer1={1}, peer2={2}"
+                                    .format(my_nid, peer1, peer2))
+                return out_bounds
             # base scenario when the local node is initiating the FRB
             hops = 1
             root_nid = my_nid
@@ -680,9 +685,10 @@ class EvioSwitch(MutableMapping):
                     if prtno and prtno not in exclude_ports:
                         out_bounds.append((prtno, frb_hdr))
             else:
-                assert prev_frb.bound_nid != my_nid,\
-                    "this frb should not have reached this node ny_nid={0} prev_frb={1}".\
-                    format(my_nid, prev_frb)
+                if prev_frb.bound_nid == my_nid:
+                    self.logger.warning("This frb should not have reached this node ny_nid={0} prev_frb={1}"
+                                        .format(my_nid, prev_frb))
+                    return out_bounds
                 hops = prev_frb.hop_count + 1
                 root_nid = prev_frb.root_nid
                 if peer1 < my_nid:  # peer1 is a predecessor
@@ -718,6 +724,9 @@ class EvioSwitch(MutableMapping):
 
 
 class LearningTable(MutableMapping):
+    _REFLECT = set(
+        ["_node_id", "_switch_tbl"])
+    
     def __init__(self,  **kwargs) -> None:
         #self._lock = threading.Lock()
         self._node_id = kwargs["NodeId"]
@@ -747,7 +756,11 @@ class LearningTable(MutableMapping):
 
     def __repr__(self):
         # with self._lock:
-        return f"{type(self).__name__}({self._switch_tbl})"
+        items = set()
+        for k in LearningTable._REFLECT:
+            items.add(f"\"{k}\": {self.__dict__[k]!r}")
+        return "{{{}}}".format(", ".join(items))        
+        #return f"{self._switch_tbl!r}"
 
     def register_datapath(self, datapath_id, evio_switch):
         # with self._lock:
@@ -807,12 +820,15 @@ class BoundedFlood(app_manager.RyuApp):
         handler = lh.RotatingFileHandler(filename=fqname, maxBytes=self.config["MaxBytes"],
                                          backupCount=self.config["BackupCount"])
         formatter = logging.Formatter(
-            "[%(asctime)s.%(msecs)03d %(thread)d] %(levelname)s:%(message)s", datefmt="%Y%m%d %H:%M:%S")
+            "[%(asctime)s.%(msecs)03d] %(levelname)s:%(message)s", datefmt="%Y%m%d %H:%M:%S")
         logging.Formatter.converter = time.localtime
         handler.setFormatter(formatter)
         self.logger.addHandler(handler)
 
     def load_config(self):
+        # with open("/etc/opt/evio/bf-config.json", "r") as content:
+        #     self.config = json.load(content)
+        # return
         if CONF["bf"]["config_file"]:
             if not os.path.isfile(CONF["bf"]["config_file"]):
                 raise RuntimeError("The specified configuration file was not found: {}"
@@ -830,54 +846,70 @@ class BoundedFlood(app_manager.RyuApp):
         datapath = ev.msg.datapath
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
+        try:
+            while INTERNAL_PORT_NUM not in datapath.ports:
+                time.sleep(1)
+            br_name = datapath.ports[INTERNAL_PORT_NUM].name.decode("utf-8")
+            with self._lock:
+                if datapath.id in self._lt:
+                    self.logger.warning("Datapath ID {} is already in learning table, reinitializing"
+                                        .format(datapath.id))
+                    self._lt.pop(datapath.id)
+                if br_name not in self.config:
+                    self.logger.warning("Bridge {} is not specified in the BoundedFlood config, "
+                                        "skipping bridge registration. Config={1}"
+                                        .format(br_name), self.config)
+                    return
 
-        while INTERNAL_PORT_NUM not in datapath.ports:
-            time.sleep(1)
-        br_name = datapath.ports[INTERNAL_PORT_NUM].name.decode("utf-8")
-        with self._lock:
-            assert datapath.id not in self._lt, "Datapath ID {} is already in learning table".format(
-                datapath.id)
-            if br_name not in self.config:
-                self.logger.warning("Bridge {} is not specified in the BoundedFlood config, skipping bridge registration"
-                                    .format(br_name))
-                return
+                # install table-miss flow entry
+                match = parser.OFPMatch()
+                actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
+                                                  ofproto.OFPCML_NO_BUFFER)]
+                self.add_flow(datapath, match, actions)
+                # deliver bounded flood frames to controller
+                match = parser.OFPMatch(eth_type=FloodRouteBound.ETH_TYPE_BF)
+                self.add_flow(datapath, match, actions, priority=100)
+                # drop multicast frames
+                self.add_flow_drop_multicast(datapath)
 
-            # install table-miss flow entry
-            match = parser.OFPMatch()
-            actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
-                                              ofproto.OFPCML_NO_BUFFER)]
-            self.add_flow(datapath, match, actions)
-            # deliver bounded flood frames to controller
-            match = parser.OFPMatch(eth_type=FloodRouteBound.ETH_TYPE_BF)
-            self.add_flow(datapath, match, actions, priority=100)
-            # drop multicast frames
-            self.add_flow_drop_multicast(datapath)
-
-            overlay_id = self.config[br_name]["OverlayId"]
-            self._lt[datapath.id] = EvioSwitch(datapath.id,
-                                               OverlayId=overlay_id,
-                                               NodeId=self.config["NodeId"],
-                                               Logger=self.logger,
-                                               EvioPortal=self.evio_portal,
-                                               MaxOnDemandEdges=self.config[br_name]["MaxOnDemandEdges"],
-                                               DemandThreshold=self.config[br_name]["DemandThreshold"],
-                                               FlowIdleTimeout=self.config[br_name]["FlowIdleTimeout"],
-                                               FlowHardTimeout=self.config[br_name]["FlowHardTimeout"])
-            self.logger.info(
-                "Switch %s added with overlay ID %s", br_name, overlay_id)
-            self._lt[datapath.id].update(datapath.ports)
-            for port_no in self._lt[datapath.id].link_ports:
-                if self._lt[datapath.id].port_descriptor(port_no).is_peer:
-                    self.do_bf_leaf_transfer(datapath, port_no)
+                overlay_id = self.config[br_name]["OverlayId"]
+                self._lt[datapath.id] = EvioSwitch(datapath.id,
+                                                   OverlayId=overlay_id,
+                                                   NodeId=self.config["NodeId"],
+                                                   Logger=self.logger,
+                                                   EvioPortal=self.evio_portal,
+                                                   MaxOnDemandEdges=self.config[br_name]["MaxOnDemandEdges"],
+                                                   DemandThreshold=self.config[br_name]["DemandThreshold"],
+                                                   FlowIdleTimeout=self.config[br_name]["FlowIdleTimeout"],
+                                                   FlowHardTimeout=self.config[br_name]["FlowHardTimeout"])
+                self.logger.info(
+                    f"Switch {br_name} added with overlay ID {overlay_id}")
+                self._lt[datapath.id].update(datapath.ports)
+                for port_no in self._lt[datapath.id].link_ports:
+                    if self._lt[datapath.id].port_descriptor(port_no).is_peer:
+                        self.do_bf_leaf_transfer(datapath, port_no)
+        except RuntimeError as wrn:
+            self.logger.exception(f"An runtime error occurred while registering switch {ev.msg}")
+            if datapath.id in self._lt and not self._lt[datapath.id].is_ready:
+              self._lt.pop(datapath.id, None)          
+        except Exception as err:
+            self.logger.exception(f"A no good error occurred while registering a new switch. "
+                                  f"Event={ev.msg}")
+            if datapath.id in self._lt and not self._lt[datapath.id].is_ready:
+              self._lt.pop(datapath.id, None)
 
     @set_ev_cls(event.EventSwitchLeave, [MAIN_DISPATCHER, CONFIG_DISPATCHER, DEAD_DISPATCHER])
     def handler_switch_leave(self, ev):
-        with self._lock:
-            dpid = ev.switch.dp.id
-            br_name = self._lt[dpid].name
-            self._lt[dpid].terminate()
-            self._lt.pop(dpid, None)
-        self.logger.info("Removed switch: %s", br_name)
+        try:
+            with self._lock:
+                dpid = ev.switch.dp.id
+                if dpid in self._lt:
+                  br_name = self._lt[dpid].name
+                  self._lt[dpid].terminate()
+                  self._lt.pop(dpid, None)
+            self.logger.info("Removed switch: %s", br_name)
+        except Exception as err:
+            self.logger.exception("An error occurred while removing a switch.")
 
     @set_ev_cls(ofp_event.EventOFPPortStatus, MAIN_DISPATCHER)  # pylint: disable=no-member
     def port_status_handler(self, ev):
@@ -885,328 +917,84 @@ class BoundedFlood(app_manager.RyuApp):
         dp = msg.datapath
         ofp = dp.ofproto
         port_no = msg.desc.port_no
-        with self._lock:
-            if msg.reason == ofp.OFPPR_ADD:
-                self.logger.info("OFPPortStatus: port ADDED desc=%s", msg.desc)
-                self._lt[dp.id].add_port(msg.desc)
-                if self._lt[dp.id].port_descriptor(port_no).is_peer:
-                    self.do_bf_leaf_transfer(dp, port_no)
-            elif msg.reason == ofp.OFPPR_DELETE:
-                self.logger.info(
-                   "OFPPortStatus: port DELETED desc=%s", msg.desc)
-                self.del_flows_port(dp, port_no, tblid=0)
-                self._lt[dp.id].delete_port(port_no)
-            elif msg.reason == ofp.OFPPR_MODIFY:
-                # self.logger.debug(
-                #    "OFPPortStatus: port MODIFIED desc=%s", msg.desc)
-                pass
+        try:
+            with self._lock:
+                if msg.reason == ofp.OFPPR_ADD:
+                    self.logger.info(
+                        "OFPPortStatus: port ADDED desc=%s", msg.desc)
+                    self._lt[dp.id].add_port(msg.desc)
+                    if self._lt[dp.id].port_descriptor(port_no).is_peer:
+                        self.do_bf_leaf_transfer(dp, port_no)
+                elif msg.reason == ofp.OFPPR_DELETE:
+                    self.logger.info(
+                        "OFPPortStatus: port DELETED desc=%s", msg.desc)
+                    self.del_flows_port(dp, port_no, tblid=0)
+                    self._lt[dp.id].delete_port(port_no)
+                elif msg.reason == ofp.OFPPR_MODIFY:
+                    self.logger.debug(
+                        "OFPPortStatus: port MODIFIED desc=%s", msg.desc)
+        except Exception as err:
+            self.logger.exception(f"An error occurred while responding to a port event. "
+                                  f"Event={ev.msg}")
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)  # pylint: disable=no-member
     def _packet_in_handler(self, ev):
         msg = ev.msg
-        datapath = msg.datapath
-        ofproto = datapath.ofproto
-        parser = datapath.ofproto_parser
         in_port = msg.match['in_port']
         pkt = packet.Packet(msg.data)
-        for p in pkt.protocols:
-            if hasattr(p, 'protocol_name'):
-                self.logger.debug("pkt proto=%s", p)
         eth = pkt.protocols[0]
-        dst = eth.dst
-        src = eth.src
-        dpid = datapath.id
-
-        with self._lock:
-            if not self._lt[dpid].is_valid_port(in_port):
-                return
-            if eth.ethertype == FloodRouteBound.ETH_TYPE_BF:
-                self.handle_bounded_flood_msg(datapath, pkt, in_port, msg)
-            elif dst in self._lt[dpid]:
-                out_port = self._lt[dpid][dst]
-                # learn a mac address
-                self._lt[dpid][src] = in_port
-                # create new flow rule
-                actions = [parser.OFPActionOutput(out_port)]
-                match = parser.OFPMatch(
-                    in_port=in_port, eth_dst=dst, eth_src=src)
-                self.add_flow(datapath, match, actions, priority=1, tblid=0,
-                              idle=self._lt[dpid].idle_timeout)
-                data = None
-                if msg.buffer_id == ofproto.OFP_NO_BUFFER:
-                    data = msg.data
-                out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
-                                          in_port=in_port, actions=actions, data=data)
-                datapath.send_msg(out)
-            else:
-                # this dst mac is not in our LT
-                self.logger.debug(
-                    "Default packet handler src:%s dst:%s ingress: %s/%s", src, dst, self._lt[dpid].name, in_port)
-                if in_port not in self._lt[dpid].leaf_ports and is_multiricepient(dst):
-                    # a broadcast or multicast frame was received on a peer sw link.
-                    # This is invalid as these tunnel interfaces should not be used the src of a request.
-                    self.logger.debug(
-                        "Dropping multi/broadcast frame to %s on ingress %s/%s", dst, self._lt[dpid].name, in_port)
+        dpid = msg.datapath.id
+        try:
+            if self.logger.isEnabledFor(logging.DEBUG):
+                pkt_hdrs = ["packet_in<=="]
+                for p in pkt.protocols:
+                    if hasattr(p, 'protocol_name'):
+                        pkt_hdrs.append(str(p))
+                hdrs = '\n'.join(pkt_hdrs)
+                self.logger.debug(f"{hdrs}")
+            with self._lock:
+                if not self._lt[dpid].is_valid_port(in_port):
+                    ''' buffered frames ingressed on a since removed port '''
+                    # TODO(ken): forward these frames as possible but take no learning actions
                     return
-                # learn a mac address
-                self._lt[dpid][src] = in_port
-                frb_type = FloodRouteBound.FRB_BRDCST
-                if in_port not in self._lt[dpid].leaf_ports:
-                    # this node did not initiate the frame but it has no data on how to switch it
-                    # so it must brdcast with an FRB but let peers know we  are not the root sw
-                    frb_type = FloodRouteBound.FRB_FWD
-                # check if this is a multicast frame
-                # if eth.dst.split(':')[0] == '01':
-                #     if self._handle_multicast_frame(msg,is_igmp,is_dvmrp):
-                    # return
-                # perform bounded flood same as leaf case
-                out_bounds = self._lt[dpid].get_flooding_bounds(
-                    None, [in_port], frb_type)
-                self.logger.info("<--\nGenerated FRB(s)=%s/%s",
-                                 self._lt[dpid].name, out_bounds)
-                if out_bounds:
-                    self.do_bounded_flood(
-                        datapath, in_port, out_bounds, src, msg.data)
+                if eth.ethertype == FloodRouteBound.ETH_TYPE_BF:
+                    self.handle_bounded_flood_msg(msg.datapath, pkt, in_port, msg)
+                elif eth.dst in self._lt[dpid]:
+                    ''' Vanilla Ethernet frame and forwarding data is available for its destination MAC'''
+                    self.forward_frame(msg.datapath, pkt, in_port, msg)
+                else:
+                    ''' Vanilla Ethernet frame but the destination MAC is not in our LT '''
+                    if in_port not in self._lt[dpid].leaf_ports and is_multiricepient(eth.dst):
+                        # a broadcast or multicast frame was received on a peer sw link.
+                        # This is invalid as these tunnel interfaces should not be used the src of a request.
+                        self.logger.debug(
+                            f"Dropping multi/broadcast frame to {eth.dst} on ingress "
+                            f"{self._lt[dpid].name}/{in_port}")
+                        return
+                    self.broadcast_frame(msg.datapath, pkt, in_port, msg)
+        # except IndexError as err:
+        #     self.logger.error("An error occurred in the controller's packet handler. "
+        #                       "Event=%s, exception=%s",
+        #                       ev.msg, str(err))
+        except Exception as err:
+            self.logger.exception(f"An error occurred in the controller's packet handler. "
+                                  f"Event={ev.msg}")
 
     @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)  # pylint: disable=no-member
     def _flow_stats_reply_handler(self, ev):
-        if self._lt[ev.msg.datapath.id].is_ond_enabled:
-            self._lt[ev.msg.datapath.id].handle_ond_tunnel_req(ev.msg.body)
+        try:
+            if self._lt[ev.msg.datapath.id].is_ond_enabled:
+                self._lt[ev.msg.datapath.id].handle_ond_tunnel_req(ev.msg.body)
+        except Exception as err:
+            self.logger.exception(f"An error occurred in the flow stats handler. Event={ev.msg}")
+
     ##################################################################################
-
-    def _send_igmp_query(self, msg):
-        datapath = msg.datapath
-        parser = datapath.ofproto_parser
-        dpid = datapath.id
-        node = self._lt[dpid]
-        actions = []
-        # igmp_query = self.frame_igmp_query()
-        for leaf_port in node.leaf_prts:
-            actions.append(parser.OFPActionOutput(leaf_port))
-        if len(actions) != 0:
-            out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
-                                      in_port=datapath.ofproto.OFPP_LOCAL,
-                                      actions=actions, data=igmp_query.data)
-            self.logger.info(
-                "Sending IGMP QUERY {} to leaf ports".format(igmp_query))
-            datapath.send_msg(out)
-
-    def _handle_igmp(self, msg):
-        datapath = msg.datapath
-        parser = datapath.ofproto_parser
-        in_port = msg.match['in_port']
-        pkt = packet.Packet(msg.data)
-        req_igmp = pkt.get_protocol(igmp.igmp)
-        dpid = datapath.id
-        node = self._lt[dpid]
-        if req_igmp.msgtype == 34:
-            self.logger.info("Received a IGMP_TYPE_REPORT_V3")
-        if req_igmp.msgtype == igmp.IGMP_TYPE_REPORT_V3:
-            if in_port in node.leaf_prts:
-                self.logger.info("Received IGMP_TYPE_REPORT_V3 on LEAF PORT")
-            else:
-                self.logger.info("Received IGMP_TYPE_REPORT_V3 on PEER PORT")
-            for record in req_igmp.records:
-                if record.type_ == 3:
-                    if in_port in node.leaf_prts:
-                        self.logger.info(
-                            "Leaving multicast group {}".format(record.address))
-                        if node.leaf_interest.containsKey(record.address):
-                            if node.leaf_interest.containsValue(record.address, in_port):
-                                node.leaf_interest.removeValue(
-                                    record.address, in_port)
-                elif record.type_ == 4 or record.type_ == 2:
-                    if in_port in node.leaf_ports:
-                        self.logger.info(
-                            "Joining/Reaffirming multicast group {}".format(record.address))
-                        node.leaf_interest.put(record.address, in_port)
-                    # Optimization: if need to update flows, find all transmissions corresponding this group
-                    # address and update rules for them.
-                    # need to send this IGMP join as DVMRP upstream to create tree.
-                    if node.multicast_groups.containsKey(record.address):
-                        for transmission in node.multicast_groups.get(record.address):
-                            self.logger.info(
-                                "Updating flow for {} on new IGMP join.".format(transmission))
-                            actions = []
-                            if node.downstream_interest.containsKey(transmission):
-                                for outport in node.downstream_interest.get(transmission):
-                                    actions.append(
-                                        parser.OFPActionOutput(outport))
-                            if node.leaf_interest.containsKey(record.address):
-                                for outport in node.leaf_interest.get(record.address):
-                                    actions.append(
-                                        parser.OFPActionOutput(outport))
-                            if in_port in node.leaf_ports:
-                                self.hard_timeout = self.mcast_broadcast_period
-                            ip_src, ip_dst = transmission
-                            match = parser.OFPMatch(eth_type=0x800, ipv4_dst=ip_dst,
-                                                    ipv4_src=ip_src)
-                            self.add_flow(datapath, match, actions, priority=1, tblid=0,
-                                          idle=self.idle_timeout, hard_timeout=self.hard_timeout)
-                            # need to send this IGMP join as DVMRP upstream to create tree.
-                            if node.upstream_reception.containsKey(transmission):
-                                send_port = list(
-                                    node.upstream_reception.get(transmission))[0]
-                                if send_port not in node.leaf_ports:
-                                    # send upstream
-                                    self.logger.info("Sending a graft message upstream on IGMP join for src {} dst {}".
-                                                     format(ip_src, ip_dst))
-                                    graft_msg = self.frame_graft_msg(
-                                        ip_src, ip_dst)
-                                    actions = [parser.OFPActionOutput(in_port)]
-                                    out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
-                                                              in_port=datapath.ofproto.OFPP_LOCAL,
-                                                              actions=actions,
-                                                              data=graft_msg.data)
-                                    datapath.send_msg(out)
-
-    def _handle_dvmrp(self, msg):
-        datapath = msg.datapath
-        parser = datapath.ofproto_parser
-        in_port = msg.match['in_port']
-        pkt = packet.Packet(msg.data)
-        dpid = datapath.id
-        netnode = self._lt[dpid]
-        (req_dvmrp, _, _) = DVMRP.parser(pkt.protocols[2])
-        self.logger.info("Received a downstream DVMRP msg from port {} for {} {}".format(in_port,
-                                                                                         req_dvmrp.src_address, req_dvmrp.grp_address))
-        transmission = (req_dvmrp.src_address, req_dvmrp.grp_address)
-        self.logger.info("Added {} to downstream interest for "
-                         "transmission {}".format(in_port, transmission))
-        if not netnode.downstream_interest.containsValue(transmission, in_port):
-            netnode.downstream_interest.put(transmission, in_port)
-            # Optimization: Modify flow for multicast as soon as downstream interest table
-            # has changes, note that this optimization takes only updates to non-leaf
-            # downstream ports into account and not leaf ports
-            ip_src, ip_dst = transmission
-            actions = []
-            if netnode.downstream_interest.containsKey(transmission):
-                self.logger.info(
-                    "Updating flow for {} on new dvmrp join.".format(transmission))
-                for outport in netnode.downstream_interest.get(transmission):
-                    actions.append(parser.OFPActionOutput(outport))
-                if netnode.leaf_interest.containsKey(ip_dst):
-                    for outport in netnode.leaf_interest.get(ip_dst):
-                        actions.append(parser.OFPActionOutput(outport))
-            if in_port in netnode.leaf_ports:
-                self.hard_timeout = self.mcast_broadcast_period
-            match = parser.OFPMatch(eth_type=0x800, ipv4_dst=ip_dst,
-                                    ipv4_src=ip_src)
-            self.add_flow(datapath, match, actions, priority=1, tblid=0,
-                          idle=self.idle_timeout, hard_timeout=self.hard_timeout)
-
-            # need to send this join upstream to create tree, note that this also serves as reaffirming continued
-            # interest in the multicast transmission.
-            if netnode.multicast_groups.containsKey(req_dvmrp.grp_address):
-                targetTransmission = (
-                    req_dvmrp.src_address, req_dvmrp.grp_address)
-                if netnode.upstream_reception.containsKey(targetTransmission):
-                    send_port = list(
-                        netnode.upstream_reception.get(targetTransmission))[0]
-                    if send_port not in netnode.leaf_ports:
-                        # send upstream
-                        if msg.buffer_id == datapath.ofproto.OFP_NO_BUFFER:
-                            data = msg.data
-                        actions = [parser.OFPActionOutput(send_port)]
-                        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
-                                                  in_port=in_port, actions=actions, data=data)
-                        datapath.send_msg(out)
-                        self.logger.info("Forwarded DVMRP upstream for {} on port {}".
-                                         format((req_dvmrp.src_address, req_dvmrp.grp_address), send_port))
-
-    def _handle_multicast_frame(self, msg, is_igmp, is_dvmrp):
-        datapath = msg.datapath
-        parser = datapath.ofproto_parser
-        in_port = msg.match['in_port']
-        pkt = packet.Packet(msg.data)
-        dpid = datapath.id
-        netnode = self._lt[dpid]
-        eth = pkt.protocols[0]
-        dst = eth.dst
-        src = eth.src
-        ip_load = pkt.get_protocol(ipv4.ipv4)
-        ip_src = ip_load.src
-        ip_dst = ip_load.dst
-        if msg.buffer_id == datapath.ofproto.OFP_NO_BUFFER:
-            data = msg.data
-        self.logger.info("Received a multicast packet with dst {} from {} on port {}".format(dst,
-                                                                                             src, in_port))
-        if is_igmp or is_dvmrp:
-            self.logger.info("Not going to broadcast igmp or dvmrp")
-            return True
-        # make note only if it comes from leaf port or is broadcast.
-        elif in_port in netnode.leaf_ports:
-            netnode.upstream_reception.put((ip_src, ip_dst), in_port)
-            netnode.multicast_groups.put(ip_dst, (ip_src, ip_dst))
-            ''' To force refreshing of state of multicast tree have to revert to periodic broadcasts.
-                timestamp is associated with  a multicast flow which is determined by combination of
-                IP src and multicast DST address.
-            '''
-        # two kind of interested parties in this transmission, leaf nodes, downstream nodes.
-        # need to maintains actions for each.
-        actions_leaf = []
-        actions_downstream = []
-        # check if any leaf nodes are interested and in_port is not the same as interested port.
-        if netnode.leaf_interest.containsKey(ip_dst):
-            for outport in netnode.leaf_interest.get(ip_dst):
-                if outport != in_port:
-                    actions_leaf.append(parser.OFPActionOutput(outport))
-        # check if I have any downstream interests, if so append to actions.
-        if netnode.downstream_interest.containsKey((ip_src, ip_dst)):
-            self.logger.info(
-                "Found downstream for {}".format((ip_src, ip_dst)))
-            for outport in netnode.downstream_interest.get((ip_src, ip_dst)):
-                actions_downstream.append(parser.OFPActionOutput(outport))
-        # check If it is time to broadcast.
-        curr_time = time.time()
-        ''' possible that this is first time this multicast is seen outside FRB broadcast'''
-        if (ip_src, ip_dst) in netnode.broadcast_timeout.keys():
-            prev_forced_broadcast = netnode.broadcast_timeout[(ip_src, ip_dst)]
-        else:
-            prev_forced_broadcast = None
-        if prev_forced_broadcast is None or curr_time - prev_forced_broadcast > self.mcast_broadcast_period:
-            self.logger.info(
-                "Broadcast timeout for {}, will broadcast".format((ip_src, ip_dst)))
-            netnode.broadcast_timeout[(ip_src, ip_dst)] = time.time()
-            # still need to send packets to leaf nodes.
-            actions = actions_leaf
-            if len(actions) != 0:
-                out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
-                                          in_port=in_port, actions=actions, data=data)
-                self.logger.info(
-                    "Sending mcast group pkt {} to leaf port".format(ip_dst))
-                datapath.send_msg(out)
-        else:
-            actions = actions_leaf + actions_downstream
-            # Install a flow rule, if the multicast transmission originates on a leaf node, hard timeout
-            # has to be set to  a lower value to enable packets to come to controller to initiate periodic
-            # broadcasts.
-            if in_port in netnode.leaf_ports:
-                self.hard_timeout = self.mcast_broadcast_period
-            if len(actions) != 0:
-                match = parser.OFPMatch(
-                    eth_type=0x800, ipv4_dst=ip_dst, ipv4_src=ip_src)
-                self.add_flow(datapath, match, actions, priority=1, tblid=0,
-                              idle=self.idle_timeout, hard_timeout=self.hard_timeout)
-                # Also send the packet out this time
-                out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
-                                          in_port=in_port, actions=actions, data=data)
-                self.logger.info(
-                    "Sending mcast group pkt {} flow out".format(ip_dst))
-                datapath.send_msg(out)
-                return True  # no need to broadcast
-
-        # Do not broadcast multicast packets received on non leaf ports on a regular channel.
-        if in_port not in netnode.leaf_ports:
-            return True
-        # will have to broadcast
-        return False
-    ###################################################################################
+    ##################################################################################
 
     def _monitor(self):
         while True:
             msg = ""
-            state_msg = ""
+            state_msg = []
             self._lock.acquire()
             for dpid in self._lt:
                 self._lt[dpid].counters["MaxFloodingHopCount"] = 0
@@ -1226,23 +1014,23 @@ class BoundedFlood(app_manager.RyuApp):
                 self._lt[dpid].counters["AvgFloodingHopCount"] = total_hc/num_rsw
 
                 self.request_stats(self.dpset.dps[dpid])
-                if self.logger.isEnabledFor(logging.DEBUG):
-                    state_msg += "{0}\n".format(self._lt[dpid])
-                    #state_msg += str(self._lt[dpid])
-                msg += "{0}:Max_FHC={1},NPC={2},THC={3},AHC={4}\n".\
-                    format(self._lt[dpid].name,
-                           self._lt[dpid].counters.get(
-                               "MaxFloodingHopCount", 1),
-                           self._lt[dpid].counters.get("NumPeersCounted", 0),
-                           self._lt[dpid].counters.get("TotalHopCount", 0),
-                           self._lt[dpid].counters.get("AvgFloodingHopCount", 0))
+                # if self.logger.isEnabledFor(logging.DEBUG):
+                #     state_msg.append(f"{self._lt[dpid]}\n")
+                msg += (f"{self._lt[dpid].name}:"
+                       f"Max_FHC={self._lt[dpid].counters.get('MaxFloodingHopCount', 1)},"
+                       f"NPC={self._lt[dpid].counters.get('NumPeersCounted', 0)},"
+                       f"THC={self._lt[dpid].counters.get('TotalHopCount', 0)},"
+                       f"AHC={self._lt[dpid].counters.get('AvgFloodingHopCount', 0)}\n")
+                    
             self._lock.release()
             if time.time() - self._last_log_time > self.monitor_interval:
                 self._last_log_time = time.time()
                 if msg:
-                    self.logger.info("@@>\n%s", msg)
+                    self.logger.info(f"@@>\n{msg}")
+                if self.logger.isEnabledFor(logging.DEBUG):
+                    self.logger.debug(f"{self._lt}\n")                    
                 if state_msg:
-                    self.logger.debug("%s", state_msg)
+                    self.logger.debug(f"{','.join(state_msg)}")
             hub.sleep(self.monitor_interval)
 
     def request_stats(self, datapath, tblid=0):
@@ -1272,8 +1060,7 @@ class BoundedFlood(app_manager.RyuApp):
                 self.logger.warning(
                     "Add flow operation failed, OFPFlowMod=%s", mod)
         except struct.error as err:
-            self.logger.warning("Add flow operation failed, OFPFlowMod=%s\n struct.error=%s",
-                                mod, err)
+            self.logger.exception(f"Add flow operation failed, OFPFlowMod={mod}\n struct.")
 
     def add_flow_drop_multicast(self, datapath, priority=1, tblid=0):
         ofproto = datapath.ofproto
@@ -1323,12 +1110,12 @@ class BoundedFlood(app_manager.RyuApp):
         #    self.logger.warning("Delete flow operation failed, egress=%s, OFPFlowMod=%s",
         #                        port_no, mod)
         try:
-            resp1 = runcmd([BoundedFlood.OFCTL, "del-flows", self.config["BridgeName"],
+            resp1 = runcmd([BoundedFlood.OFCTL, "del-flows", self._lt[datapath.id].name,
                             "in_port={0}".format(port_no)])
-            resp2 = runcmd([BoundedFlood.OFCTL, "del-flows", self.config["BridgeName"],
+            resp2 = runcmd([BoundedFlood.OFCTL, "del-flows", self._lt[datapath.id].name,
                             "out_port={0}".format(port_no)])
 
-            chk = runcmd([BoundedFlood.OFCTL, "dump-flows", self.config["BridgeName"],
+            chk = runcmd([BoundedFlood.OFCTL, "dump-flows", self._lt[datapath.id].name,
                           "in_port={0}".format(port_no)])
             lines = chk.stdout.splitlines()
             if (len(lines) > 1):
@@ -1337,7 +1124,7 @@ class BoundedFlood(app_manager.RyuApp):
             else:
                 self.logger.debug("Deleted flows with in_port=%s", port_no)
 
-            chk = runcmd([BoundedFlood.OFCTL, "dump-flows", self.config["BridgeName"],
+            chk = runcmd([BoundedFlood.OFCTL, "dump-flows", self._lt[datapath.id].name,
                           "out_port={0}".format(port_no)])
             lines = chk.stdout.splitlines()
             if (len(lines) > 1):
@@ -1346,7 +1133,7 @@ class BoundedFlood(app_manager.RyuApp):
             else:
                 self.logger.debug("deleted flows with out_port=%s", port_no)
         except Exception as err:
-            self.logger.error(err)
+            self.logger.exception()
 
     def update_flow_match_dstmac(self, datapath, dst_mac, new_egress, tblid=None):
         self.logger.debug("Updating all flows matching dst mac %s-%s",
@@ -1450,6 +1237,7 @@ class BoundedFlood(app_manager.RyuApp):
         if rcvd_frb.frb_type == FloodRouteBound.FRB_LEAF_TX:
             self._lt[dpid].categorize_port(in_port, "TNL_TYPE_PEER", {
                                            "PeerId": rcvd_frb.root_nid, "PeerMac": src})
+            self._link_prts.add(in_port)
             if payload:
                 self.update_leaf_macs_and_flows(
                     datapath, rcvd_frb.root_nid, payload, rcvd_frb.pl_count, in_port)
@@ -1482,7 +1270,7 @@ class BoundedFlood(app_manager.RyuApp):
 
     def update_leaf_macs_and_flows(self, datapath, rnid, macs, num_items, ingress):
         self._lt[datapath.id].clear_leaf_macs(rnid)
-        # self._lt[datapath.id][rnid].hop_count = 1 #TODO: hop count
+        # self._lt[datapath.id][rnid].hop_count = 1 # TODO(ken): hop count
         mlen = num_items*6
         for mactup in struct.iter_unpack("!6s", macs[:mlen]):
             macstr = mac_lib.haddr_to_str(mactup[0])
@@ -1492,6 +1280,48 @@ class BoundedFlood(app_manager.RyuApp):
         for mac in self._lt[datapath.id].leaf_macs(rnid):
             if self._lt._node_id != rnid:
                 self.update_flow_match_dstmac(datapath, mac, ingress, tblid=0)
+
+    def forward_frame(self, datapath, pkt, in_port, msg):
+        eth = pkt.protocols[0]
+        dpid = datapath.id
+        parser = datapath.ofproto_parser
+        ofproto = datapath.ofproto
+        out_port = self._lt[dpid][eth.dst]
+        # learn a mac address
+        self._lt[dpid][eth.src] = in_port
+        # create new flow rule
+        actions = [parser.OFPActionOutput(out_port)]
+        match = parser.OFPMatch(
+            in_port=in_port, eth_dst=eth.dst, eth_src=eth.src)
+        self.add_flow(datapath, match, actions, priority=1, tblid=0,
+                      idle=self._lt[dpid].idle_timeout)
+        # forward frame to destination
+        data = None
+        if msg.buffer_id == ofproto.OFP_NO_BUFFER:
+            data = msg.data
+        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
+                                  in_port=in_port, actions=actions, data=data)
+        datapath.send_msg(out)
+
+    def broadcast_frame(self, datapath, pkt, in_port, msg):
+        eth = pkt.protocols[0]
+        dpid = datapath.id
+        # learn a mac address
+        self._lt[dpid][eth.src] = in_port
+        frb_type = FloodRouteBound.FRB_BRDCST
+        if in_port not in self._lt[dpid].leaf_ports:
+            # this node did not initiate the frame but it has no data on how to switch it
+            # so it must brdcast with an FRB but let peers know we  are not the root sw
+            frb_type = FloodRouteBound.FRB_FWD
+        # perform bounded flood same as leaf case
+        out_bounds = self._lt[dpid].get_flooding_bounds(
+            None, [in_port], frb_type)
+        self.logger.info("Generated FRB(s)=%s/%s",
+                         self._lt[dpid].name, out_bounds)
+        # fwd frame on every port wrapped with an FRB
+        if out_bounds:
+            self.do_bounded_flood(
+                datapath, in_port, out_bounds, eth.src, msg.data)
 
 ###################################################################################################
 ###################################################################################################

@@ -29,6 +29,7 @@ import threading
 import os
 import socketserver
 from abc import ABCMeta, abstractmethod
+from collections.abc import MutableMapping
 from distutils import spawn
 from framework.ControllerModule import ControllerModule
 import framework.Modlib as Modlib
@@ -74,6 +75,7 @@ class BridgeABC():
         return self.__repr__()
 ###################################################################################################
 
+
 class OvsBridge(BridgeABC):
     brctl = spawn.find_executable("ovs-vsctl")
     bridge_type = "OVS"
@@ -87,23 +89,26 @@ class OvsBridge(BridgeABC):
         self._patch_port = "pp-"+self.name[:12]
         Modlib.runshell([OvsBridge.brctl, "--may-exist", "add-br", self.name])
 
-
         if ip_addr and prefix_len:
             net = "{0}/{1}".format(ip_addr, prefix_len)
-            Modlib.runshell([OvsBridge.iptool, "addr", "flush", "dev", self.name])
-            Modlib.runshell([OvsBridge.iptool, "addr", "add", net, "dev", self.name])
+            Modlib.runshell([OvsBridge.iptool, "addr",
+                            "flush", "dev", self.name])
+            Modlib.runshell([OvsBridge.iptool, "addr",
+                            "add", net, "dev", self.name])
         else:
-            Modlib.runshell(["sysctl", "net.ipv6.conf.{}.disable_ipv6=1".format(self.name)])
+            Modlib.runshell(
+                ["sysctl", "net.ipv6.conf.{}.disable_ipv6=1".format(self.name)])
             Modlib.runshell([OvsBridge.iptool, "addr", "flush", self.name])
         try:
             Modlib.runshell([OvsBridge.brctl, "set", "int", self.name,
-                              "mtu_request=" + str(self.mtu)])
+                             "mtu_request=" + str(self.mtu)])
         except RuntimeError as e:
-            self.cm.register_cbt("Logger", "LOG_WARN", "The following error occurred while setting"
-                                 " MTU for OVS bridge: {0}".format(e))
+            self.cm.log("LOG_WARNING",
+                        "The following error occurred while setting MTU for OVS bridge: %s", e)
 
         self.stp(stp_enable)
-        Modlib.runshell([OvsBridge.iptool, "link", "set", "dev", self.name, "up"])
+        Modlib.runshell([OvsBridge.iptool, "link",
+                        "set", "dev", self.name, "up"])
 
         if sdn_ctrl_cfg:
             self.add_sdn_ctrl(sdn_ctrl_cfg)
@@ -115,9 +120,9 @@ class OvsBridge(BridgeABC):
                                       sdn_ctrl_cfg["Port"]])
 
             Modlib.runshell([OvsBridge.brctl,
-                              "set-controller",
-                              self.name,
-                              ctrl_conn_str])
+                             "set-controller",
+                             self.name,
+                             ctrl_conn_str])
 
     def del_sdn_ctrl(self):
         Modlib.runshell([OvsBridge.brctl, "del-controller", self.name])
@@ -126,34 +131,36 @@ class OvsBridge(BridgeABC):
         self.del_sdn_ctrl()
 
         Modlib.runshell([OvsBridge.brctl,
-                          "--if-exists", "del-br", self.name])
+                         "--if-exists", "del-br", self.name])
 
     def add_port(self, port_name):
-        Modlib.runshell([OvsBridge.iptool, "link", "set", "dev", port_name, "mtu", str(self.mtu)])
+        Modlib.runshell([OvsBridge.iptool, "link", "set",
+                        "dev", port_name, "mtu", str(self.mtu)])
         Modlib.runshell([OvsBridge.brctl,
-                          "--may-exist", "add-port", self.name, port_name])
+                         "--may-exist", "add-port", self.name, port_name])
         self.ports.add(port_name)
 
     def del_port(self, port_name):
         Modlib.runshell([OvsBridge.brctl,
-                          "--if-exists", "del-port", self.name, port_name])
+                         "--if-exists", "del-port", self.name, port_name])
         if port_name in self.ports:
             self.ports.remove(port_name)
 
     def stp(self, enable):
         Modlib.runshell([OvsBridge.brctl,
-                          "set", "bridge", self.name, "stp_enable={0}"
-                          .format("true" if enable else "false")])
+                         "set", "bridge", self.name, "stp_enable={0}"
+                         .format("true" if enable else "false")])
 
     def add_patch_port(self, peer_patch_port):
         iface_opt = "options:peer={0}".format(peer_patch_port)
         Modlib.runshell([OvsBridge.brctl,
-                          "--may-exist", "add-port", self.name, self._patch_port,
-                          "--", "set", "interface", self._patch_port, "type=patch", iface_opt])
+                         "--may-exist", "add-port", self.name, self._patch_port,
+                         "--", "set", "interface", self._patch_port, "type=patch", iface_opt])
 
     def get_patch_port_name(self):
         return self._patch_port
 ###################################################################################################
+
 
 class LinuxBridge(BridgeABC):
     brctl = spawn.find_executable("brctl")
@@ -176,17 +183,20 @@ class LinuxBridge(BridgeABC):
         p = Modlib.runshell([LinuxBridge.brctl, "addbr", self.name])
         net = "{0}/{1}".format(ip_addr, prefix_len)
         if ip_addr and prefix_len:
-            Modlib.runshell([LinuxBridge.iptool, "addr", "add", net, "dev", name])
+            Modlib.runshell(
+                [LinuxBridge.iptool, "addr", "add", net, "dev", name])
         self.stp(stp_enable)
         Modlib.runshell([LinuxBridge.iptool, "link", "set", "dev", name, "up"])
 
     def del_br(self):
         # Set the device down and delete the bridge
-        Modlib.runshell([LinuxBridge.iptool, "link", "set", "dev", self.name, "down"])
+        Modlib.runshell([LinuxBridge.iptool, "link",
+                        "set", "dev", self.name, "down"])
         Modlib.runshell([LinuxBridge.brctl, "delbr", self.name])
 
     def add_port(self, port_name):
-        Modlib.runshell([LinuxBridge.iptool, "link", "set", port_name, "mtu", str(self.mtu)])
+        Modlib.runshell([LinuxBridge.iptool, "link", "set",
+                        port_name, "mtu", str(self.mtu)])
         Modlib.runshell([LinuxBridge.brctl, "addif", self.name, port_name])
         self.ports.add(port_name)
 
@@ -197,7 +207,8 @@ class LinuxBridge(BridgeABC):
         ports = map(lambda x: x[-1], port_lines)
         for port in ports:
             if port == port_name:
-                Modlib.runshell([LinuxBridge.brctl, "delif", self.name, port_name])
+                Modlib.runshell(
+                    [LinuxBridge.brctl, "delif", self.name, port_name])
                 if port_name in self.ports:
                     self.ports.remove(port_name)
 
@@ -212,18 +223,20 @@ class LinuxBridge(BridgeABC):
     def set_bridge_prio(self, prio):
         """ Set bridge priority value. """
         Modlib.runshell([LinuxBridge.brctl,
-                          "setbridgeprio", self.name, str(prio)])
+                         "setbridgeprio", self.name, str(prio)])
 
     def set_path_cost(self, port, cost):
         """ Set port path cost value for STP protocol. """
         Modlib.runshell([LinuxBridge.brctl,
-                          "setpathcost", self.name, port, str(cost)])
+                         "setpathcost", self.name, port, str(cost)])
 
     def set_port_prio(self, port, prio):
         """ Set port priority value. """
         Modlib.runshell([LinuxBridge.brctl,
-                          "setportprio", self.name, port, str(prio)])
+                         "setportprio", self.name, port, str(prio)])
 ###################################################################################################
+
+
 class BoundedFloodProxy(socketserver.ThreadingMixIn, socketserver.TCPServer):
     """
     Starts the TCP proxy listener
@@ -233,6 +246,7 @@ class BoundedFloodProxy(socketserver.ThreadingMixIn, socketserver.TCPServer):
     RyuManager = spawn.find_executable("ryu-manager")
     if RyuManager is None:
         raise RuntimeError("RyuManager was not found, is it installed?")
+
     def __init__(self, host_port_tuple, bf_config, streamhandler, netman):
         super().__init__(host_port_tuple, streamhandler)
         self.config = bf_config
@@ -252,10 +266,11 @@ class BoundedFloodProxy(socketserver.ThreadingMixIn, socketserver.TCPServer):
         self.config = None
 
     def server_close(self):
-        if self._bf_proc:    
+        if self._bf_proc:
             self._bf_proc.kill()
             self._bf_proc.wait()
         socketserver.TCPServer.server_close(self)
+
 
 class BFRequestHandler(socketserver.BaseRequestHandler):
     def handle(self):
@@ -268,32 +283,45 @@ class BFRequestHandler(socketserver.BaseRequestHandler):
 
     def process_task(self, task):
         # task structure
-        # dict(SSeq=seqi, Request=dict(Action=None, Params=None),
-        #      DSeq=seqo, Response=dict(Status=False, Data=None))
+        # dict(Request=dict(Action=None, Params=None),
+        #      Response=dict(Status=False, Data=None))
         if task["Request"]["Action"] == "GetTunnels":
-            task = self._handle_get_topo(task)
+            task = self._handle_get_tunnels(task)
+        elif task["Request"]["Action"] == "GetSeqNum":
+            task = self._handle_get_current_seq(task)
         elif task["Request"]["Action"] == "GetNodeId":
             task["Response"] = dict(Status=True,
                                     Data=dict(NodeId=str(self.server.netman.node_id)))
         elif task["Request"]["Action"] == "TunnelRquest":
             task["Response"] = dict(Status=True,
                                     Data=dict(StatusMsg="Request shall be considered"))
-            self.server.netman.log("LOG_INFO", "On-demand tunnel request recvd %s", task["Request"])
-            self.server.netman.tunnel_request(task["Request"]["Params"]) # op is ADD/REMOVE
+            self.server.netman.log(
+                "LOG_INFO", "On-demand tunnel request recvd %s", task["Request"])
+            self.server.netman.tunnel_request(
+                task["Request"]["Params"])  # op is ADD/REMOVE
         else:
             self.server.netman.log("LOG_WARNING", "An unrecognized SDNI task was discarded %s",
                                    task)
-            task["Response"] = dict(Status=False, Data=dict(ErrorMsg="Unsupported request"))
+            task["Response"] = dict(Status=False, Data=dict(
+                ErrorMsg="Unsupported request"))
         return task
 
-    def _handle_get_topo(self, task):
+    def _handle_get_tunnels(self, task):
         olid = task["Request"]["Params"]["OverlayId"]
-        topo = copy.deepcopy(self.server.netman.get_ovl_topo(olid))
-        dseq = topo.pop("DSeq") #Todo: possible fail
-        task["Response"] = dict(DSeq= dseq, Status=True, Data=topo)
+        seq = task["Request"]["Params"]["DSeq"]
+        topo = self.server.netman.get_overlay_tunnels(olid, seq)
+        task["Response"] = dict(Status=bool(topo), Data=topo)
+        return task
+
+    def _handle_get_current_seq(self, task):
+        olid = task["Request"]["Params"]["OverlayId"]
+        topo = self.server.netman.get_overlay_seq(olid)
+        task["Response"] = dict(Status=bool(topo), Data=topo)
         return task
 
 ###################################################################################################
+
+
 class VNIC(BridgeABC):
     brctl = None
     bridge_type = "VNIC"
@@ -308,14 +336,15 @@ class VNIC(BridgeABC):
         self.name = port_name
         net = "{0}/{1}".format(self.ip_addr, self.prefix_len)
         Modlib.runshell([VNIC.iptool, "addr", "add", net, "dev", self.name])
-        Modlib.runshell([VNIC.iptool, "link", "set", self.name, "mtu", str(self.mtu)])
+        Modlib.runshell([VNIC.iptool, "link", "set",
+                        self.name, "mtu", str(self.mtu)])
         Modlib.runshell([VNIC.iptool, "link", "set", "dev", self.name, "up"])
-
 
     def del_port(self, port_name):
         pass
 
 ###################################################################################################
+
 
 def get_br_name(overlay_id, config):
     BR_NAME_MAX_LENGTH = 15
@@ -323,8 +352,9 @@ def get_br_name(overlay_id, config):
     end_i = BR_NAME_MAX_LENGTH - len(name_prefix)
     return name_prefix + overlay_id[:end_i]
 
+
 def BridgeFactory(overlay_id, dev_type, config, cm, sdn_config=None):
-    
+
     br = None
     if dev_type == VNIC.bridge_type:
         br = VNIC(ip_addr=config.get("IP4", None),
@@ -346,17 +376,75 @@ def BridgeFactory(overlay_id, dev_type, config, cm, sdn_config=None):
                        prefix_len=config.get("PrefixLen", None),
                        mtu=config.get("MTU", 1410),
                        cm=cm,
-                       stp_enable=(config.get("SwitchProtocol", "").casefold() == "stp"),
+                       stp_enable=(config.get("SwitchProtocol",
+                                   "").casefold() == "stp"),
                        sdn_ctrl_cfg=sdn_config)
     return br
 
 ###################################################################################################
 
+
+class TunnelsLog(MutableMapping):
+    def __init__(self,  **kwargs) -> None:
+        self._seq = int(kwargs.get("seq", 1))
+        # maps a seqeunce number to a snapshot of the tunnel dataset
+        self._log = {self._seq: dict()}
+        self._trim_point = self._seq - 1
+        # self.update(dict(**kwargs))
+        # self._lock = threading.Lock()
+
+    def __getitem__(self, port_name):
+       # with self._lock:
+        return copy.deepcopy(self._log[self._seq][port_name])
+
+    def __delitem__(self, port_name):
+        # with self._lock:
+        ds = copy.copy(self._log[self._seq])
+        self._seq = self._seq + 1
+        del ds[port_name]
+        self._log[self._seq] = ds
+
+    def __setitem__(self, port_name, tunnel_descr):
+        ds = copy.deepcopy(self._log[self._seq])
+        ds[port_name] = tunnel_descr
+        self._log[self._seq] = ds
+
+    def __iter__(self):
+        # with self._lock:
+        return iter(self._log[self._seq])
+
+    def __len__(self):
+        # with self._lock:
+        return len(self._log[self._seq])
+
+    def __repr__(self):
+        # with self._lock:
+        items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
+        return "{{{}}}".format(", ".join(items))
+
+    @property
+    def sequence_number(self):
+        return self._seq
+
+    def snapshot(self, seq):
+        snp = self._log[seq]
+        self._trim_point = seq - 1
+        return copy.deepcopy(snp)
+
+    def trim(self):
+        # with self._lock:
+        for seq in sorted(self._log.keys()):
+            if seq > self._trim_point:
+                break
+            self._log.pop(seq)
+
+
 class BridgeController(ControllerModule):
     _REFLECT = set(["_tunnels"])
 
     def __init__(self, cfx_handle, module_config, module_name):
-        super(BridgeController, self).__init__(cfx_handle, module_config, module_name)
+        super(BridgeController, self).__init__(
+            cfx_handle, module_config, module_name)
         self._bfproxy = None
         self._server_thread = None
         self._ovl_net = dict()
@@ -388,29 +476,30 @@ class BridgeController(ControllerModule):
             self._bfproxy.start_bf_client_module()
         # create each configure bridge type
         for olid in self.overlays:
-            self._tunnels[olid] = dict(DSeq=0)
+            self._tunnels[olid] = TunnelsLog()
             br_cfg = self.overlays[olid]
             ign_br_names[olid] = set()
             self._ovl_net[olid] = BridgeFactory(olid, br_cfg["NetDevice"]["Type"],
                                                 br_cfg["NetDevice"], self,
                                                 br_cfg.get("SDNController", {}))
             if "AppBridge" in br_cfg["NetDevice"]:
-                name = self._create_app_bridge(olid, br_cfg["NetDevice"]["AppBridge"])
+                name = self._create_app_bridge(
+                    olid, br_cfg["NetDevice"]["AppBridge"])
                 ign_br_names[olid].add(name)
             ign_br_names[olid].add(self._ovl_net[olid].name)
             self.register_cbt("LinkManager", "LNK_ADD_IGN_INF", ign_br_names)
         self.log("LOG_DEBUG", "ignored bridges=%s", ign_br_names)
-        #try:
+        # try:
         #    # Subscribe for data request notifications from OverlayVisualizer
         #    self._cfx_handle.start_subscription("OverlayVisualizer", "VIS_DATA_REQ")
-        #except NameError as err:
+        # except NameError as err:
         #    if "OverlayVisualizer" in str(err):
         #        self.register_cbt("Logger", "LOG_INFO",
         #                          "OverlayVisualizer module not loaded."
         #                          " Visualization data will not be sent.")
 
         self._cfx_handle.start_subscription("LinkManager", "LNK_TUNNEL_EVENTS")
-        self.register_cbt("Logger", "LOG_INFO", "Module Loaded")
+        self.log("LOG_INFO", "Module Loaded")
 
     def req_handler_manage_bridge(self, cbt):
         try:
@@ -421,11 +510,10 @@ class BridgeController(ControllerModule):
             if cbt.request.params["UpdateType"] == "LnkEvCreated":
                 # block external system components from attempting to configure our
                 # tunnel as a source of traffic
-                #port_name = cbt.request.params["TapName"]
-                Modlib.runshell(["sysctl", "net.ipv6.conf.{}.disable_ipv6=1".format(port_name)])
+                Modlib.runshell(
+                    ["sysctl", "net.ipv6.conf.{}.disable_ipv6=1".format(port_name)])
                 Modlib.runshell([OvsBridge.iptool, "addr", "flush", port_name])
             elif cbt.request.params["UpdateType"] == "LnkEvConnected":
-                #port_name = cbt.request.params["TapName"]
                 self._tunnels[olid][port_name] = {
                     "PeerId": cbt.request.params["PeerId"],
                     "TunnelId": tnlid,
@@ -433,18 +521,20 @@ class BridgeController(ControllerModule):
                     "TapName": port_name,
                     "MAC": Modlib.delim_mac_str(cbt.request.params["MAC"]),
                     "PeerMac": Modlib.delim_mac_str(cbt.request.params["PeerMac"])
-                    }
-                self._tunnels[olid]["DSeq"] = self._tunnels[olid]["DSeq"] +1
+                }
+                #self._tunnels[olid]["DSeq"] = self._tunnels[olid]["DSeq"] +1
                 br.add_port(port_name)
-                self.log("LOG_INFO", "Port %s added to bridge %s", port_name, str(br))
+                self.log("LOG_INFO", "Port %s added to bridge %s",
+                         port_name, str(br))
             elif cbt.request.params["UpdateType"] == "LnkEvRemoved":
                 self._tunnels[olid].pop(port_name, None)
                 if br.bridge_type == OvsBridge.bridge_type:
-                    self._tunnels[olid]["DSeq"] = self._tunnels[olid]["DSeq"] +1
+                    #self._tunnels[olid]["DSeq"] = self._tunnels[olid]["DSeq"] +1
                     br.del_port(port_name)
-                    self.log("LOG_INFO", "Port %s removed from bridge %s", port_name, str(br))
+                    self.log(
+                        "LOG_INFO", "Port %s removed from bridge %s", port_name, str(br))
         except RuntimeError as err:
-            self.register_cbt("Logger", "LOG_WARNING", str(err))
+            self.log("LOG_WARNING", str(err))
         cbt.set_response(None, True)
         self.complete_cbt(cbt)
 
@@ -500,7 +590,8 @@ class BridgeController(ControllerModule):
                 br_data[olid]["PrefixLen"] = self.overlays[olid]["NetDevice"]["PrefixLen"]
             if "MTU" in self.overlays[olid]["NetDevice"]:
                 br_data[olid]["MTU"] = self.overlays[olid]["NetDevice"]["MTU"]
-            br_data[olid]["AutoDelete"] = self.overlays[olid]["NetDevice"].get("AutoDelete", False)
+            br_data[olid]["AutoDelete"] = self.overlays[olid]["NetDevice"].get(
+                "AutoDelete", False)
         cbt.set_response({"BridgeController": br_data}, is_data_available)
         self.complete_cbt(cbt)
 
@@ -515,9 +606,22 @@ class BridgeController(ControllerModule):
         self._appbr[olid] = gbr
         return name
 
+    def get_overlay_tunnels(self, overlay_id, seq):
+        resp = None
+        try:
+            resp = {"DSeq": seq,
+                    "Snapshot": self._tunnels[overlay_id].snapshot(seq)}
+        except Exception as err:
+            self.log("LOG_WARNING", str(err))
+        return resp
 
-    def get_ovl_topo(self, overlay_id):
-        return self._tunnels.get(overlay_id, None)
+    def get_overlay_seq(self, overlay_id):
+        resp = None
+        try:
+            resp = {"DSeq": self._tunnels[overlay_id].sequence_number}
+        except Exception as err:
+            self.log("LOG_WARNING", str(err))
+        return resp
 
     def tunnel_request(self, req_params):
         self.register_cbt("Topology", "TOP_REQUEST_OND_TUNNEL", req_params)
