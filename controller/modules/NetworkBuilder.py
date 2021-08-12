@@ -31,30 +31,31 @@ import modules.NetworkGraph as ng
 EdgeRequest = namedtuple("EdgeRequest",
                          ["overlay_id", "edge_id", "edge_type", "initiator_id", "recipient_id"])
 EdgeResponse = namedtuple("EdgeResponse", ["is_accepted", "data"])
-EdgeNegotiate = namedtuple("EdgeNegotiate", EdgeRequest._fields + EdgeResponse._fields)
+EdgeNegotiate = namedtuple(
+    "EdgeNegotiate", EdgeRequest._fields + EdgeResponse._fields)
 
 """
 CE enters the nego list with state CEStatePreAuth
 Successful auth updates the state to CEStateAuthorized and removes it from nego list
 """
+
+
 class NetworkBuilder():
     _DEL_RETRY_INTERVAL = 10
-    """description of class"""
+    _REFLECT = set(
+        ["_current_adj_list", "_pending_adj_list", "_negotiated_edges"])
+
     def __init__(self, top_man, overlay_id, node_id):
         self._current_adj_list = ConnEdgeAdjacenctList(overlay_id, node_id)
         self._pending_adj_list = None
         self._negotiated_edges = {}
         self._top = top_man
-        self._ops = {}
 
     def __repr__(self):
-        # state = "current_adj_list=%s, pending_adj_list=%s, negotiated_edges=%s, "\
-        #         "refresh_in_progress=%s, _max_concurrent_wrkload=%s" % \
-        #         (self._current_adj_list, self._pending_adj_list, self._negotiated_edges,
-        #          self._refresh_in_progress, self._max_concurrent_wrkload)
-        state = "current_adj_list=%s, pending_adj_list=%s, negotiated_edges=%s, " % \
-                (self._current_adj_list, self._pending_adj_list, self._negotiated_edges)
-        return state
+        items = set()
+        for k in NetworkBuilder._REFLECT:
+            items.add(f"\"{k}\": {self.__dict__[k]!r}")
+        return "{{{}}}".format(", ".join(items))
 
     @property
     def is_ready(self):
@@ -78,7 +79,7 @@ class NetworkBuilder():
         self._top.log("LOG_DEBUG", "New net graph: %s", str(net_graph))
         assert ((self._is_ready() and bool(net_graph)) or
                 (not self._is_ready() and not bool(net_graph))),\
-                    "Netbuilder is not ready for a new net graph"
+            "Netbuilder is not ready for a new net graph"
 
         if net_graph and self._is_ready():
             self._pending_adj_list = net_graph
@@ -103,7 +104,8 @@ class NetworkBuilder():
             self._add_incoming_auth_conn_edge(peer_id)
         elif event["UpdateType"] == "LnkEvDeauthorized":
             ce = self._current_adj_list[peer_id]
-            assert ce.edge_state == "CEStateAuthorized", "Deauth CE={0}".format(ce)
+            assert ce.edge_state == "CEStateAuthorized", "Deauth CE={0}".format(
+                ce)
             ce.edge_state = "CEStateDeleting"
             del self._current_adj_list[peer_id]
             del self._pending_adj_list[peer_id]
@@ -134,7 +136,8 @@ class NetworkBuilder():
             self._current_adj_list[peer_id].created_time = \
                 time.time() + NetworkBuilder._DEL_RETRY_INTERVAL
         else:
-            self._top.log("LOG_WARNING", "Invalid UpdateType specified for event")
+            self._top.log(
+                "LOG_WARNING", "Invalid UpdateType specified for event")
 
     def _mark_edges_for_removal(self):
         """
@@ -143,15 +146,15 @@ class NetworkBuilder():
         """
         for peer_id in self._current_adj_list:
             if self._current_adj_list[peer_id].edge_type in ng.EdgeTypesIn:
-                continue # do not remove incoming edges
+                continue  # do not remove incoming edges
             if peer_id in self._pending_adj_list:
-                continue # the edge should be maintained
+                continue  # the edge should be maintained
             if self._current_adj_list[peer_id].edge_state != "CEStateConnected":
                 # don't delete an edge before it completes the create process. if it fails LNK will
                 # initiate the removal.
                 continue
             if time.time() - self._current_adj_list[peer_id].connected_time < 30:
-                continue # events get supressed
+                continue  # events get supressed
             self._current_adj_list[peer_id].marked_for_delete = True
             self._top.log("LOG_DEBUG", "Marked connedge for delete: %s",
                           str(self._current_adj_list[peer_id]))
@@ -191,7 +194,7 @@ class NetworkBuilder():
         # Any edge in set (Pending - Active) is added for nego
         for peer_id in self._pending_adj_list:
             ce = self._pending_adj_list[peer_id]
-            #if ce.edge_type == "CETypeLongDistance" and \
+            # if ce.edge_type == "CETypeLongDistance" and \
             #    self._current_adj_list.num_ldl >= self._current_adj_list.max_ldl:
             #    continue
             if peer_id not in self._negotiated_edges and peer_id not in self._current_adj_list:
@@ -223,13 +226,15 @@ class NetworkBuilder():
             edge_resp = EdgeResponse(is_accepted=False, data=msg)
             self._top.log("LOG_DEBUG", msg)
         elif edge_state == "CEStateInitialized":
-            edge_resp = EdgeResponse(is_accepted=True, data="Precollision edge permitted")
+            edge_resp = EdgeResponse(
+                is_accepted=True, data="Precollision edge permitted")
             del self._current_adj_list[peer_id]
             del self._pending_adj_list[peer_id]
             del self._negotiated_edges[peer_id]
         elif edge_state == "CEStatePreAuth" and nid < edge_req.initiator_id:
             msg = "E2 - Node {0} superceeds edge request due to collision, "\
-                        "edge={1}".format(nid, self._current_adj_list[peer_id].edge_id[:7])
+                "edge={1}".format(
+                    nid, self._current_adj_list[peer_id].edge_id[:7])
             edge_resp = EdgeResponse(is_accepted=False, data=msg)
             self._top.log("LOG_DEBUG", msg)
         elif edge_state == "CEStatePreAuth" and nid > edge_req.initiator_id:
@@ -240,7 +245,7 @@ class NetworkBuilder():
             edge_resp = EdgeResponse(is_accepted=True, data=msg)
             self._top.log("LOG_DEBUG", msg)
         else:
-            edge_resp = EdgeResponse(False, "E6 - Request colides with an edge being destroyed."\
+            edge_resp = EdgeResponse(False, "E6 - Request colides with an edge being destroyed."
                                             "Try later")
         assert bool(edge_resp), "NetBuilder={0}".format(self)
         return edge_resp
@@ -253,20 +258,25 @@ class NetworkBuilder():
         if peer_id in self._current_adj_list:
             edge_resp = self._resolve_request_collision(edge_req)
         elif edge_req.edge_type == "CETypeSuccessor":
-            edge_resp = EdgeResponse(is_accepted=True, data="Successor edge permitted")
+            edge_resp = EdgeResponse(
+                is_accepted=True, data="Successor edge permitted")
         elif edge_req.edge_type == "CETypeEnforced":
-            edge_resp = EdgeResponse(is_accepted=True, data="Enforced edge permitted")
+            edge_resp = EdgeResponse(
+                is_accepted=True, data="Enforced edge permitted")
         elif edge_req.edge_type == "CETypeOnDemand":
-            edge_resp = EdgeResponse(is_accepted=True, data="On-demand edge permitted")
+            edge_resp = EdgeResponse(
+                is_accepted=True, data="On-demand edge permitted")
         elif not self._current_adj_list.is_threshold_ildl():
-            edge_resp = EdgeResponse(is_accepted=True, data="Any edge permitted")
+            edge_resp = EdgeResponse(
+                is_accepted=True, data="Any edge permitted")
         else:
             edge_resp = EdgeResponse(is_accepted=False,
                                      data="E5 - Too many existing edges.")
 
         if edge_resp.is_accepted and edge_resp.data[:2] != "E0":
             et = ng.transpose_edge_type(edge_req.edge_type)
-            ce = ConnectionEdge(peer_id=peer_id, edge_id=edge_req.edge_id, edge_type=et)
+            ce = ConnectionEdge(
+                peer_id=peer_id, edge_id=edge_req.edge_id, edge_type=et)
             ce.edge_state = "CEStatePreAuth"
             self._negotiated_edges[peer_id] = ce
             self._top.log("LOG_DEBUG", "New CE=%s added to negotiated_edges=%s", str(ce),
@@ -283,17 +293,19 @@ class NetworkBuilder():
         """ Role A2 """
         self._top.log("LOG_DEBUG", "EdgeNegotiate=%s", str(edge_nego))
         if edge_nego.recipient_id not in self._current_adj_list and \
-            edge_nego.recipient_id not in self._negotiated_edges:
-            self._top.log("LOG_ERROR", "Peer Id from edge negotiation not in current adjacency " \
-                " list or _negotiated_edges. The transaction has been discarded.")
+                edge_nego.recipient_id not in self._negotiated_edges:
+            self._top.log("LOG_ERROR", "Peer Id from edge negotiation not in current adjacency "
+                          " list or _negotiated_edges. The transaction has been discarded.")
             return
         peer_id = edge_nego.recipient_id
         edge_id = edge_nego.edge_id
 
-        ce = self._negotiated_edges.get(edge_nego.recipient_id, None) # do not pop here, E0 needed
+        ce = self._negotiated_edges.get(
+            edge_nego.recipient_id, None)  # do not pop here, E0 needed
         if not ce:
-            return # OK - Collision override occurred, CE was popped in role B2 (above). Completion
-                   # order can vary, in other case handled below.
+            # OK - Collision override occurred, CE was popped in role B2 (above). Completion
+            return
+            # order can vary, in other case handled below.
         if not edge_nego.is_accepted:
             # if E2 (request superceeded) do nothing here. The corresponding CE instance will
             # be converted in resolve_collision_request().
@@ -304,8 +316,8 @@ class NetworkBuilder():
                 del self._current_adj_list[ce.peer_id]
         else:
             if ce.edge_id != edge_nego.edge_id:
-                self._top.log("LOG_ERROR", "EdgeNego parameters does not match current " \
-                    "adjacency list, The transaction has been discarded.")
+                self._top.log("LOG_ERROR", "EdgeNego parameters does not match current "
+                              "adjacency list, The transaction has been discarded.")
                 ce.edge_state = "CEStateDeleting"
                 self._negotiated_edges.pop(ce.peer_id)
                 del self._pending_adj_list[peer_id]
@@ -313,4 +325,5 @@ class NetworkBuilder():
             else:
                 ce.edge_state = "CEStateAuthorized"
                 self._negotiated_edges.pop(ce.peer_id)
-                self._top.top_add_edge(self._current_adj_list.overlay_id, peer_id, edge_id)
+                self._top.top_add_edge(
+                    self._current_adj_list.overlay_id, peer_id, edge_id)

@@ -30,11 +30,13 @@ class OperationsModel():
         self.op_type = op_type
         self.op_priority = priority
 
+    # def __repr__(self):
+    #     msg = "connEdge = %s, opType = %s, opPriority=%s>" % \
+    #           (self.conn_edge, self.op_type, self.op_priority)
+    #     return msg
     def __repr__(self):
-        msg = "connEdge = %s, opType = %s, opPriority=%s>" % \
-              (self.conn_edge, self.op_type, self.op_priority)
-        return msg
-
+        items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
+        return "{{{}}}".format(", ".join(items))
 
 class NetworkOperations():
     def __init__(self, current_Network_State, desired_Network_State):
@@ -48,14 +50,17 @@ class NetworkOperations():
         for x in sorted_list:
             yield self.operations[x]
 
+    # def __repr__(self):
+    #     msg = "currentNetworkState = %s, desiredNetworkState = %s, numOfOperations=%d, " \
+    #           "Operations=%s>" % \
+    #           (self.current_Network_State, self.desired_Network_State,
+    #            len(self.operations), self.operations)
+    #     return msg
     def __repr__(self):
-        msg = "currentNetworkState = %s, desiredNetworkState = %s, numOfOperations=%d, " \
-              "Operations=%s>" % \
-              (self.current_Network_State, self.desired_Network_State,
-               len(self.operations), self.operations)
-        return msg
-
-    def find_Difference(self):
+        items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
+        return "{{{}}}".format(", ".join(items))
+      
+    def diff(self):
 
         for edge in self.desired_Network_State.conn_edges:
             if edge not in self.current_Network_State.conn_edges:
