@@ -31,6 +31,7 @@ import socketserver
 from abc import ABCMeta, abstractmethod
 from collections.abc import MutableMapping
 from distutils import spawn
+from typing import Dict
 from framework.ControllerModule import ControllerModule
 import framework.Modlib as Modlib
 
@@ -285,10 +286,12 @@ class BFRequestHandler(socketserver.BaseRequestHandler):
         # task structure
         # dict(Request=dict(Action=None, Params=None),
         #      Response=dict(Status=False, Data=None))
-        if task["Request"]["Action"] == "GetTunnels":
-            task = self._handle_get_tunnels(task)
-        elif task["Request"]["Action"] == "GetSeqNum":
-            task = self._handle_get_current_seq(task)
+        if task["Request"]["Action"] == "GetTunnelData":
+            task = self._handle_get_tunnel_data(task)
+        # elif task["Request"]["Action"] == "GetTunnels":
+        #     task = self._handle_get_tunnels(task)
+        # elif task["Request"]["Action"] == "GetSeqNum":
+        #     task = self._handle_get_current_seq(task)
         elif task["Request"]["Action"] == "GetNodeId":
             task["Response"] = dict(Status=True,
                                     Data=dict(NodeId=str(self.server.netman.node_id)))
@@ -306,18 +309,23 @@ class BFRequestHandler(socketserver.BaseRequestHandler):
                 ErrorMsg="Unsupported request"))
         return task
 
-    def _handle_get_tunnels(self, task):
-        olid = task["Request"]["Params"]["OverlayId"]
-        seq = task["Request"]["Params"]["DSeq"]
-        topo = self.server.netman.get_overlay_tunnels(olid, seq)
-        task["Response"] = dict(Status=bool(topo), Data=topo)
-        return task
+    # def _handle_get_tunnels(self, task):
+    #     olid = task["Request"]["Params"]["OverlayId"]
+    #     seq = task["Request"]["Params"]["DSeq"]
+    #     topo = self.server.netman.get_overlay_tunnels(olid, seq)
+    #     task["Response"] = dict(Status=bool(topo), Data=topo)
+    #     return task
 
-    def _handle_get_current_seq(self, task):
-        olid = task["Request"]["Params"]["OverlayId"]
-        topo = self.server.netman.get_overlay_seq(olid)
+    def _handle_get_tunnel_data(self, task):
+        topo = self.server.netman.get_tunnels()
         task["Response"] = dict(Status=bool(topo), Data=topo)
         return task
+    
+    # def _handle_get_current_seq(self, task):
+    #     olid = task["Request"]["Params"]["OverlayId"]
+    #     topo = self.server.netman.get_overlay_seq(olid)
+    #     task["Response"] = dict(Status=bool(topo), Data=topo)
+    #     return task
 
 ###################################################################################################
 
@@ -388,55 +396,59 @@ class TunnelsLog(MutableMapping):
     def __init__(self,  **kwargs) -> None:
         self._seq = int(kwargs.get("seq", 1))
         # maps a seqeunce number to a snapshot of the tunnel dataset
-        self._log = {self._seq: dict()}
+        self._journal = {self._seq: dict()}
         self._trim_point = self._seq - 1
         # self.update(dict(**kwargs))
-        # self._lock = threading.Lock()
+        self._lock = threading.Lock()
 
     def __getitem__(self, port_name):
-       # with self._lock:
-        return copy.deepcopy(self._log[self._seq][port_name])
+        with self._lock:
+            return copy.deepcopy(self._journal[self._seq][port_name])
 
     def __delitem__(self, port_name):
-        # with self._lock:
-        ds = copy.copy(self._log[self._seq])
-        self._seq = self._seq + 1
-        del ds[port_name]
-        self._log[self._seq] = ds
+        with self._lock:
+            ds = copy.copy(self._journal[self._seq])
+            self._seq = self._seq + 1
+            del ds[port_name]
+            self._journal[self._seq] = ds
 
     def __setitem__(self, port_name, tunnel_descr):
-        ds = copy.deepcopy(self._log[self._seq])
-        ds[port_name] = tunnel_descr
-        self._log[self._seq] = ds
+        with self._lock:
+            ds = copy.deepcopy(self._journal[self._seq])
+            ds[port_name] = tunnel_descr
+            self._seq = self._seq + 1
+            self._journal[self._seq] = ds
 
     def __iter__(self):
-        # with self._lock:
-        return iter(self._log[self._seq])
+        with self._lock:
+            return iter(self._journal[self._seq])
 
     def __len__(self):
-        # with self._lock:
-        return len(self._log[self._seq])
+        with self._lock:
+            return len(self._journal[self._seq])
 
     def __repr__(self):
-        # with self._lock:
-        items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
+        with self._lock:
+            items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
         return "{{{}}}".format(", ".join(items))
 
     @property
     def sequence_number(self):
-        return self._seq
+        with self._lock:
+            return self._seq
 
-    def snapshot(self, seq):
-        snp = self._log[seq]
-        self._trim_point = seq - 1
-        return copy.deepcopy(snp)
+    def snapshot(self):
+        with self._lock:
+            snp = self._journal[self._seq]
+            self._trim_point = self._seq - 1
+            return {"seq": self._seq, "snapshot": copy.deepcopy(snp)}
 
     def trim(self):
-        # with self._lock:
-        for seq in sorted(self._log.keys()):
-            if seq > self._trim_point:
-                break
-            self._log.pop(seq)
+        with self._lock:
+            for seq in sorted(self._journal.keys()):
+                if seq > self._trim_point:
+                    break
+                self._journal.pop(seq)
 
 
 class BridgeController(ControllerModule):
@@ -488,7 +500,8 @@ class BridgeController(ControllerModule):
                 ign_br_names[olid].add(name)
             ign_br_names[olid].add(self._ovl_net[olid].name)
             self.register_cbt("LinkManager", "LNK_ADD_IGN_INF", ign_br_names)
-        self.log("LOG_DEBUG", "ignored bridges=%s", ign_br_names)
+        self.logger.debug(f"ignored bridges={ign_br_names}")
+        # self.log("LOG_DEBUG", "ignored bridges=%s", ign_br_names)
         # try:
         #    # Subscribe for data request notifications from OverlayVisualizer
         #    self._cfx_handle.start_subscription("OverlayVisualizer", "VIS_DATA_REQ")
@@ -499,7 +512,8 @@ class BridgeController(ControllerModule):
         #                          " Visualization data will not be sent.")
 
         self._cfx_handle.start_subscription("LinkManager", "LNK_TUNNEL_EVENTS")
-        self.log("LOG_INFO", "Module Loaded")
+        self.logger.info("Module Loaded")
+        # self.log("LOG_INFO", "Module Loaded")
 
     def req_handler_manage_bridge(self, cbt):
         try:
@@ -540,6 +554,8 @@ class BridgeController(ControllerModule):
 
     def timer_method(self):
         self.trace_state()
+        for olid in self._tunnels:
+            self._tunnels[olid].trim()
 
     def process_cbt(self, cbt):
         if cbt.op_type == "Request":
@@ -606,22 +622,34 @@ class BridgeController(ControllerModule):
         self._appbr[olid] = gbr
         return name
 
-    def get_overlay_tunnels(self, overlay_id, seq):
-        resp = None
-        try:
-            resp = {"DSeq": seq,
-                    "Snapshot": self._tunnels[overlay_id].snapshot(seq)}
-        except Exception as err:
-            self.log("LOG_WARNING", str(err))
-        return resp
+    # def get_overlay_tunnels(self, overlay_id, seq):
+    #     resp = None
+    #     try:
+    #         resp = {"DSeq": seq,
+    #                 "Snapshot": self._tunnels[overlay_id].snapshot(seq)}
+    #     except Exception as err:
+    #         #self.log("LOG_WARNING", str(err))
+    #         self.logger.exception(f"The operation get_overlay_tunnels failed, overlay ID={overlay_id}, seq={seq}")
+    #     return resp
 
-    def get_overlay_seq(self, overlay_id):
-        resp = None
+    def get_tunnels(self):
+        resp = {}
         try:
-            resp = {"DSeq": self._tunnels[overlay_id].sequence_number}
+            for olid in self._tunnels:
+                resp[olid] = self._tunnels[olid].snapshot()
         except Exception as err:
-            self.log("LOG_WARNING", str(err))
+            self.logger.exception("The operation get_tunnels failed")
+            resp = None
         return resp
+    
+    # def get_overlay_seq(self, overlay_id):
+    #     resp = None
+    #     try:
+    #         resp = {"DSeq": self._tunnels[overlay_id].sequence_number}
+    #     except Exception as err:
+    #         self.logger.exception(f"The operation get_overlay_seq failed, overlay ID={overlay_id}")
+    #         #self.log("LOG_WARNING", str(err))
+    #     return resp
 
     def tunnel_request(self, req_params):
         self.register_cbt("Topology", "TOP_REQUEST_OND_TUNNEL", req_params)
