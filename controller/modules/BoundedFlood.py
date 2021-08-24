@@ -366,9 +366,9 @@ class EvioSwitch(MutableMapping):
                     port_no, prt.name.decode("utf-8"), prt.hw_addr)
                 if port_no == INTERNAL_PORT_NUM:
                     pd.tnl_type = TUNNEL_TYPES.LEAF
-                    self._port_tbl[port_no] = pd
                 else:
                     self._uncategorized_ports.add(pd)
+                self._port_tbl[port_no] = pd
 
     def _categorize_port(self,  port, tnl_type, tnl_data=None):
         """
@@ -389,18 +389,17 @@ class EvioSwitch(MutableMapping):
         port = PortDescriptor(
             ofpport.port_no, ofpport.name.decode("utf-8"), ofpport.hw_addr)
         with self._lock:
+            self._port_tbl[port.port_no] = port
             self._uncategorized_ports.add(port)
         self.logger.debug("Added uncategorized port_no: %s/%i",
                           self.name, ofpport.port_no)
 
     def delete_port(self, port_no):
-        self.logger.debug("Deleting %s/%i from _port_tbl: %s",
-                          self.name, port_no, self._port_tbl)
         with self._lock:
             port = self._port_tbl.pop(port_no, None)
             if port:
-                self.logger.debug("Removed %s port: %s/%i",
-                                  port.tnl_type, self.name, port_no)
+                self.logger.debug("Removed %s:%s from _port_tbl",
+                                self.name, port)
                 if port.tnl_type == "TNL_TYPE_PEER":
                     self._deregister_peer(port.peer_data.node_id)
                     self._link_prts.remove(port_no)
@@ -460,7 +459,7 @@ class EvioSwitch(MutableMapping):
         """
         self._ingress_tbl[src_mac] = in_port
         if rnid:
-            pd = self._register_peer(rnid, leaf_macs=[src_mac, ])
+            pd = self._register_peer(peer_id=rnid, leaf_macs=[src_mac, ])
             self._root_sw_tbl[src_mac] = pd
             self.logger.debug(
                 f"learn sw:{self.name}, leaf_mac:{src_mac}, ingress:{in_port}, peerid:{rnid}")
@@ -501,7 +500,7 @@ class EvioSwitch(MutableMapping):
     def process_ond_tnl_updates(self, flow_metrics):
         with self._lock:
             self._ond_ops = self.traffic_analyzer.get_ond_tnl_ops(flow_metrics, self)
-
+            
     @property
     def ond_tnl_ops(self):
         with self._lock:
@@ -536,7 +535,7 @@ class EvioSwitch(MutableMapping):
             elif (num_hops > self._max_hops):
                 self._max_hops = num_hops
 
-    def get_flooding_bounds(self, prev_frb=None, exclude_ports=None, frb_type=0) -> list:
+    def get_flooding_bounds(self, frb_type, prev_frb=None, exclude_ports=None) -> list:
         """
         FloodingBounds is used to dtermine which of its adjacent peers should be sent a frb to complete
         a system wide broadcast and bound should be used in the frb sent to said peer. FloodingBounds
@@ -678,15 +677,15 @@ class BoundedFlood(app_manager.RyuApp):
         self._load_config()
         self._traffic_analysis_interval = self.config.get("TrafficAnalysisInterval", 10)
         self._state_logging_interval = self.config.get("StateLoggingInterval", 60)
-        # self._last_count_time = time.time()
         self._setup_logger()
         self.evio_portal = EvioPortal(
             (self.config["ProxyListenAddress"], self.config["ProxyListenPort"]), self.logger)
         self.dpset = kwargs['dpset']
         self._lt = LearningTable(NodeId=self.config["NodeId"],
                                  Logger=self.logger)
-        # self._is_update_tunnel_data = False
         self._ev_bh_update = hub.Event()
+        self._ev_bh_ond = hub.Event()
+        hub.spawn(self.handle_ondemand_ops)
         hub.spawn(self.monitor_flow_traffic)
         hub.spawn(self.update_tunnels)
         if self.config.get("ExtendedLogging", False):
@@ -767,7 +766,6 @@ class BoundedFlood(app_manager.RyuApp):
         dp = msg.datapath
         ofp = dp.ofproto
         port_no = msg.desc.port_no
-        # self._is_update_tunnel_data = True
         self._ev_bh_update.set()
         try:
             if msg.reason == ofp.OFPPR_ADD:
@@ -799,8 +797,9 @@ class BoundedFlood(app_manager.RyuApp):
                 
             if not self._lt[dpid].is_valid_port(in_port):
                 self.logger.warn(
-                    f"On removed port:{in_port} bufferd frame: {pkt}")
-                # TODO(ken): forward these frames as possible but take no learning actions
+                    f"On removed port:{self._lt[dpid].name}/{in_port} bufferd frame: {pkt}")
+                return
+            if not self._lt[dpid].is_port_ready(in_port):
                 return
             if eth.ethertype == FloodRouteBound.ETH_TYPE_BF:
                 self.handle_bounded_flood_msg(msg.datapath, pkt, in_port, msg)
@@ -826,6 +825,7 @@ class BoundedFlood(app_manager.RyuApp):
         # self.logger.info('%s', json.dumps(ev.msg.to_jsondict()))
         try:
             self._lt[ev.msg.datapath.id].process_ond_tnl_updates(ev.msg.body)
+            self._ev_bh_ond.set()
         except Exception as err:
             self.logger.exception(
                 f"An error occurred in the flow stats handler. Event={ev.msg}")
@@ -840,14 +840,24 @@ class BoundedFlood(app_manager.RyuApp):
                 while not self._is_exit:
                     for dpid in self._lt:
                         self._request_stats(self.dpset.dps[dpid])
-                        self._request_ond_tnl_ops(dpid)
                     hub.sleep(self._traffic_analysis_interval)
             except Exception:
                 self.logger.exception(
                     "An exception occurred within the traffic monitor")
                 hub.sleep(self._traffic_analysis_interval)
                 
-                
+    def handle_ondemand_ops(self):
+        while not self._is_exit:
+            try:
+                while not self._is_exit:
+                    self._ev_bh_ond.wait()
+                    self._ev_bh_ond.clear()
+                    for dpid in self._lt:
+                        self._request_ond_tnl_ops(dpid)
+            except Exception:
+                self.logger.exception(
+                    "An exception occurred within the on demand handler")
+    
     def update_tunnels(self):
         while not self._is_exit:
             try:
@@ -855,14 +865,17 @@ class BoundedFlood(app_manager.RyuApp):
                     tnl_data = {}
                     self._ev_bh_update.wait()
                     self._ev_bh_update.clear()
-                    # if self._is_update_tunnel_data:
                     tnl_data = self._query_evio_tunnel_data()
                     for dpid in self._lt:
                         olid = self._lt[dpid].overlay_id
                         if olid in tnl_data:
                             updated_prts = \
                                 self._lt[dpid].update_port_data(tnl_data[olid])
-                            self.do_bf_leaf_transfer(self.dpset.dps[dpid], updated_prts)
+                            for port in updated_prts:
+                                if port.is_peer:
+                                    self._update_flow_rules(self.dpset.dps[dpid],
+                                                            port.peer.node_id,
+                                                            port.port_no)
             except Exception:
                 self.logger.exception(
                     "An exception occurred within tunnels update")
@@ -902,9 +915,6 @@ class BoundedFlood(app_manager.RyuApp):
         self.logger.addHandler(handler)
 
     def _load_config(self):
-        # with open("/etc/opt/evio/bf-config.json", "r") as content:
-        #     self.config = json.load(content)
-        # return
         if CONF["bf"]["config_file"]:
             if not os.path.isfile(CONF["bf"]["config_file"]):
                 raise RuntimeError("The specified configuration file was not found: {}"
@@ -1056,13 +1066,11 @@ class BoundedFlood(app_manager.RyuApp):
                 self.logger.error(
                     "Failed to delete flows rules, the response is: %s", resp2)
             else:
-                self.logger.debug("deleted flows with out_port=%s", port_no)
+                self.logger.debug("Deleted flows with out_port=%s", port_no)
         except Exception as err:
             self.logger.exception("Failed to delete flows for port {port_no}")
-
-    def _update_flow_rules_for_dst_mac(self, datapath, dst_mac, new_egress, tblid=None):
-        self.logger.debug("Updating all flows matching dst mac %s-%s",
-                          self._lt[datapath.id].name, dst_mac)
+            
+    def _update_inbound_flow_rules(self, datapath, dst_mac, new_egress, tblid=None):
         parser = datapath.ofproto_parser
         if tblid is None:
             tblid = datapath.ofproto.OFPTT_ALL
@@ -1073,6 +1081,8 @@ class BoundedFlood(app_manager.RyuApp):
         mt = parser.OFPMatch(eth_dst=dst_mac)
         mod = parser.OFPFlowMod(datapath=datapath, table_id=tblid, match=mt, command=cmd,
                                 instructions=inst, idle_timeout=self._lt[datapath.id].idle_timeout)
+        self.logger.debug("Updating all flows on %s matching %s",
+                          self._lt[datapath.id].name, mt)
         resp = datapath.send_msg(mod)
         if not resp:
             self.logger.warning(
@@ -1085,7 +1095,7 @@ class BoundedFlood(app_manager.RyuApp):
         for mactup in struct.iter_unpack("!6s", macs[:mlen]):
             macstr = mac_lib.haddr_to_str(mactup[0])
             self.logger.debug(
-                "Adding leaf mac %s-%s", self._lt[dpid].name, macstr)
+                "Registering leaf mac %s/%s to peer %s", self._lt[dpid].name, macstr, rnid)
             self._lt[dpid].add_leaf_mac(rnid, macstr)
 
     ###############################################################################################
@@ -1152,9 +1162,8 @@ class BoundedFlood(app_manager.RyuApp):
                                         actions=acts, data=p.data, in_port=ofproto.OFPP_LOCAL)
             resp = datapath.send_msg(pkt_out)
             if resp:
-                self.logger.info("FRB leaf exchange completed, %s/%s %s %s %s",
-                                 self._lt[datapath.id].name, port_no, peer_id,
-                                 peer_mac, payload)
+                self.logger.info("FRB local leaf transfer completed, %s/%s %s %s",
+                                 self._lt[datapath.id].name, port_no, peer_id, payload)
             else:
                 self.logger.warning(
                     "FRB leaf exchange failed, OFPPacketOut=%s", pkt_out)
@@ -1172,42 +1181,47 @@ class BoundedFlood(app_manager.RyuApp):
             self.logger.warn(f"Discarding a received FRB from self {rcvd_frb}")
             return
         if rcvd_frb.frb_type == FloodRouteBound.FRB_LEAF_TX:
-            self._handle_leaf_tx_msg(datapath, payload, rcvd_frb, in_port)
-            return
-        if not self._lt[dpid].is_port_ready(in_port):
             return
         if rcvd_frb.frb_type == FloodRouteBound.FRB_BRDCST:
-            # learn src mac and rnid only for frb_type == 1
             self._lt[dpid][src] = (in_port, rcvd_frb.root_nid)
-            self._lt[dpid]._root_sw_tbl[src].hop_count = rcvd_frb.hop_count
+        elif rcvd_frb.frb_type == FloodRouteBound.FRB_FWD:
+            # do not learn rnid when frb_type == FRB_FWD
+            self._lt[dpid][src] = in_port
+            
+        self._lt[dpid].peer(rcvd_frb.root_nid).hop_count = rcvd_frb.hop_count # Todo:KeyError
         self._lt[dpid].max_hops = rcvd_frb.hop_count
         # deliver the broadcast frame to leaf devices
         if payload:
             self.logger.debug("Sending FRB payload to leaf ports=%s/%s",
                                 self._lt[dpid].name, self._lt[dpid].leaf_ports)
             for out_port in self._lt[dpid].leaf_ports:
-                if out_port == INTERNAL_PORT_NUM:
-                    continue
+                # if out_port == INTERNAL_PORT_NUM:
+                #     continue
                 actions = [parser.OFPActionOutput(out_port)]
                 out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
                                             in_port=in_port, actions=actions, data=payload)
                 datapath.send_msg(out)
         # continue the bounded flood as necessary
-        out_bounds = self._lt[dpid].get_flooding_bounds(rcvd_frb, [
-                                                        in_port])
+        out_bounds = self._lt[dpid].get_flooding_bounds(rcvd_frb.frb_type, rcvd_frb, [in_port])
         self.logger.debug("Derived FRB(s)=%s/%s",
                             self._lt[dpid].name, out_bounds)
         if out_bounds:
             self.do_bounded_flood(
                 datapath, in_port, out_bounds, src, payload)
+       
+    def _update_flow_rules(self, datapath, peer_id, in_port):
+        dpid = datapath.id        
+        parser = datapath.ofproto_parser
+        for mac in self._lt[dpid].leaf_macs(peer_id):
+            self._update_inbound_flow_rules(datapath, mac, in_port, tblid=0)
+            # create new outbound flow rule, old ones will expire
+            actions = [parser.OFPActionOutput(1)] # Todo: Handle multiple leaf ports
+            for dst in self._lt[dpid].local_leaf_macs:
+                match = parser.OFPMatch(
+                    in_port=in_port, eth_dst=dst, eth_src=mac)
+                self._create_flow_rule(datapath, match, actions, priority=1, tblid=0,
+                            idle=self._lt[dpid].idle_timeout)
 
-    def _handle_leaf_tx_msg(self, datapath, payload, rcvd_frb, in_port):
-        if not payload:
-            return
-        self._update_leaf_macs( datapath.id, rcvd_frb.root_nid, payload, rcvd_frb.pl_count)
-        for mac in self._lt[datapath.id].leaf_macs(rcvd_frb.root_nid):
-            self._update_flow_rules_for_dst_mac(datapath, mac, in_port, tblid=0)
-    
     def forward_frame(self, datapath, pkt, in_port, msg):
         eth = pkt.protocols[0]
         dpid = datapath.id
@@ -1242,7 +1256,7 @@ class BoundedFlood(app_manager.RyuApp):
             frb_type = FloodRouteBound.FRB_FWD
         # perform bounded flood same as leaf case
         out_bounds = self._lt[dpid].get_flooding_bounds(
-            None, [in_port], frb_type)
+            frb_type, None, [in_port])
         self.logger.info("Generated FRB(s)=%s/%s",
                          self._lt[dpid].name, out_bounds)
         # fwd frame on every port wrapped with an FRB
