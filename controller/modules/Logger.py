@@ -43,7 +43,7 @@ class Logger(ControllerModule):
             logging.basicConfig(format="[%(asctime)s.%(msecs)03d] %(levelname)s: %(message)s",
                                 datefmt="%H:%M:%S",
                                 level=level)
-            self._logger = logging.getLogger("EdgeVPNio console logger")
+            self._logger = logging.getLogger()
 
         # If the Logging is set to File by the User
         elif self._cm_config["Device"] == "File":
@@ -55,21 +55,21 @@ class Logger(ControllerModule):
                 os.makedirs(filepath, exist_ok=True)
             if os.path.isfile(fqname):
                 os.remove(fqname)
-            self._logger = logging.getLogger("EdgeVPNio Rotating Log")
+            self._logger = logging.getLogger()
             self._logger.setLevel(level)
             # Creates rotating filehandler
             handler = lh.RotatingFileHandler(filename=fqname,
                                              maxBytes=self._cm_config["MaxFileSize"],
                                              backupCount=self._cm_config["MaxArchives"])
             formatter = logging.Formatter(
-                "[%(asctime)s.%(msecs)03d] %(levelname)s:%(message)s", datefmt="%Y%m%d %H:%M:%S")
+                "[%(asctime)s.%(msecs)03d] %(levelname)s:%(name)s: %(message)s", datefmt="%Y%m%d %H:%M:%S")
             handler.setFormatter(formatter)
             # Adds the filehandler to the Python logger module
             self._logger.addHandler(handler)
 
          # If the Logging is set to All by the User
         else:
-            self._logger = logging.getLogger("EdgeVPNio Console & File Logger")
+            self._logger = logging.getLogger()
             self._logger.setLevel(level)
 
             #Console Logger
@@ -93,7 +93,7 @@ class Logger(ControllerModule):
             # Creates rotating filehandler
             file_handler = lh.RotatingFileHandler(filename=fqname)
             file_log_formatter = logging.Formatter(
-                "[%(asctime)s.%(msecs)03d] %(levelname)s:%(message)s", datefmt="%Y%m%d %H:%M:%S")
+                "[%(asctime)s.%(msecs)03d] %(levelname)s: %(message)s", datefmt="%Y%m%d %H:%M:%S")
             file_handler.setFormatter(file_log_formatter)
             self._logger.addHandler(file_handler)
 

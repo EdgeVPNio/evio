@@ -105,8 +105,9 @@ class Topology(ControllerModule, CFX):
                 self.log("LOG_WARNING",
                          "OverlayVisualizer module not loaded. "
                          "Visualization data will not be sent.")
-        self.log("LOG_INFO", "Module loaded")
-
+        # self.log("LOG_INFO", "Module loaded")
+        self.logger.info("Module Topo loaded")
+        
     def terminate(self):
         pass
 
@@ -366,7 +367,9 @@ class Topology(ControllerModule, CFX):
         """
         Instruct LinkManager to commence building a tunnel to the specified peer
         """
-        self.log("LOG_INFO", "Creating peer edge %s:%s->%s",
+        # self.log("LOG_INFO", "Creating peer edge %s:%s->%s",
+        #          overlay_id[:7], self.node_id[:7], peer_id[:7])
+        self.logger.info("Creating peer edge %s:%s->%s",
                  overlay_id[:7], self.node_id[:7], peer_id[:7])
         params = {"OverlayId": overlay_id, "PeerId": peer_id, "TunnelId": edge_id}
         self.register_cbt("LinkManager", "LNK_CREATE_TUNNEL", params)

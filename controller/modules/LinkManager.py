@@ -246,7 +246,7 @@ class LinkManager(ControllerModule):
             self.free_cbt(cbt)
             return
         data = cbt.response.data
-        #self.register_cbt("Logger", "LOG_DEBUG", "Tunnel stats: %s", data)
+        #self.logger.debug("Tunnel stats: %s", data)
         # Handle any connection failures and update tracking data
         for tnlid in data:
             for lnkid in data[tnlid]:
@@ -513,17 +513,16 @@ class LinkManager(ControllerModule):
             if not tnl.link:
                 # we need to create the link
                 lnkid = tnlid
-                self.register_cbt("Logger", "LOG_DEBUG", "Create Link:{} Tunnel exists. "
-                                  "Skipping phase 1/5 Node A - Peer: {}"
-                                  .format(lnkid[:7], peer_id[:7]))
+                self.logger.debug("Create Link:%s Tunnel exists. "
+                                  "Skipping phase 1/5 Node A - Peer: %s",
+                                  lnkid[:7], peer_id[:7])
                 lnkupd_param = {
                     "UpdateType": "LnkEvCreating", "OverlayId": olid, "PeerId": peer_id,
                     "TunnelId": tnlid, "LinkId": lnkid}
                 self._link_updates_publisher.post_update(lnkupd_param)
 
-                self.register_cbt("Logger", "LOG_DEBUG",
-                                  "Create Link:{} Phase 2/5 Node A - Peer: {}"
-                                  .format(lnkid[:7], peer_id[:7]))
+                self.logger.debug("Create Link:%s Phase 2/5 Node A - Peer: %s",
+                                  lnkid[:7], peer_id[:7])
                 self._assign_link_to_tunnel(tnlid, lnkid, 0xA2)
                 tnl.tunnel_state = Tunnel.STATES.TNL_CREATING
                 #tnl.creation_start_time = time.time()
@@ -566,8 +565,8 @@ class LinkManager(ControllerModule):
                                       self.config["LinkSetupTimeout"])
         self._assign_link_to_tunnel(tnlid, lnkid, 0xA1)
 
-        self.register_cbt("Logger", "LOG_DEBUG", "Create Link:{} Phase 1/5 Node A - Peer: {}"
-                          .format(lnkid[:7], peer_id[:7]))
+        self.logger.debug("Create Link:%s Phase 1/5 Node A - Peer: %s",
+                          lnkid[:7], peer_id[:7])
         lnkupd_param = {"UpdateType": "LnkEvCreating", "OverlayId": olid, "PeerId": peer_id,
                         "TunnelId": tnlid, "LinkId": lnkid}
         self._link_updates_publisher.post_update(lnkupd_param)
@@ -589,15 +588,14 @@ class LinkManager(ControllerModule):
             self.free_cbt(cbt)
             parent_cbt.set_response(resp_data, False)
             self.complete_cbt(parent_cbt)
-            self.register_cbt("Logger", "LOG_WARNING", "The create tunnel operation failed:{}"
-                              .format(parent_cbt.response.data))
+            self.logger.warn("The create tunnel operation failed:%s",
+                              parent_cbt.response.data)
             return
         # transistion connection connection state
         self._tunnels[tnlid].link.creation_state = 0xA2
         # store the overlay data
         overlay_id = cbt.request.params["OverlayId"]  # config overlay id
-        self.register_cbt("Logger", "LOG_DEBUG", "Create Link:{} Phase 2/5 Node A"
-                          .format(lnkid[:7]))
+        self.logger.debug("Create Link:%s Phase 2/5 Node A", lnkid[:7])
         self._update_tunnel_descriptor(resp_data, tnlid)
         lnkupd_param = {"UpdateType": "LnkEvCreated", "OverlayId": overlay_id, "PeerId": peer_id,
                         "TunnelId": tnlid, "LinkId": lnkid, "TapName": tap_name}
@@ -614,7 +612,7 @@ class LinkManager(ControllerModule):
         node_data = params["NodeData"]
         peer_id = node_data["UID"]
         if olid not in self.config["Overlays"]:
-            self.register_cbt("Logger", "LOG_WARNING", "The requested overlay is not specified in "
+            self.logger.warn("The requested overlay is not specified in "
                               "local config, it will not be created")
             lnk_endpt_cbt.set_response(
                 "Unknown overlay id specified in request", False)
@@ -623,14 +621,14 @@ class LinkManager(ControllerModule):
         if peer_id not in self._peers[olid] or tnlid not in self._tunnels:
             msg = str("The requested lnk endpt was not authorized it will not be created. "
                       "TunnelId={0}, PeerId={1}".format(tnlid, peer_id))
-            self.register_cbt("Logger", "LOG_WARNING", msg)
+            self.logger.warn(msg)
             lnk_endpt_cbt.set_response(msg, False)
             self.complete_cbt(lnk_endpt_cbt)
             return
         if self._tunnels[tnlid].link:
             msg = str("A link already exist for this tunnel, it will not be created. "
                       "TunnelId={0}, PeerId={1}".format(tnlid, peer_id))
-            self.register_cbt("Logger", "LOG_WARNING", msg)
+            self.logger.warn(msg)
             lnk_endpt_cbt.set_response(msg, False)
             self.complete_cbt(lnk_endpt_cbt)
             return
@@ -639,8 +637,7 @@ class LinkManager(ControllerModule):
         self._tunnels[tnlid].timeout = time.time(
         ) + self.config["LinkSetupTimeout"]
         self._assign_link_to_tunnel(tnlid, lnkid, 0xB1)
-        self.register_cbt("Logger", "LOG_DEBUG", "Create Link:{} Phase 1/4 Node B"
-                          .format(lnkid[:7]))
+        self.logger.debug("Create Link:%s Phase 1/4 Node B", lnkid[:7])
         # publish notification of link creation initiated Node B
         lnkupd_param = {
             "UpdateType": "LnkEvCreating", "OverlayId": olid, "PeerId": peer_id,
@@ -689,13 +686,10 @@ class LinkManager(ControllerModule):
             parent_cbt.set_response(resp_data, False)
             if parent_cbt.child_count == 1:
                 self.complete_cbt(parent_cbt)
-            self.register_cbt("Logger", "LOG_WARNING", "Create link endpoint failed :{}"
-                              .format(cbt.response.data))
+            self.logger.warn("Create link endpoint failed :%s", cbt.response.data)
             self._rollback_link_creation_changes(tnlid)
-
             return
-        self.register_cbt("Logger", "LOG_DEBUG", "Create Link:{} Phase 2/4 Node B - Peer: {}"
-                          .format(lnkid[:7], peer_id[:7]))
+        self.logger.debug("Create Link:%s Phase 2/4 Node B - Peer: %s", lnkid[:7], peer_id[:7])
         # store the overlay data
         self._update_tunnel_descriptor(resp_data, tnlid)
         # add the peer MAC to the tunnel descr
@@ -729,8 +723,7 @@ class LinkManager(ControllerModule):
         tnlid = self.tunnel_id(lnkid)
         peer_id = rem_act["NodeData"]["UID"]
         self._tunnels[tnlid].link.creation_state = 0xC0
-        self.register_cbt("Logger", "LOG_DEBUG", "Create Link:{} Phase 4/4 Node B - Peer: {}"
-                          .format(lnkid[:7], peer_id[:7]))
+        self.logger.debug("Create Link:%s Phase 4/4 Node B - Peer: %s", lnkid[:7], peer_id[:7])
         peer_id = rem_act["NodeData"]["UID"]
         olid = rem_act["OverlayId"]
         resp_data = cbt.response.data
@@ -749,9 +742,9 @@ class LinkManager(ControllerModule):
         parent_cbt.set_response(data=data, status=True)
         self.free_cbt(cbt)
         self.complete_cbt(parent_cbt)
-        self.register_cbt("Logger", "LOG_INFO", "Tunnel {0} Link {1} accepted: {2}:{3}<-{4}"
-                          .format(tnlid[:7], lnkid[:7], olid[:7], self.node_id[:7],
-                                  peer_id[:7]))
+        self.logger.info("Tunnel %s Link %s accepted: %s:%s<-%s",
+                         tnlid[:7], lnkid[:7], olid[:7], self.node_id[:7],
+                         peer_id[:7])
 
     def _create_link_endpoint(self, rem_act, parent_cbt):
         """
@@ -767,8 +760,8 @@ class LinkManager(ControllerModule):
             self.complete_cbt(parent_cbt)
             return
         self._tunnels[tnlid].link.creation_state = 0xA3
-        self.register_cbt("Logger", "LOG_DEBUG", "Create Link:{} Phase 3/5 Node A - Peer: {}"
-                          .format(lnkid[:7], peer_id[:7]))
+        self.logger.debug("Create Link:%s Phase 3/5 Node A - Peer: %s",
+                          lnkid[:7], peer_id[:7])
         node_data = rem_act["Data"]["NodeData"]
         olid = rem_act["OverlayId"]
         # add the peer MAC to the tunnel descr
@@ -790,8 +783,8 @@ class LinkManager(ControllerModule):
         tnlid = self.tunnel_id(lnkid)
         peer_id = cbt.request.params["NodeData"]["UID"]
         self._tunnels[tnlid].link.creation_state = 0xA4
-        self.register_cbt("Logger", "LOG_DEBUG", "Create Link:{} Phase 4/5 Node A - Peer: {}"
-                          .format(lnkid[:7], peer_id[:7]))
+        self.logger.debug("Create Link:%s Phase 4/5 Node A - Peer: %s",
+                          lnkid[:7], peer_id[:7])
         local_cas = cbt.response.data["CAS"]
         parent_cbt = cbt.parent
         olid = cbt.request.params["OverlayId"]
@@ -821,14 +814,13 @@ class LinkManager(ControllerModule):
         if peer_id not in self._peers[olid] or tnlid not in self._tunnels \
                 or self._tunnels[tnlid].link is None:
             self._cleanup_removed_tunnel(tnlid)
-            self.register_cbt("Logger", "LOG_DEBUG",
-                              "A response to an aborted add peer CAS operation was discarded: {0}".
-                              format(str(cbt)))
+            self.logger.info("A response to an aborted add peer CAS operation was discarded: %s",
+                              str(cbt))
             return
 
         self._tunnels[tnlid].link.creation_state = 0xB3
-        self.register_cbt("Logger", "LOG_DEBUG", "Create Link:{} Phase 3/4 Node B - Peer: {}"
-                          .format(lnkid[:7], peer_id[:7]))
+        self.logger.debug("Create Link:%s Phase 3/4 Node B - Peer: %s",
+                          lnkid[:7], peer_id[:7])
         lcbt = self.create_linked_cbt(cbt)
         params["Type"] = self.config["Overlays"][olid]["Type"]
         lcbt.set_request(self.module_name, "TincanInterface",
@@ -839,8 +831,7 @@ class LinkManager(ControllerModule):
         parent_cbt = cbt.parent
         resp_data = cbt.response.data
         if not cbt.response.status:
-            self.register_cbt("Logger", "LOG_WARNING", "Create link endpoint failed :{}"
-                              .format(cbt))
+            self.logger.warn("Create link endpoint failed :%s",cbt)
             lnkid = cbt.request.params["LinkId"]
             self._rollback_link_creation_changes(lnkid)
             self.free_cbt(cbt)
@@ -876,19 +867,18 @@ class LinkManager(ControllerModule):
         olid = parent_cbt.request.params["OverlayId"]
         peer_id = parent_cbt.request.params["PeerId"]
         if peer_id not in self._peers[olid]:
-            self.register_cbt("Logger", "LOG_DEBUG",
-                              "A response to an aborted create link operation was discarded: {0}".
-                              format(parent_cbt))
+            self.logger.info("A response to an aborted create link operation was discarded: %s",
+                              parent_cbt)
             return
         tnlid = self._peers[olid][peer_id]
         lnkid = self.link_id(tnlid)
         self._tunnels[tnlid].link.creation_state = 0xC0
-        self.register_cbt("Logger", "LOG_DEBUG", "Create Link:{} Phase 5/5 Node A - Peer: {}"
-                          .format(tnlid[:7], peer_id[:7]))
+        self.logger.debug("Create Link:%s Phase 5/5 Node A - Peer: %s",
+                          tnlid[:7], peer_id[:7])
         parent_cbt.set_response(data={"LinkId": lnkid}, status=True)
         self.complete_cbt(parent_cbt)
-        self.register_cbt("Logger", "LOG_INFO", "Tunnel {0} created: {1}:{2}->{3}"
-                          .format(lnkid[:7], olid[:7], self.node_id[:7], peer_id[:7]))
+        self.logger.debug("Tunnel %s created: %s:%s->%s",
+                          lnkid[:7], olid[:7], self.node_id[:7], peer_id[:7])
 
     def resp_handler_remote_action(self, cbt):
         parent_cbt = cbt.parent
@@ -1025,8 +1015,7 @@ class LinkManager(ControllerModule):
                         self.complete_cbt(parent_cbt)
 
     def _deauth_tnl(self, tnl):
-        self.register_cbt("Logger", "LOG_INFO",
-                          "Tunnel {0} auth timed out".format(tnl.tnlid))
+        self.logger.info("Tunnel %s auth timed out", tnl.tnlid)
         param = {
             "UpdateType": "LnkEvDeauthorized", "OverlayId": tnl.overlay_id,
             "PeerId": tnl.peer_id, "TunnelId": tnl.tnlid, "TapName": tnl.tap_name}

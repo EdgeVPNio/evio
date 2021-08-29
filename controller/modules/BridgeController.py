@@ -513,7 +513,6 @@ class BridgeController(ControllerModule):
 
         self._cfx_handle.start_subscription("LinkManager", "LNK_TUNNEL_EVENTS")
         self.logger.info("Module Loaded")
-        # self.log("LOG_INFO", "Module Loaded")
 
     def req_handler_manage_bridge(self, cbt):
         try:
@@ -536,14 +535,12 @@ class BridgeController(ControllerModule):
                     "MAC": Modlib.delim_mac_str(cbt.request.params["MAC"]),
                     "PeerMac": Modlib.delim_mac_str(cbt.request.params["PeerMac"])
                 }
-                #self._tunnels[olid]["DSeq"] = self._tunnels[olid]["DSeq"] +1
                 br.add_port(port_name)
                 self.log("LOG_INFO", "Port %s added to bridge %s",
                          port_name, str(br))
             elif cbt.request.params["UpdateType"] == "LnkEvRemoved":
                 self._tunnels[olid].pop(port_name, None)
                 if br.bridge_type == OvsBridge.bridge_type:
-                    #self._tunnels[olid]["DSeq"] = self._tunnels[olid]["DSeq"] +1
                     br.del_port(port_name)
                     self.log(
                         "LOG_INFO", "Port %s removed from bridge %s", port_name, str(br))
@@ -622,16 +619,6 @@ class BridgeController(ControllerModule):
         self._appbr[olid] = gbr
         return name
 
-    # def get_overlay_tunnels(self, overlay_id, seq):
-    #     resp = None
-    #     try:
-    #         resp = {"DSeq": seq,
-    #                 "Snapshot": self._tunnels[overlay_id].snapshot(seq)}
-    #     except Exception as err:
-    #         #self.log("LOG_WARNING", str(err))
-    #         self.logger.exception(f"The operation get_overlay_tunnels failed, overlay ID={overlay_id}, seq={seq}")
-    #     return resp
-
     def get_tunnels(self):
         resp = {}
         try:
@@ -641,15 +628,6 @@ class BridgeController(ControllerModule):
             self.logger.exception("The operation get_tunnels failed")
             resp = None
         return resp
-    
-    # def get_overlay_seq(self, overlay_id):
-    #     resp = None
-    #     try:
-    #         resp = {"DSeq": self._tunnels[overlay_id].sequence_number}
-    #     except Exception as err:
-    #         self.logger.exception(f"The operation get_overlay_seq failed, overlay ID={overlay_id}")
-    #         #self.log("LOG_WARNING", str(err))
-    #     return resp
 
     def tunnel_request(self, req_params):
         self.register_cbt("Topology", "TOP_REQUEST_OND_TUNNEL", req_params)

@@ -4,7 +4,7 @@
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
 # in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# to use, copyify, merge, publish, distribute, sublicense, and/or sell
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
 #
@@ -21,6 +21,7 @@
 
 from abc import ABCMeta, abstractmethod
 import hashlib
+import logging
 
 # abstract ControllerModule (CM) class
 # all CM implementations inherit the variables declared here
@@ -34,6 +35,7 @@ class ControllerModule():
         self._cm_config = module_config
         self._module_name = module_name
         self._state_digest = None
+        self.logger = logging.getLogger(self._module_name)
       
     def __repr__(self):
         items = set()
@@ -115,8 +117,19 @@ class ControllerModule():
     def submit_cbt(self, cbt):
         self._cfx_handle.submit_cbt(cbt)
 
-    def log(self, level, msg, *args):
-        self.register_cbt("Logger", level, _params=(msg, args))
+    def log(self, level, fmt, *args):
+        if level == "LOG_DEBUG":
+            self.logger.debug(fmt, *args)
+        elif level == "LOG_INFO":
+            self.logger.info(fmt, *args)
+        elif level == "LOG_WARNING":
+            self.logger.warning(fmt, *args)
+        elif level == "LOG_ERROR":
+            self.logger.error(fmt, *args)
+        else:
+            self.logger.debug(fmt, *args)
+        
+        # self.register_cbt("Logger", level, _params=(msg, args))
 
     def trace_state(self):
         if self.config.get("StateTracingEnabled", False):
@@ -124,4 +137,4 @@ class ControllerModule():
             new_digest = hashlib.sha256(state.encode("utf-8")).hexdigest()
             if self._state_digest != new_digest:
                 self._state_digest = new_digest
-                self.log("LOG_INFO", "State=%s", state)
+                self.logger.info(state)

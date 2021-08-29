@@ -56,7 +56,7 @@ class TincanInterface(ControllerModule):
         self.create_control_link()
         self._tci_publisher = self._cfx_handle.publish_subscription("TCI_TINCAN_MSG_NOTIFY")
         self.register_cbt("Logger", "LOG_QUERY_CONFIG")
-        self.log("LOG_INFO", "Module loaded")
+        self.logger.info("Module loaded")
 
     def __tincan_listener(self):
         try:
@@ -79,13 +79,10 @@ class TincanInterface(ControllerModule):
                         else:
                             self._tci_publisher.post_update(ctl["EVIO"]["Request"])
         except Exception as err:
-            log_cbt = self.register_cbt(
-                "Logger", "LOG_WARNING", "Tincan Listener exception:{0}\n"
-                "{1}".format(err, traceback.format_exc()))
-            self.submit_cbt(log_cbt)
+            self.logger.exception("Tincan Listener exception")
 
     def create_control_link(self,):
-        self.register_cbt("Logger", "LOG_INFO", "Creating Tincan control link")
+        self.logger.info("Creating Tincan control link")
         cbt = self.create_cbt(self._module_name, self._module_name, "TCI_CREATE_CTRL_LINK")
         ctl = modlib.CTL_CREATE_CTRL_LINK
         ctl["EVIO"]["TransactionId"] = cbt.tag
@@ -120,8 +117,7 @@ class TincanInterface(ControllerModule):
 
     def resp_handler_configure_tincan_logging(self, cbt):
         if cbt.response.status == "False":
-            msg = "Failed to configure Tincan logging: CBT={0}".format(cbt)
-            self.register_cbt("Logger", "LOG_WARNING", msg)
+            self.logger.warn("Failed to configure Tincan logging: CBT=%s", cbt)
 
     def req_handler_create_link(self, cbt):
         msg = cbt.request.params
