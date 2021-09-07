@@ -19,85 +19,87 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-from .NetworkGraph import ConnEdgeAdjacenctList
-from .NetworkGraph import ConnectionEdge
+import time
 from .NetworkGraph import EdgeTypesOut
 
+OpType = ["OpTypeAdd", "OpTypeRemove", "OpTypeUpdate"]
 
 class OperationsModel():
     def __init__(self, conn_edge, op_type, priority):
         self.conn_edge = conn_edge
         self.op_type = op_type
         self.op_priority = priority
+        self.is_completed = False
 
-    # def __repr__(self):
-    #     msg = "connEdge = %s, opType = %s, opPriority=%s>" % \
-    #           (self.conn_edge, self.op_type, self.op_priority)
-    #     return msg
     def __repr__(self):
         items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
         return "{{{}}}".format(", ".join(items))
 
 class NetworkOperations():
-    def __init__(self, current_Network_State, desired_Network_State):
-        self.current_Network_State = current_Network_State
-        self.desired_Network_State = desired_Network_State
+    def __init__(self):
         self.operations = {}
-
+        self._remain = 0
+        
     def __iter__(self):
         sorted_list = sorted(
             self.operations, key=lambda x: self.operations[x].op_priority)
         for x in sorted_list:
-            yield self.operations[x]
+            if not self.operations[x].is_completed:
+                self.operations[x].is_completed = True
+                if self._remain > 0:
+                    self._remain -= 1
+                yield self.operations[x]
 
-    # def __repr__(self):
-    #     msg = "currentNetworkState = %s, desiredNetworkState = %s, numOfOperations=%d, " \
-    #           "Operations=%s>" % \
-    #           (self.current_Network_State, self.desired_Network_State,
-    #            len(self.operations), self.operations)
-    #     return msg
     def __repr__(self):
         items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
         return "{{{}}}".format(", ".join(items))
-      
-    def diff(self):
-
-        for edge in self.desired_Network_State.conn_edges:
-            if edge not in self.current_Network_State.conn_edges:
-                if self.desired_Network_State.conn_edges[edge].edge_type == 'CETypeEnforced':
+    
+    def __bool__(self):
+        return bool(self._remain != 0)
+    
+    def diff(self, curr_net_graph, tgt_net_graph):
+        for peer_id in tgt_net_graph.conn_edges:
+            if peer_id not in curr_net_graph.conn_edges:
+                # Op Add
+                if tgt_net_graph.conn_edges[peer_id].edge_type == 'CETypeEnforced':
                     op = OperationsModel(
-                        self.desired_Network_State.conn_edges[edge], "opTypeAdd", 1)
-                    self.operations[edge] = op
-                elif self.desired_Network_State.conn_edges[edge].edge_type == "CETypeSuccessor":
+                        tgt_net_graph.conn_edges[peer_id], OpType[0], 1)
+                    self.operations[peer_id] = op
+                elif tgt_net_graph.conn_edges[peer_id].edge_type == "CETypeSuccessor":
                     op = OperationsModel(
-                        self.desired_Network_State.conn_edges[edge], "opTypeAdd", 2)
-                    self.operations[edge] = op
-                elif self.desired_Network_State.conn_edges[edge].edge_type == "CETypeOnDemand":
+                        tgt_net_graph.conn_edges[peer_id], OpType[0], 2)
+                    self.operations[peer_id] = op
+                elif tgt_net_graph.conn_edges[peer_id].edge_type == "CETypeOnDemand":
                     op = OperationsModel(
-                        self.desired_Network_State.conn_edges[edge], "opTypeAdd", 4)
-                    self.operations[edge] = op
-                elif self.desired_Network_State.conn_edges[edge].edge_type == "CETypeLongDistance":
+                        tgt_net_graph.conn_edges[peer_id], OpType[0], 4)
+                    self.operations[peer_id] = op
+                elif tgt_net_graph.conn_edges[peer_id].edge_type == "CETypeLongDistance":
                     op = OperationsModel(
-                        self.desired_Network_State.conn_edges[edge], "opTypeAdd", 7)
-                    self.operations[edge] = op
+                        tgt_net_graph.conn_edges[peer_id], OpType[0], 7)
+                    self.operations[peer_id] = op
             else:
+                # Op Update
                 op = OperationsModel(
-                    self.desired_Network_State.conn_edges[edge], "opTypeUpdate", 0)
-                self.operations[edge] = op
+                    tgt_net_graph.conn_edges[peer_id], OpType[2], 0)
+                self.operations[peer_id] = op
 
-        for edge in self.current_Network_State.conn_edges:
-            if edge not in self.desired_Network_State.conn_edges:
-                if self.current_Network_State.conn_edges[edge].edge_type in EdgeTypesOut:
-                    if self.current_Network_State.conn_edges[edge].edge_state == "CEStateConnected":
-                        if self.current_Network_State.conn_edges[edge].edge_type == "CETypeOnDemand":
+        for peer_id in curr_net_graph.conn_edges:
+            if peer_id not in tgt_net_graph.conn_edges:
+                if curr_net_graph.conn_edges[peer_id].edge_type in EdgeTypesOut:
+                    # Op Remove
+                    if curr_net_graph.conn_edges[peer_id].edge_state == "CEStateConnected" and\
+                           time.time() - curr_net_graph[peer_id].connected_time > 30:
+                        if curr_net_graph.conn_edges[peer_id].edge_type == "CETypeOnDemand":
                             op = OperationsModel(
-                                self.current_Network_State.conn_edges[edge], "opTypeRemove", 3)
-                            self.operations[edge] = op
-                        elif self.current_Network_State.conn_edges[edge].edge_type == "CETypeSuccessor":
+                                curr_net_graph.conn_edges[peer_id], OpType[1], 3)
+                            self.operations[peer_id] = op
+                        elif curr_net_graph.conn_edges[peer_id].edge_type == "CETypeSuccessor":
                             op = OperationsModel(
-                                self.current_Network_State.conn_edges[edge], "opTypeRemove", 5)
-                            self.operations[edge] = op
-                        elif self.current_Network_State.conn_edges[edge].edge_type == "CETypeLongDistance":
+                                curr_net_graph.conn_edges[peer_id], OpType[1], 5)
+                            self.operations[peer_id] = op
+                        elif curr_net_graph.conn_edges[peer_id].edge_type == \
+                            "CETypeLongDistance":
                             op = OperationsModel(
-                                self.current_Network_State.conn_edges[edge], "opTypeRemove", 6)
-                            self.operations[edge] = op
+                                curr_net_graph.conn_edges[peer_id], OpType[1], 6)
+                            self.operations[peer_id] = op
+        self._remain = len(self.operations)
