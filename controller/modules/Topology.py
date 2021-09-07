@@ -216,22 +216,22 @@ class Topology(ControllerModule, CFX):
         cbt.set_response(None, True)
         self.complete_cbt(cbt)
 
-    def req_handler_req_ond_tunnel(self, cbt):
+    def req_handler_req_ond_tunnels(self, cbt):
         """
         Add the request params for creating an on demand tunnel
         overlay_id, peer_id, ADD/REMOVE op string
         """
-        op = cbt.request.params
-        olid = op["OverlayId"]
-        peer_id = op["PeerId"]
-        if (olid in self._net_ovls and peer_id in self._net_ovls[olid]["KnownPeers"] and
-                self._net_ovls[olid]["KnownPeers"][peer_id].is_available):
-            self._net_ovls[olid]["OndPeers"].append(op)
-            self.log("LOG_DEBUG", "Added on-demand tunnel request to queue %s", op)
-        else:
-            self.log("LOG_WARNING", 
-                     "Invalid on-demand tunnel request parameter, OverlayId=%s, PeerId=%s",
-                     olid, peer_id)
+        for op in cbt.request.params:
+            olid = op["OverlayId"]
+            peer_id = op["PeerId"]
+            if (olid in self._net_ovls and peer_id in self._net_ovls[olid]["KnownPeers"] and
+                    self._net_ovls[olid]["KnownPeers"][peer_id].is_available):
+                self._net_ovls[olid]["OndPeers"].append(op)
+                self.log("LOG_DEBUG", "Added on-demand tunnel request to queue %s", op)
+            else:
+                self.log("LOG_WARNING", 
+                        "Invalid on-demand tunnel request parameter, OverlayId=%s, PeerId=%s",
+                        olid, peer_id)
 
     def req_handler_negotiate_edge(self, edge_cbt):
         """ Role B, decide if the request for an incoming edge is accepted or rejected """
@@ -327,7 +327,7 @@ class Topology(ControllerModule, CFX):
                 elif cbt.request.action == "LNK_TUNNEL_EVENTS":
                     self.req_handler_tnl_data_update(cbt)
                 elif cbt.request.action == "TOP_REQUEST_OND_TUNNEL":
-                    self.req_handler_req_ond_tunnel(cbt)
+                    self.req_handler_req_ond_tunnels(cbt)
                 elif cbt.request.action == "TOP_NEGOTIATE_EDGE":
                     self.req_handler_negotiate_edge(cbt)
                 elif cbt.request.action == "TOP_QUERY_KNOWN_PEERS":

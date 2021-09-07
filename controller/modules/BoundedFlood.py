@@ -21,17 +21,19 @@
 
 
 import json
-import socket
-import threading
+from typing import List
+from eventlet.green import socket
+from eventlet.green import Queue
+# import threading
 import struct
 import uuid
 from distutils import spawn
 import os
-import subprocess
+from eventlet.green import subprocess
 import logging
 from collections.abc import MutableSet
 import random
-import time
+from eventlet.green import time
 import types
 import math
 import hashlib
@@ -66,7 +68,8 @@ TUNNEL_TYPES = types.SimpleNamespace(UNKNOWN="TNL_TYPE_UNKNOWN",
                                      LEAF="TNL_TYPE_LEAF",
                                      EVIO_LEAF="TNL_TYPE_EVIO_LEAF",
                                      PEER="TNL_TYPE_PEER")
-
+OPCODE = types.SimpleNamespace(UPDATE_TUNNELS="UPDATE_TUNNELS",
+                               OND_REQUEST="OND_REQUEST")
 
 def runcmd(cmd):
     """ Run a shell command. if fails, raise an exception. """
@@ -87,7 +90,12 @@ def is_multiricepient(mac_addr):
 
 
 ##########################################################################
-
+class EvioOp():
+    def __init__(self, code, dpid, olid, data=None):
+        self.code = code
+        self.dpid = dpid
+        self.olid = olid
+        self.data = data
 
 class EvioPortal():
     MAX_ATTEMPTS = 3
@@ -130,7 +138,7 @@ class EvioPortal():
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.connect()
         try:
-            # self._logger.debug("EvioPortal send Request={}".format(req))
+            self._logger.debug("EvioPortal send Request={}".format(req))
             self.send(req)
             resp = self.recv()
             # self._logger.debug("EvioPortal recv'd Response={}".format(resp))
@@ -240,7 +248,7 @@ class EvioSwitch(MutableMapping):
         self.hard_timeout = kwargs["FlowHardTimeout"]
         self._topo_seq = 0
         self._uncategorized_ports = set()
-        self._lock = threading.RLock()
+        #self._lock = threading.RLock()
         self._max_hops = 0
         self._ond_ops = []
 
@@ -304,18 +312,18 @@ class EvioSwitch(MutableMapping):
 
     @property
     def leaf_ports(self) -> list:
-        with self._lock:
-            return list(self._leaf_prts)
+        #with self._lock:
+        return list(self._leaf_prts)
 
     @property
     def link_ports(self) -> list:
-        with self._lock:
-            return list(self._link_prts)
+        # with self._lock:
+        return list(self._link_prts)
 
     @property
     def port_numbers(self) -> list:
-        with self._lock:
-            return [*self._port_tbl.keys()]
+        # with self._lock:
+        return [*self._port_tbl.keys()]
 
     @property
     def node_id(self) -> str:
@@ -328,48 +336,48 @@ class EvioSwitch(MutableMapping):
     @property
     def peer_list(self) -> list:
         pl = []
-        with self._lock:
-            for port_no in self._link_prts:
-                pl.append(self._port_tbl[port_no].peer_data.node_id)
-            return pl
+        # with self._lock:
+        for port_no in self._link_prts:
+            pl.append(self._port_tbl[port_no].peer_data.node_id)
+        return pl
 
     def peer(self, peer_id) -> PeerData:
         return self._peer_tbl[peer_id]
 
     def get_root_sw(self, leaf_mac) -> PeerData:
-        with self._lock:
-            return self._root_sw_tbl.get(leaf_mac)
+        #with self._lock:
+        return self._root_sw_tbl.get(leaf_mac)
 
     def port_descriptor(self, port_no) -> PortDescriptor:
-        with self._lock:
-            return self._port_tbl[port_no]
+        # with self._lock:
+        return self._port_tbl[port_no]
 
     def is_valid_port(self, port_no) -> bool:
-        with self._lock:
-            return bool(port_no in self._datapath.ports)
+        # with self._lock:
+        return bool(port_no in self._datapath.ports)
 
     def is_port_ready(self, port_no) -> bool:
-        with self._lock:
-            return bool(self._port_tbl[port_no].is_categorized)
+        # with self._lock:
+        return bool(self._port_tbl[port_no].is_categorized)
 
     def is_update_pending(self) -> bool:
         with self._lock:
             return bool(self._uncategorized_ports)
 
     def update_bridge_ports(self, port_set):
-        with self._lock:
-            self._port_tbl.clear()
-            self._root_sw_tbl.clear()
-            self._peer_tbl.clear()
-            self._uncategorized_ports.clear()
-            for port_no, prt in port_set.items():
-                pd = PortDescriptor(
-                    port_no, prt.name.decode("utf-8"), prt.hw_addr)
-                if port_no == INTERNAL_PORT_NUM:
-                    pd.tnl_type = TUNNEL_TYPES.LEAF
-                else:
-                    self._uncategorized_ports.add(pd)
-                self._port_tbl[port_no] = pd
+        # with self._lock:
+        self._port_tbl.clear()
+        self._root_sw_tbl.clear()
+        self._peer_tbl.clear()
+        self._uncategorized_ports.clear()
+        for port_no, prt in port_set.items():
+            pd = PortDescriptor(
+                port_no, prt.name.decode("utf-8"), prt.hw_addr)
+            if port_no == INTERNAL_PORT_NUM:
+                pd.tnl_type = TUNNEL_TYPES.LEAF
+            else:
+                self._uncategorized_ports.add(pd)
+            self._port_tbl[port_no] = pd
 
     def _categorize_port(self,  port, tnl_type, tnl_data=None):
         """
@@ -389,68 +397,68 @@ class EvioSwitch(MutableMapping):
     def add_port(self, ofpport):
         port = PortDescriptor(
             ofpport.port_no, ofpport.name.decode("utf-8"), ofpport.hw_addr)
-        with self._lock:
-            self._port_tbl[port.port_no] = port
-            self._uncategorized_ports.add(port)
+        #with self._lock:
+        self._port_tbl[port.port_no] = port
+        self._uncategorized_ports.add(port)
         self.logger.debug("Added uncategorized port_no: %s/%i",
                           self.name, ofpport.port_no)
 
     def delete_port(self, port_no):
-        with self._lock:
-            port = self._port_tbl.pop(port_no, None)
-            if port:
-                self.logger.debug("Removed %s:%s from _port_tbl",
-                                  self.name, port)
-                if port.tnl_type == "TNL_TYPE_PEER":
-                    self._deregister_peer(port.peer_data.node_id)
-                    self._link_prts.remove(port_no)
-                    for mac in port.peer_data.leaf_macs:
-                        self._ingress_tbl.pop(mac, None)
-                        self._root_sw_tbl.pop(mac, None)
-                if port.tnl_type == "TNL_TYPE_LEAF":
-                    self._leaf_prts.remove(port_no)
-                tbr = []  # build a list of all mac that ingress via this port
-                for mac_key, port_val in self._ingress_tbl.items():
-                    if port_val == port_no:
-                        tbr.append(mac_key)
-                for mac_entry in tbr:  # remove these mac entries from the ingress table
-                    self._ingress_tbl.pop(mac_entry, None)
-            else:
-                for port in self._uncategorized_ports:
-                    if port.port_no == port_no:
-                        self._uncategorized_ports.remove(port)
-                        break
+        # with self._lock:
+        port = self._port_tbl.pop(port_no, None)
+        if port:
+            self.logger.debug("Removed %s:%s from _port_tbl",
+                                self.name, port)
+            if port.tnl_type == "TNL_TYPE_PEER":
+                self._deregister_peer(port.peer_data.node_id)
+                self._link_prts.remove(port_no)
+                for mac in port.peer_data.leaf_macs:
+                    self._ingress_tbl.pop(mac, None)
+                    self._root_sw_tbl.pop(mac, None)
+            elif port.tnl_type == "TNL_TYPE_LEAF":
+                self._leaf_prts.remove(port_no)
+            tbr = []  # build a list of all mac that ingress via this port
+            for mac_key, port_val in self._ingress_tbl.items():
+                if port_val == port_no:
+                    tbr.append(mac_key)
+            for mac_entry in tbr:  # remove these mac entries from the ingress table
+                self._ingress_tbl.pop(mac_entry, None)
+        
+        for port in self._uncategorized_ports:
+            if port.port_no == port_no:
+                self._uncategorized_ports.remove(port)
+                break
 
     def update_port_data(self, tnl_data, ports=None) -> list:
         updated = []
         if ports:
             self.update_bridge_ports(ports)
-        with self._lock:
-            if not tnl_data or not "seq" in tnl_data:
-                return
-            if tnl_data["seq"] >= self._topo_seq:
-                uncat = self._uncategorized_ports
-                self._uncategorized_ports = set()
-                for port in uncat:
-                    if port.name in tnl_data["snapshot"]:
-                        self._categorize_port(
-                            port, "TNL_TYPE_PEER", tnl_data["snapshot"][port.name])
-                        self._link_prts.add(port.port_no)
-                        updated.append(port)
-                    elif port.port_no in KNOWN_LEAF_PORTS:
-                        self._categorize_port(port, "TNL_TYPE_LEAF")
-                        self._leaf_prts.add(port.port_no)
-                        updated.append(port)
-                    else:
-                        self._uncategorized_ports.add(port)
-                self._topo_seq = tnl_data["seq"]
-                if (self._uncategorized_ports):
-                    self.logger.info("No data was available to categorize the "
-                                     f"following ports {self._uncategorized_ports}")
-            else:
-                self.logger.info(
-                    f"The evio tunnel data for {self.name} "
-                    f"has not yet been updated beyond seq {self._topo_seq}")
+        #with self._lock:
+        if not tnl_data or not "seq" in tnl_data:
+            return
+        if tnl_data["seq"] >= self._topo_seq:
+            uncat = self._uncategorized_ports
+            self._uncategorized_ports = set()
+            for port in uncat:
+                if port.name in tnl_data["snapshot"]:
+                    self._categorize_port(
+                        port, "TNL_TYPE_PEER", tnl_data["snapshot"][port.name])
+                    self._link_prts.add(port.port_no)
+                    updated.append(port)
+                elif port.port_no in KNOWN_LEAF_PORTS:
+                    self._categorize_port(port, "TNL_TYPE_LEAF")
+                    self._leaf_prts.add(port.port_no)
+                    updated.append(port)
+                else:
+                    self._uncategorized_ports.add(port)
+            self._topo_seq = tnl_data["seq"]
+            if (self._uncategorized_ports):
+                self.logger.info("No data was available to categorize the "
+                                    f"following ports {self._uncategorized_ports}")
+        else:
+            self.logger.info(
+                f"The evio tunnel data for {self.name} "
+                f"has not yet been updated beyond seq {self._topo_seq}")
         return updated
 
     def _learn(self, src_mac, in_port, rnid=None):
@@ -498,17 +506,16 @@ class EvioSwitch(MutableMapping):
                 return prtno
         return None
 
-    def process_ond_tnl_updates(self, flow_metrics):
-        with self._lock:
-            self._ond_ops = self.traffic_analyzer.get_ond_tnl_ops(
-                flow_metrics, self)
+    # def process_ond_tnl_updates(self, flow_metrics):
+    #     #with self._lock:
+    #     return self.traffic_analyzer.get_ond_tnl_ops(flow_metrics, self)
 
     @property
     def ond_tnl_ops(self):
-        with self._lock:
-            tnl_ops = self._ond_ops
-            self._ond_ops = []
-            return tnl_ops
+        # with self._lock:
+        tnl_ops = self._ond_ops
+        self._ond_ops = []
+        return tnl_ops
 
     def terminate(self):
         self._overlay_id = ""
@@ -526,16 +533,16 @@ class EvioSwitch(MutableMapping):
 
     @property
     def max_hops(self):
-        with self._lock:
-            return self._max_hops
+        # with self._lock:
+        return self._max_hops
 
     @max_hops.setter
     def max_hops(self, num_hops):
-        with self._lock:
-            if num_hops == 0:
-                self._max_hops = 0
-            elif (num_hops > self._max_hops):
-                self._max_hops = num_hops
+        # with self._lock:
+        if num_hops == 0:
+            self._max_hops = 0
+        elif (num_hops > self._max_hops):
+            self._max_hops = num_hops
 
     def get_flooding_bounds(self, frb_type, prev_frb=None, exclude_ports=None) -> list:
         """
@@ -687,9 +694,7 @@ class BoundedFlood(app_manager.RyuApp):
         self.dpset = kwargs['dpset']
         self._lt = LearningTable(NodeId=self.config["NodeId"],
                                  Logger=self.logger)
-        self._ev_bh_update = hub.Event()
-        self._ev_bh_ond = hub.Event()
-        hub.spawn(self.handle_ondemand_ops)
+        self._ev_bh_update = Queue.Queue()
         hub.spawn(self.monitor_flow_traffic)
         hub.spawn(self.update_tunnels)
         if self.config.get("ExtendedLogging", False):
@@ -729,7 +734,7 @@ class BoundedFlood(app_manager.RyuApp):
                 f"Switch {br_name} added with overlay ID {overlay_id}")
             self._lt[datapath.id].update_bridge_ports(datapath.ports)
             self._reset_switch_flow_rules(datapath)
-            self._ev_bh_update.set()
+            self._ev_bh_update.put(EvioOp(OPCODE.UPDATE_TUNNELS, datapath.id, overlay_id))
         except RuntimeError as wrn:
             self.logger.exception(
                 f"An runtime error occurred while registering a switch {ev.msg}")
@@ -760,12 +765,12 @@ class BoundedFlood(app_manager.RyuApp):
         dp = msg.datapath
         ofp = dp.ofproto
         port_no = msg.desc.port_no
-        self._ev_bh_update.set()
         try:
             if msg.reason == ofp.OFPPR_ADD:
                 self.logger.debug(
                     "OFPPortStatus: port ADDED desc=%s", msg.desc)
                 self._lt[dp.id].add_port(msg.desc)
+                self._ev_bh_update.put(EvioOp(OPCODE.UPDATE_TUNNELS, dp.id, self._lt[dp.id].overlay_id))
             elif msg.reason == ofp.OFPPR_DELETE:
                 self.logger.debug(
                     "OFPPortStatus: port DELETED desc=%s", msg.desc)
@@ -774,6 +779,7 @@ class BoundedFlood(app_manager.RyuApp):
             # elif msg.reason == ofp.OFPPR_MODIFY:
             #     self.logger.debug(
             #         "OFPPortStatus: port MODIFIED desc=%s", msg.desc)
+            
         except Exception as err:
             self.logger.exception(f"An error occurred while responding to a port event. "
                                   f"Event={ev.msg}")
@@ -787,13 +793,14 @@ class BoundedFlood(app_manager.RyuApp):
         dpid = msg.datapath.id
         try:
             if self.logger.isEnabledFor(logging.DEBUG):
-                self.logger.debug(f"packet_in<=={pkt}")
+                self.logger.debug(f"packet_in[{in_port}]<=={pkt}")
 
             if not self._lt[dpid].is_valid_port(in_port):
                 self.logger.warn(
                     f"On removed port:{self._lt[dpid].name}/{in_port} bufferd frame: {pkt}")
                 return
             if not self._lt[dpid].is_port_ready(in_port):
+                self.logger.debug(f"port {in_port} not ready")
                 return
             if eth.ethertype == FloodRouteBound.ETH_TYPE_BF:
                 self.handle_bounded_flood_msg(msg.datapath, pkt, in_port, msg)
@@ -820,8 +827,11 @@ class BoundedFlood(app_manager.RyuApp):
     def flow_stats_reply_handler(self, ev):
         # self.logger.info('%s', json.dumps(ev.msg.to_jsondict()))
         try:
-            self._lt[ev.msg.datapath.id].process_ond_tnl_updates(ev.msg.body)
-            self._ev_bh_ond.set()
+            dpid = ev.msg.datapath.id
+            evi_sw = self._lt[dpid]
+            ond_ops = evi_sw.traffic_analyzer.get_ond_tnl_ops(flow_metrics=ev.msg.body, evio_sw=evi_sw)
+            if ond_ops:
+                self._ev_bh_update.put(EvioOp(OPCODE.OND_REQUEST, dpid, evi_sw.overlay_id, ond_ops))
         except Exception as err:
             self.logger.exception(
                 f"An error occurred in the flow stats handler. Event={ev.msg}")
@@ -832,7 +842,6 @@ class BoundedFlood(app_manager.RyuApp):
     def monitor_flow_traffic(self):
         while not self._is_exit:
             try:
-                counter_vals = {}
                 while not self._is_exit:
                     for dpid in self._lt:
                         self._request_stats(self.dpset.dps[dpid])
@@ -842,40 +851,29 @@ class BoundedFlood(app_manager.RyuApp):
                     "An exception occurred within the traffic monitor")
                 hub.sleep(self._traffic_analysis_interval)
 
-    def handle_ondemand_ops(self):
-        while not self._is_exit:
-            try:
-                while not self._is_exit:
-                    self._ev_bh_ond.wait()
-                    self._ev_bh_ond.clear()
-                    for dpid in self._lt:
-                        self._request_ond_tnl_ops(dpid)
-            except Exception:
-                self.logger.exception(
-                    "An exception occurred within the on demand handler")
-
     def update_tunnels(self):
         while not self._is_exit:
             try:
                 while not self._is_exit:
                     tnl_data = {}
-                    self._ev_bh_update.wait()
-                    self._ev_bh_update.clear()
-                    tnl_data = self._query_evio_tunnel_data()
-                    for dpid in self._lt:
-                        olid = self._lt[dpid].overlay_id
-                        if olid in tnl_data:
+                    op = self._ev_bh_update.get()
+                    if op.code == OPCODE.UPDATE_TUNNELS:
+                        tnl_data = self._query_evio_tunnel_data(op.olid)
+                        if op.olid in tnl_data:
                             updated_prts = \
-                                self._lt[dpid].update_port_data(tnl_data[olid])
+                                self._lt[op.dpid].update_port_data(tnl_data[op.olid])
                             for port in updated_prts:
                                 if port.is_peer:
-                                    self._update_port_flow_rules(self.dpset.dps[dpid],
+                                    self._update_port_flow_rules(self.dpset.dps[op.dpid],
                                                                  port.peer.node_id,
                                                                  port.port_no)
+                    elif op.code == OPCODE.OND_REQUEST:
+                        self._request_ond_tnl_ops(op.olid, op.data)
+                    self._ev_bh_update.task_done()
             except Exception:
                 self.logger.exception(
                     "An exception occurred within tunnels update")
-
+                
     def log_state(self):
         while not self._is_exit:
             try:
@@ -922,7 +920,7 @@ class BoundedFlood(app_manager.RyuApp):
         else:
             raise RuntimeError("No valid configuration found")
 
-    def _query_evio_tunnel_data(self):
+    def _query_evio_tunnel_data(self, overlay_id=None):
         req = dict(Request=dict(Action="GetTunnelData",
                    Params=dict()))
         resp = self.evio_portal.send_recv(req)
@@ -933,11 +931,12 @@ class BoundedFlood(app_manager.RyuApp):
         tnl_data = resp["Response"]["Data"]
         return resp["Response"]["Data"]
 
-    def _request_ond_tnl_ops(self, dpid):
-        for op in self._lt[dpid].ond_tnl_ops:
-            req = {"Request": {"Action": "TunnelRquest", "Params": {
-                "OverlayId": self._lt[dpid].overlay_id, "PeerId": op[0], "Operation": op[1]}}}
-            self.evio_portal.send_recv(req)
+    def _request_ond_tnl_ops(self, overlay_id, ond_tnl_ops):
+        reqs = []
+        for ond_op in ond_tnl_ops:
+            reqs.append({"OverlayId": overlay_id, "PeerId": ond_op[0], "Operation": ond_op[1]})
+        req = {"Request": {"Action": "TunnelRquest", "Params": reqs}}
+        self.evio_portal.send_recv(req)
 
     def _log_state(self):
         global BF_STATE_DIGEST
@@ -1238,16 +1237,13 @@ class BoundedFlood(app_manager.RyuApp):
         if len(pkt.protocols) == 3:
             payload = pkt.protocols[2]
         if self._lt._node_id == rcvd_frb.root_nid:
-            self.logger.warn(f"Discarding a received FRB from self {rcvd_frb}")
+            self.logger.warn(f"Discarded a FRB from self {rcvd_frb}")
             return
-        if rcvd_frb.frb_type == FloodRouteBound.FRB_LEAF_TX:
+        if rcvd_frb.frb_type != FloodRouteBound.FRB_BRDCST:
+            # discard these types
+            self.logger.info(f"Discarded type {rcvd_frb.frb_type} FRB")
             return
-        if rcvd_frb.frb_type == FloodRouteBound.FRB_BRDCST:
-            self._lt[dpid][src] = (in_port, rcvd_frb.root_nid)
-        elif rcvd_frb.frb_type == FloodRouteBound.FRB_FWD:
-            # do not learn rnid when frb_type == FRB_FWD
-            self._lt[dpid][src] = in_port
-
+        self._lt[dpid][src] = (in_port, rcvd_frb.root_nid)
         self._lt[dpid].peer(
             rcvd_frb.root_nid).hop_count = rcvd_frb.hop_count
         self._lt[dpid].max_hops = rcvd_frb.hop_count
@@ -1301,7 +1297,7 @@ class BoundedFlood(app_manager.RyuApp):
             # this node did not initiate the frame but it has no data on how to switch it
             # so it must brdcast with an FRB but let peers know we  are not the root sw
             frb_type = FloodRouteBound.FRB_FWD
-        # perform bounded flood same as leaf case
+        # perform bounded flood
         out_bounds = self._lt[dpid].get_flooding_bounds(
             frb_type, None, [in_port])
         self.logger.info("Generated FRB(s)=%s/%s",
@@ -1391,7 +1387,7 @@ class TrafficAnalyzer():
         self._min_tnl_age = 180
         logger.info("Demand threshold set at %d bytes", self.demand_threshold)
 
-    def get_ond_tnl_ops(self, flow_metrics, evio_sw: EvioSwitch):
+    def get_ond_tnl_ops(self, flow_metrics, evio_sw: EvioSwitch) -> List:
         tunnel_reqs = []
         active_flows = set()
         for stat in flow_metrics:
@@ -1414,7 +1410,7 @@ class TrafficAnalyzer():
             if peer_sw.node_id not in self._ond and len(self._ond) < self._max_ond and \
                     stat.byte_count > self.demand_threshold:
                 self.logger.info(
-                    "Requesting On-Demand edge to %s", peer_sw.node_id)
+                    "Creating a request for OND edge to %s", peer_sw.node_id)
                 tunnel_reqs.append((peer_sw.node_id, "ADD"))
                 self._ond[peer_sw.node_id] = time.time()
                 active_flows.add(peer_sw.node_id)
@@ -1424,7 +1420,7 @@ class TrafficAnalyzer():
             if (time.time() - self._ond[rnid]) < self._min_tnl_age:
                 continue
             if rnid not in active_flows:
-                self.logger.info("Requesting removal of OND edge to %s", rnid)
+                self.logger.info("Creating requesting for removal of OND edge to %s", rnid)
                 tunnel_reqs.append((rnid, "REMOVE"))
                 remove_list.append(rnid)
         for rnid in remove_list:
