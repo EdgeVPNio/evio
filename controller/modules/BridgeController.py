@@ -26,7 +26,7 @@ except ImportError:
     import json
 import copy
 import threading
-import os
+import time
 import socketserver
 from abc import ABCMeta, abstractmethod
 from collections.abc import MutableMapping
@@ -477,6 +477,7 @@ class BridgeController(ControllerModule):
                 br_name = get_br_name(olid, self.overlays[olid]["NetDevice"])
                 bf_config[br_name] = bf_ovls[olid]
                 bf_config[br_name]["OverlayId"] = olid
+            time.sleep(1)
             self._bfproxy = BoundedFloodProxy(
                 (proxy_listen_address, proxy_listen_port), bf_config,
                 BFRequestHandler, self)
