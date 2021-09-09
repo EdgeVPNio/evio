@@ -138,15 +138,14 @@ class EvioPortal():
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.connect()
         try:
-            self._logger.debug("EvioPortal send Request={}".format(req))
+            # self._logger.debug("EvioPortal send Request={}".format(req))
             self.send(req)
             resp = self.recv()
             # self._logger.debug("EvioPortal recv'd Response={}".format(resp))
         except Exception as err:
-            self._logger.warning(
-                "send recv failure=%s, resp=%s", str(err), resp)
+            self._logger.warning(f"A send recv failure occurred: {err}")
             resp = {'Response': {'Status': False,
-                                 'Data': "No response from evio controller"}}
+                                 'Data': "The send/recv operation to the evio controller failed."}}
         finally:
             self._sock.close()
         return resp
@@ -577,7 +576,7 @@ class EvioSwitch(MutableMapping):
             p2i = (i + 1) % num_nodes
             peer2 = node_list[p2i]
             if not (my_nid < peer1 or peer2 <= my_nid):
-                self.logger.warning("invalid node_id ordering self={0}, peer1={1}, peer2={2}"
+                self.logger.warning("Invalid node_id ordering self={0}, peer1={1}, peer2={2}"
                                     .format(my_nid, peer1, peer2))
                 return out_bounds
             # base scenario when the local node is initiating the FRB
@@ -699,7 +698,7 @@ class BoundedFlood(app_manager.RyuApp):
         hub.spawn(self.update_tunnels)
         if self.config.get("ExtendedLogging", False):
             hub.spawn(self.log_state)
-        self.logger.info("BoundedFlood module ready")
+        self.logger.info("BoundedFlood: Module loaded")
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -800,7 +799,7 @@ class BoundedFlood(app_manager.RyuApp):
                     f"On removed port:{self._lt[dpid].name}/{in_port} bufferd frame: {pkt}")
                 return
             if not self._lt[dpid].is_port_ready(in_port):
-                self.logger.debug(f"port {in_port} not ready")
+                self.logger.debug(f"Port {in_port} is not yet ready")
                 return
             if eth.ethertype == FloodRouteBound.ETH_TYPE_BF:
                 self.handle_bounded_flood_msg(msg.datapath, pkt, in_port, msg)
@@ -872,7 +871,7 @@ class BoundedFlood(app_manager.RyuApp):
                     self._ev_bh_update.task_done()
             except Exception:
                 self.logger.exception(
-                    "An exception occurred within tunnels update")
+                    "An exception occurred while updating the tunnel data")
                 
     def log_state(self):
         while not self._is_exit:
