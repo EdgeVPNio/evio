@@ -20,7 +20,7 @@
 # THE SOFTWARE.
 
 import math
-import random
+from random import randint
 import threading
 import time
 from datetime import datetime
@@ -35,22 +35,27 @@ from .GraphBuilder import GraphBuilder
 
 
 class DiscoveredPeer():
-    ExclusionBaseInterval = 60 #TODO(ken): parameterize
-    def __init__(self, peer_id):
+    def __init__(self, peer_id, **kwargs):
         self.peer_id = peer_id
         self.is_banned = False # bars conn attempts from local node, the peer can still recon
         self.successive_fails = 0
         self.available_time = time.time()
-
+        self.last_checkin = self.available_time
+        self.exclusion_base_interval = kwargs.get("ExclusionBaseInterval", 60)
+        self.expiry_interval = kwargs.get("ExpiryInterval", randint(16, 24) * 3600) # 16-24 hrs
+        self.max_successive_fails =  kwargs.get("MaxSuccessiveFails", 4)
+        self.successive_fails_incr =  kwargs.get("SuccessiveFailsIncr", 1)
+        self.successive_fails_decr =  kwargs.get("SuccessiveFailsDecr", 2)
+        
     def __repr__(self):
         items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
         return "{{{}}}".format(", ".join(items))
       
     def exclude(self):
-        self.successive_fails += 1
-        self.available_time = (random.randint(2, 5) * DiscoveredPeer.ExclusionBaseInterval *
+        self.successive_fails += self.successive_fails_incr
+        self.available_time = (randint(1, 4) * self.exclusion_base_interval *
                                self.successive_fails) + time.time()
-        if self.successive_fails >= 3:
+        if self.successive_fails >= self.max_successive_fails:
             self.is_banned = True
 
     def restore(self):
@@ -59,14 +64,20 @@ class DiscoveredPeer():
 
     def presence(self):
         self.available_time = time.time()
+        self.last_checkin = self.available_time
         if self.is_banned and self.successive_fails == 0:
             self.restore()
         elif self.is_banned and self.successive_fails > 0:
-            self.successive_fails -= 1
+            self.successive_fails -= self.successive_fails_decr
 
+    def is_expired(self):
+        return bool(time.time() - self.last_checkin >= self.expiry_interval)
+    
     @property
     def is_available(self):
-        return not self.is_banned and time.time() >= self.available_time
+        return bool((not self.is_banned) # successive_fails < max_successive_fails
+                    and (time.time() >= self.available_time) # the falloff wait period is over
+                    and (time.time() - self.last_checkin < self.expiry_interval + 1800)) # 30 mins before expiry
 
 class Topology(ControllerModule, CFX):
     _REFLECT = set(["_net_ovls"])
@@ -75,23 +86,15 @@ class Topology(ControllerModule, CFX):
         self._net_ovls = {}
         self._lock = threading.Lock()
         self._topo_changed_publisher = None
-
-    # def __repr__(self):
-    #     for olid in self._net_ovls:
-    #         num_avail = 0
-    #         for peer in self._net_ovls[olid]["KnownPeers"].values():
-    #             if peer.is_available:
-    #                 num_avail += 1
-    #         self._net_ovls[olid]["NumAvailblePeers"] = num_avail
-    #     state = "Topology<%s>" % (self._net_ovls)
-    #     return state
+        self._last_trim_time = time.time()
+        self._trim_check_interval = self.config.get("TrimCheckInterval", 3600)
       
     def initialize(self):
         self._topo_changed_publisher = self._cfx_handle.publish_subscription("TOP_TOPOLOGY_CHANGE")
         self._cfx_handle.start_subscription("Signal", "SIG_PEER_PRESENCE_NOTIFY")
         self._cfx_handle.start_subscription("LinkManager", "LNK_TUNNEL_EVENTS")
         nid = self.node_id
-        for olid in self._cfx_handle.query_param("Overlays"):
+        for olid in self.overlays:
             self._net_ovls[olid] = dict(NewPeerCount=0,
                                         NetBuilder=NetworkBuilder(self, olid, nid),
                                         KnownPeers=dict(), NegoConnEdges=dict(),
@@ -105,8 +108,7 @@ class Topology(ControllerModule, CFX):
                 self.log("LOG_WARNING",
                          "OverlayVisualizer module not loaded. "
                          "Visualization data will not be sent.")
-        # self.log("LOG_INFO", "Module loaded")
-        self.logger.info("Module Topo loaded")
+        self.logger.info("Module loaded")
         
     def terminate(self):
         pass
@@ -145,8 +147,8 @@ class Topology(ControllerModule, CFX):
             disc = DiscoveredPeer(peer_id)
             self._net_ovls[olid]["KnownPeers"][peer_id] = disc
             new_disc = True
+        disc.presence()
         if new_disc or not disc.is_available:
-            disc.presence()
             self._net_ovls[olid]["NewPeerCount"] += 1
             if self._net_ovls[olid]["NewPeerCount"] >= self.config["PeerDiscoveryCoalesce"]:
                 self.log("LOG_DEBUG",
@@ -189,19 +191,14 @@ class Topology(ControllerModule, CFX):
         params = cbt.request.params
         olid = params["OverlayId"]
         peer_id = params["PeerId"]
-        if params["UpdateType"] == "LnkEvAuthorized":
-            disc = self._net_ovls[olid]["KnownPeers"].get(peer_id)
-            if not disc:
-                disc = DiscoveredPeer(peer_id)
-                self._net_ovls[olid]["KnownPeers"][peer_id] = disc
+        if peer_id not in self._net_ovls[olid]["KnownPeers"]:
+            self.logger.warn(f"Peer {peer_id} misssig from known list, adding")
+            disc = DiscoveredPeer(peer_id)
+            self._net_ovls[olid]["KnownPeers"][peer_id] = disc
             disc.presence()
-        elif params["UpdateType"] in ["LnkEvCreating", "LnkEvCreated"]:
-            pass
-        elif params["UpdateType"] == "LnkEvConnected":
+        if params["UpdateType"] == "LnkEvConnected":
             self._net_ovls[olid]["KnownPeers"][peer_id].restore()
             self._do_topo_change_post(olid)
-        elif params["UpdateType"] == "LnkEvDisconnected":
-            pass
         elif params["UpdateType"] == "LnkEvDeauthorized":
             self._net_ovls[olid]["KnownPeers"][peer_id].exclude()
             self.log("LOG_DEBUG", "Excluding peer %s until %s", peer_id,
@@ -209,8 +206,6 @@ class Topology(ControllerModule, CFX):
                          self._net_ovls[olid]["KnownPeers"][peer_id].available_time)))
         elif params["UpdateType"] == "LnkEvRemoved":
             self._do_topo_change_post(olid)
-        else:
-            self.log("LOG_WARNING", "Unknown link update type: %s", params["UpdateType"])
         self._net_ovls[olid]["NetBuilder"].update_edge_state(params)
         self._update_overlay(olid)
         cbt.set_response(None, True)
@@ -356,6 +351,8 @@ class Topology(ControllerModule, CFX):
         # Periodically refresh the topology, making sure desired links exist and exipred
         # ones are removed.
         for olid in self._net_ovls:
+            if (time.time() - self._last_trim_time) >= self._trim_check_interval:
+                self._trim_inactive_peers(olid)
             self._update_overlay(olid)
 
     def timer_method(self):
@@ -399,6 +396,17 @@ class Topology(ControllerModule, CFX):
         update = {"OverlayId": overlay_id, "Topology": topo}
         self._topo_changed_publisher.post_update(update)    
 
+    def _trim_inactive_peers(self, olid):
+        rmv = []
+        self.logger.debug("Checking for expired peers")
+        for peer_id, peer in self._net_ovls[olid]["KnownPeers"].items():
+            if peer.is_expired():
+                rmv.append(peer_id)
+        for peer_id in rmv:
+            self.logger.debug(f"Removing expired peer {peer_id}")
+            self._net_ovls[olid]["KnownPeers"].pop(peer_id)
+        self._last_trim_time = time.time()
+        
     def _update_overlay(self, olid):
         net_ovl = self._net_ovls[olid]
         nb = net_ovl["NetBuilder"]
