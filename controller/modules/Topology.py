@@ -33,7 +33,9 @@ from .NetworkBuilder import EdgeResponse
 from .NetworkBuilder import EdgeNegotiate
 from .GraphBuilder import GraphBuilder
 
-
+PeerDiscoveryCoalesce = 1
+ExclusionBaseInterval = 60
+TrimCheckInterval = 3600
 class DiscoveredPeer():
     def __init__(self, peer_id, **kwargs):
         self.peer_id = peer_id
@@ -41,7 +43,7 @@ class DiscoveredPeer():
         self.successive_fails = 0
         self.available_time = time.time()
         self.last_checkin = self.available_time
-        self.exclusion_base_interval = kwargs.get("ExclusionBaseInterval", 60)
+        self.exclusion_base_interval = kwargs.get("ExclusionBaseInterval", ExclusionBaseInterval)
         self.expiry_interval = kwargs.get("ExpiryInterval", randint(16, 24) * 3600) # 16-24 hrs
         self.max_successive_fails =  kwargs.get("MaxSuccessiveFails", 4)
         self.successive_fails_incr =  kwargs.get("SuccessiveFailsIncr", 1)
@@ -87,7 +89,7 @@ class Topology(ControllerModule, CFX):
         self._lock = threading.Lock()
         self._topo_changed_publisher = None
         self._last_trim_time = time.time()
-        self._trim_check_interval = self.config.get("TrimCheckInterval", 3600)
+        self._trim_check_interval = self.config.get("TrimCheckInterval", TrimCheckInterval)
       
     def initialize(self):
         self._topo_changed_publisher = self._cfx_handle.publish_subscription("TOP_TOPOLOGY_CHANGE")
@@ -150,7 +152,7 @@ class Topology(ControllerModule, CFX):
         disc.presence()
         if new_disc or not disc.is_available:
             self._net_ovls[olid]["NewPeerCount"] += 1
-            if self._net_ovls[olid]["NewPeerCount"] >= self.config["PeerDiscoveryCoalesce"]:
+            if self._net_ovls[olid]["NewPeerCount"] >= self.config.get("PeerDiscoveryCoalesce", PeerDiscoveryCoalesce):
                 self.log("LOG_DEBUG",
                          "Overlay %s - Coalesced %s new peer discovery, "
                          "initiating network refresh",

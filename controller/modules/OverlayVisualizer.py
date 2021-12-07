@@ -38,7 +38,7 @@ class OverlayVisualizer(ControllerModule):
         self._vis_ds_lock = threading.Lock()
         self._vis_req_publisher = None
         # Visualizer webservice URL
-        self._vis_address = "http://" + self._cm_config["WebServiceAddress"]
+        self._vis_address = "http://" + self.config["WebServiceAddress"]
         self._req_url = "{}/EVIO/nodes/{}".format(self._vis_address, self.node_id)
         self._vis_ds:dict
         self._boot_time = str(datetime.fromtimestamp(time.time()))
@@ -61,10 +61,10 @@ class OverlayVisualizer(ControllerModule):
         ds["Version"] = self._cfx_handle.query_param("Version")
         for olid in self._cfx_handle.query_param("Overlays"):
             ds["VizData"][olid] = defaultdict(dict, Tunnels=defaultdict(dict))
-        if "NodeName" in self._cm_config:
-            ds["NodeName"] = self._cm_config["NodeName"]
-        if "GeoCoordinate" in self._cm_config:
-            ds["GeoCoordinate"] = self._cm_config["GeoCoordinate"]
+        if "NodeName" in self.config:
+            ds["NodeName"] = self.config["NodeName"]
+        if "GeoCoordinate" in self.config:
+            ds["GeoCoordinate"] = self.config["GeoCoordinate"]
         return ds
 
     def process_cbt(self, cbt):

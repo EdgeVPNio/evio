@@ -1,25 +1,34 @@
 {
   "CFx": {
-    "Overlays": [ "OVERLAYNAME" ]
+    "Model": "Default",
+    "Overlays": [
+      "_OVERLAYNAME_"
+    ]
   },
   "Logger": {
     "LogLevel": "WARNING",
-    "Directory": "/var/log/evio/"
+    "Device": "File",
+    "Directory": "/var/log/evio/",
+    "CtrlLogFileName": "ctrl.log",
+    "TincanLogFileName": "tincan_log",
+    "MaxFileSize": 10000000,
+    "MaxArchives": 2
   },
   "Signal": {
     "Overlays": {
-      "OVERLAYNAME": {
-        "HostAddress": "***.***.***.***",
+      "_OVERLAYNAME_": {
+        "HostAddress": "A.B.C.D",
+        "AuthenticationMethod": "PASSWORD",
         "Port": "5222",
-        "Username": "***@***",
-        "Password": "***",
-        "AuthenticationMethod": "PASSWORD"
+        "Username": "test1@openfire.local",
+        "Password": "password_test1"
       }
     }
   },
   "Topology": {
+    "PeerDiscoveryCoalesce": 1,
     "Overlays": {
-      "OVERLAYNAME": {
+      "_OVERLAYNAME_": {
         "MaxSuccessors": 2,
         "MaxOnDemandEdges": 3,
         "Role": "Switch"
@@ -27,14 +36,12 @@
     }
   },
   "LinkManager": {
-    "Stun": [ "stun.l.google.com:19302", "stun1.l.google.com:19302" ],
-    "Turn": [{
-      "Address": "***.***.***:3478",
-      "User": "***",
-      "Password": "***"
-     }],
+    "Stun": [
+      "stun.l.google.com:19302",
+      "stun1.l.google.com:19302"
+    ],
     "Overlays": {
-      "OVERLAYNAME": {
+      "_OVERLAYNAME_": {
         "Type": "TUNNEL",
         "TapNamePrefix": "tnl"
       }
@@ -42,51 +49,48 @@
   },
   "BridgeController": {
     "BoundedFlood": {
-        "OverlayId": "OVERLAYNAME",
-        "LogDir": "/var/log/evio/",
-        "LogFilename": "bf.log",
-        "LogLevel": "WARNING",
-        "BridgeName": "",
-        "DemandThreshold": "100M",
-        "FlowIdleTimeout": 60,
-        "FlowHardTimeout": 60,
-        "MulticastBroadcastInterval": 60,
-        "MaxBytes": 10000000,
-        "BackupCount": 2,
-        "ProxyListenAddress": "",
-        "ProxyListenPort": 5802,
-        "MonitorInterval": 60,
-        "MaxOnDemandEdges": 3
+      "LogDir": "/var/log/evio/",
+      "LogFilename": "bf.log",
+      "LogLevel": "WARNING",
+      "MaxBytes": 10000000,
+      "BackupCount": 2,
+      "TrafficAnalysisInterval": 5,
+      "ProxyListenAddress": "",
+      "ProxyListenPort": 5802,
+      "Overlays": {
+        "_OVERLAYNAME_": {
+          "DemandThreshold": "10M",
+          "FlowIdleTimeout": 60,
+          "FlowHardTimeout": 60,
+          "MaxOnDemandEdges": 3
+        }
+      }
     },
     "Overlays": {
-        "OVERLAYNAME": {
-            "NetDevice": {
-                "AutoDelete": true,
-                "Type": "OVS",
-                "SwitchProtocol": "BF",
-                "NamePrefix": "evi",
-                "IP4": "10.10.10.*",
-                "PrefixLen": 24,
-                "MTU": 1410,
-                "AppBridge": {
-                   "AutoDelete": true,
-                    "Type": "OVS",
-                    "NamePrefix": "abr",
-                    "IP4": "10.10.10.*",
-                    "PrefixLen": 24,
-                    "MTU": 1410
-                }
-            },
-            "SDNController": {
-                "ConnectionType": "tcp",
-                "HostName": "127.0.0.1",
-                "Port": "6633"
-            }
-        }
+      "_OVERLAYNAME_": {
+        "NetDevice": {
+          "AutoDelete": true,
+          "Type": "OVS",
+          "SwitchProtocol": "BF",
+          "NamePrefix": "evi",
+          "MTU": 1410,
+          "AppBridge": {
+            "AutoDelete": true,
+            "Type": "OVS",
+            "NamePrefix": "app",
+            "NetworkAddress": "10.10.100.0/24",
+            "MTU": 1370,
+            "IP4": "10.10.100.1",
+            "PrefixLen": 24
+          }
+        },
+        "SDNControllerPort": 6633
+      }
     }
   },
   "UsageReport": {
-    "TimerInterval": 86400,
+    "Enabled": true,
+    "TimerInterval": 3600,
     "WebService": "https://qdscz6pg37.execute-api.us-west-2.amazonaws.com/default/EvioUsageReport"
   }
 }

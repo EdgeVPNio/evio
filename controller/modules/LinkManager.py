@@ -26,9 +26,10 @@ from collections import namedtuple
 import time
 from framework.ControllerModule import ControllerModule
 
-
-LinkEvent = ["LnkEvCreating", "LnkEvCreated", "LnkEvConnected", "LnkEvDisconnected", "LnkEvRemoved",
-             "LnkEvAuthorized", "LnkEvDeauthorized"]
+LinkSetupTimeout = 120
+LinkEvent = ["LnkEvCreating", "LnkEvCreated", "LnkEvConnected", 
+             "LnkEvDisconnected", "LnkEvRemoved", "LnkEvAuthorized",
+             "LnkEvDeauthorized"]
 
 TunnelStates = types.SimpleNamespace(TNL_AUTHORIZED="TNL_AUTHORIZED",
                                      TNL_CREATING="TNL_CREATING",
@@ -61,7 +62,7 @@ class Link():
         self._creation_state = new_state
 
 class Tunnel():
-    def __init__(self, tnlid, overlay_id, peer_id, tnl_state="TNL_AUTHORIZED", state_timeout=45):
+    def __init__(self, tnlid, overlay_id, peer_id, tnl_state, state_timeout):
         self.tnlid = tnlid
         self.overlay_id = overlay_id
         self.peer_id = peer_id
@@ -479,7 +480,9 @@ class LinkManager(ControllerModule):
                              .format(peer_id, tnlid[:7]), False)
         else:
             self._peers[olid][peer_id] = tnlid
-            self._tunnels[tnlid] = Tunnel(tnlid, olid, peer_id)
+            self._tunnels[tnlid] = Tunnel(tnlid, olid, peer_id,
+                                          tnl_state=TunnelStates.TNL_AUTHORIZED,
+                                          state_timeout=self.config.get("LinkSetupTimeout", LinkSetupTimeout))
             self.log("LOG_DEBUG", "TunnelId:%s auth for Peer:%s completed",
                               tnlid[:7], peer_id[:7])
             cbt.set_response(
@@ -558,8 +561,8 @@ class LinkManager(ControllerModule):
         lnkid = tnlid
         # index for quick peer->link lookup
         self._peers[olid][peer_id] = tnlid
-        self._tunnels[tnlid] = Tunnel(tnlid, olid, peer_id, TunnelStates.TNL_CREATING,
-                                      self.config["LinkSetupTimeout"])
+        self._tunnels[tnlid] = Tunnel(tnlid, olid, peer_id, tnl_state=TunnelStates.TNL_CREATING,
+                                      state_timeout=self.config.get("LinkSetupTimeout", LinkSetupTimeout))
         self._assign_link_to_tunnel(tnlid, lnkid, 0xA1)
 
         self.logger.debug("Create Link:%s Phase 1/5 Node A - Peer: %s",

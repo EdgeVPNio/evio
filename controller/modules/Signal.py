@@ -35,6 +35,8 @@ import slixmpp
 from slixmpp import ElementBase, register_stanza_plugin, Message, Callback, StanzaPath, JID
 from framework.ControllerModule import ControllerModule
 
+CacheExpiry = 30
+PresenceInterval = 30
 
 class EvioSignal(ElementBase):
     """Representation of SIGNAL's custom message stanza"""
@@ -160,7 +162,7 @@ class XmppTransport(slixmpp.ClientXMPP):
         transport._port = port
         transport._overlay_id = overlay_id
         transport._sig = cm_mod
-        transport._node_id = cm_mod._cm_config["NodeId"]
+        transport._node_id = cm_mod.config["NodeId"]
         transport._presence_publisher = presence_publisher
         transport._jid_cache = jid_cache
         transport._outgoing_rem_acts = outgoing_rem_acts
@@ -364,9 +366,9 @@ class Signal(ControllerModule):
     def _setup_circle(self, overlay_id):
         self._circles[overlay_id] = {}
         self._circles[overlay_id]["Announce"] = time.time() + \
-            (int(self.config["PresenceInterval"]) * random.randint(1, 3))
+            (self.config.get("PresenceInterval", PresenceInterval) * random.randint(1, 3))
         self._circles[overlay_id]["JidCache"] = \
-            JidCache(self, self._cm_config["CacheExpiry"])
+            JidCache(self, self.config.get("CacheExpiry", CacheExpiry))
         self._circles[overlay_id]["OutgoingRemoteActs"] = {}
         xmpp_thread = threading.Thread(target=self._setup_transport_instance, kwargs={"overlay_id":overlay_id}, daemon=True)
         self._circles[overlay_id]["TransportThread"] = xmpp_thread
@@ -521,7 +523,7 @@ class Signal(ControllerModule):
                 if time.time() >= anc:
                     self._circles[overlay_id]["Transport"].send_presence(pstatus="ident#" + self.node_id)
                     self._circles[overlay_id]["Announce"] = time.time() + \
-                        (int(self.config["PresenceInterval"]) * random.randint(2, 20))
+                        (self.config.get("PresenceInterval", PresenceInterval) * random.randint(2, 20))
                 self._circles[overlay_id]["JidCache"].scavenge()
                 self.scavenge_expired_outgoing_rem_acts(self._circles[overlay_id]
                                                         ["OutgoingRemoteActs"])

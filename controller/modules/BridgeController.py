@@ -35,7 +35,8 @@ from typing import Dict
 from framework.ControllerModule import ControllerModule
 import framework.Modlib as Modlib
 
-
+NamePrefix = ""
+MTU = 1410
 class BridgeABC():
     __metaclass__ = ABCMeta
 
@@ -81,7 +82,7 @@ class OvsBridge(BridgeABC):
     brctl = spawn.find_executable("ovs-vsctl")
     bridge_type = "OVS"
 
-    def __init__(self, name, ip_addr, prefix_len, mtu, cm, stp_enable, sdn_ctrl_cfg=None):
+    def __init__(self, name, ip_addr, prefix_len, mtu, cm, sw_proto, sdn_ctrl_port):
         """ Initialize an OpenvSwitch bridge object. """
         super(OvsBridge, self).__init__(name, ip_addr, prefix_len, mtu, cm)
         if OvsBridge.brctl is None or OvsBridge.iptool is None:
@@ -107,23 +108,21 @@ class OvsBridge(BridgeABC):
             self.cm.log("LOG_WARNING",
                         "The following error occurred while setting MTU for OVS bridge: %s", e)
 
-        self.stp(stp_enable)
+        if sw_proto.casefold() == "STP".casefold():
+            self.stp(True)
+        elif sw_proto.casefold() == "BF".casefold():
+            self.add_sdn_ctrl(sdn_ctrl_port)
+        else:
+            raise RuntimeError("Invalid switch protocol specified in bridge configuration.")          
         Modlib.runshell([OvsBridge.iptool, "link",
                         "set", "dev", self.name, "up"])
 
-        if sdn_ctrl_cfg:
-            self.add_sdn_ctrl(sdn_ctrl_cfg)
-
-    def add_sdn_ctrl(self, sdn_ctrl_cfg):
-        if sdn_ctrl_cfg["ConnectionType"] == "tcp":
-            ctrl_conn_str = ":".join([sdn_ctrl_cfg["ConnectionType"],
-                                      sdn_ctrl_cfg["HostName"],
-                                      sdn_ctrl_cfg["Port"]])
-
-            Modlib.runshell([OvsBridge.brctl,
-                             "set-controller",
-                             self.name,
-                             ctrl_conn_str])
+    def add_sdn_ctrl(self, sdn_ctrl_port):
+        ctrl_conn_str = f"tcp:127.0.0.1:{sdn_ctrl_port}"
+        Modlib.runshell([OvsBridge.brctl,
+                            "set-controller",
+                            self.name,
+                            ctrl_conn_str])
 
     def del_sdn_ctrl(self):
         Modlib.runshell([OvsBridge.brctl, "del-controller", self.name])
@@ -356,25 +355,25 @@ class VNIC(BridgeABC):
 
 def get_br_name(overlay_id, config):
     BR_NAME_MAX_LENGTH = 15
-    name_prefix = config.get("NamePrefix", "")[:3]
+    name_prefix = config.get("NamePrefix", NamePrefix)[:3]
     end_i = BR_NAME_MAX_LENGTH - len(name_prefix)
     return name_prefix + overlay_id[:end_i]
 
 
-def BridgeFactory(overlay_id, dev_type, config, cm, sdn_config=None):
+def BridgeFactory(overlay_id, dev_type, config, cm):
 
     br = None
     if dev_type == VNIC.bridge_type:
         br = VNIC(ip_addr=config.get("IP4", None),
                   prefix_len=config.get("PrefixLen", None),
-                  mtu=config.get("MTU", 1410),
+                  mtu=config.get("MTU", MTU),
                   cm=cm)
     elif dev_type == LinuxBridge.bridge_type:
         br_name = get_br_name(overlay_id, config)
         br = LinuxBridge(name=br_name,
                          ip_addr=config.get("IP4", None),
                          prefix_len=config.get("PrefixLen", None),
-                         mtu=config.get("MTU", 1410),
+                         mtu=config.get("MTU", MTU),
                          cm=cm,
                          stp_enable=(True if config.get("SwitchProtocol", "STP").casefold() == "stp" else False))
     elif dev_type == OvsBridge.bridge_type:
@@ -382,11 +381,10 @@ def BridgeFactory(overlay_id, dev_type, config, cm, sdn_config=None):
         br = OvsBridge(name=br_name,
                        ip_addr=config.get("IP4", None),
                        prefix_len=config.get("PrefixLen", None),
-                       mtu=config.get("MTU", 1410),
+                       mtu=config.get("MTU", MTU),
                        cm=cm,
-                       stp_enable=(config.get("SwitchProtocol",
-                                   "").casefold() == "stp"),
-                       sdn_ctrl_cfg=sdn_config)
+                       sw_proto=(config.get("SwitchProtocol", "")),
+                       sdn_ctrl_port=config.get("SDNControllerPort", 6633))
     return br
 
 ###################################################################################################
@@ -493,8 +491,7 @@ class BridgeController(ControllerModule):
             br_cfg = self.overlays[olid]
             ign_br_names[olid] = set()
             self._ovl_net[olid] = BridgeFactory(olid, br_cfg["NetDevice"]["Type"],
-                                                br_cfg["NetDevice"], self,
-                                                br_cfg.get("SDNController", {}))
+                                                br_cfg["NetDevice"], self)
             if "AppBridge" in br_cfg["NetDevice"]:
                 name = self._create_app_bridge(
                     olid, br_cfg["NetDevice"]["AppBridge"])
@@ -597,7 +594,7 @@ class BridgeController(ControllerModule):
             is_data_available = True
             br_data[olid] = {}
             br_data[olid]["Type"] = self.overlays[olid]["NetDevice"]["Type"]
-            br_data[olid]["BridgeName"] = self.overlays[olid]["NetDevice"]["NamePrefix"]
+            br_data[olid]["BridgeName"] = self.overlays[olid]["NetDevice"].get("NamePrefix", NamePrefix)
             if "IP4" in self.overlays[olid]["NetDevice"]:
                 br_data[olid]["IP4"] = self.overlays[olid]["NetDevice"]["IP4"]
             if "PrefixLen" in self.overlays[olid]["NetDevice"]:
@@ -610,7 +607,7 @@ class BridgeController(ControllerModule):
         self.complete_cbt(cbt)
 
     def _create_app_bridge(self, olid, abr_cfg):
-        name_prefix = abr_cfg.get("NamePrefix", "")[:3]
+        name_prefix = abr_cfg.get("NamePrefix", NamePrefix)[:3]
         end_i = 15 - len(name_prefix)
         name = name_prefix[:3] + olid[:end_i]
         gbr = BridgeFactory(olid, abr_cfg["Type"], abr_cfg, self)

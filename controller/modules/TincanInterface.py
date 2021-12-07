@@ -32,6 +32,13 @@ import framework.Modlib as modlib
 from framework.ControllerModule import ControllerModule
 import framework.Version as ver
 
+MaxReadSize = 65507,               # Max buffer size for Tincan Messages
+SocketReadWaitTime = 15,           # Socket read wait time for Tincan Messages
+RcvServiceAddress = "127.0.0.1",   # Controller server address
+SndServiceAddress = "127.0.0.1",   # Tincan server address
+CtrlRecvPort = 5801,               # Controller Listening Port
+CtrlSendPort = 5800               # Tincan Listening Port
+
 class TincanInterface(ControllerModule):
     def __init__(self, cfx_handle, module_config, module_name):
         super(TincanInterface, self).__init__(cfx_handle, module_config, module_name)
@@ -41,10 +48,10 @@ class TincanInterface(ControllerModule):
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock_svr = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         # Controller UDP listening socket
-        self._sock_svr.bind((self._cm_config["RcvServiceAddress"],
-                             self._cm_config["CtrlRecvPort"]))
+        self._sock_svr.bind((self.config.get("RcvServiceAddress", RcvServiceAddress),
+                             self.config.get("CtrlRecvPort", CtrlRecvPort)))
         # Controller UDP sending socket
-        self._dest = (self._cm_config["SndServiceAddress"], self._cm_config["CtrlSendPort"])
+        self._dest = (self.config.get("SndServiceAddress", SndServiceAddress), self.config.get("CtrlSendPort", CtrlSendPort))
         self._sock.bind(("", 0))
         self._sock_list = [self._sock_svr]
         self.iptool = spawn.find_executable("ip")
@@ -62,11 +69,11 @@ class TincanInterface(ControllerModule):
         try:
             while True:
                 socks, _, _ = select.select(self._sock_list, [], [],
-                                            self._cm_config["SocketReadWaitTime"])
+                                            self.config.get("SocketReadWaitTime", SocketReadWaitTime))
                 # Iterate across all socket list to obtain Tincan messages
                 for sock in socks:
                     if sock == self._sock_svr:
-                        data = sock.recvfrom(self._cm_config["MaxReadSize"])
+                        data = sock.recvfrom(self.config.get("MaxReadSize", MaxReadSize))
                         ctl = json.loads(data[0].decode("utf-8"))
                         if ctl["EVIO"]["ProtocolVersion"] != ver.EVIO_VER_CTL:
                             raise ValueError("Invalid control version detected")
@@ -86,11 +93,10 @@ class TincanInterface(ControllerModule):
         cbt = self.create_cbt(self._module_name, self._module_name, "TCI_CREATE_CTRL_LINK")
         ctl = modlib.CTL_CREATE_CTRL_LINK
         ctl["EVIO"]["TransactionId"] = cbt.tag
-        if self._cm_config["CtrlRecvPort"] is not None:
-            ctl["EVIO"]["Request"]["Port"] = self._cm_config["CtrlRecvPort"]
+        ctl["EVIO"]["Request"]["Port"] = self.config.get("CtrlRecvPort", CtrlRecvPort)
 
         ctl["EVIO"]["Request"]["AddressFamily"] = "af_inet"
-        ctl["EVIO"]["Request"]["IP"] = self._cm_config["RcvServiceAddress"]
+        ctl["EVIO"]["Request"]["IP"] = self.config.get("RcvServiceAddress", RcvServiceAddress)
 
         self._cfx_handle._pending_cbts[cbt.tag] = cbt
         self.send_control(json.dumps(ctl))
@@ -105,13 +111,7 @@ class TincanInterface(ControllerModule):
         ctl = modlib.CTL_CONFIGURE_LOGGING
         ctl["EVIO"]["TransactionId"] = cbt.tag
         if not use_defaults:
-            ctl["EVIO"]["Request"]["Level"] = log_cfg["LogLevel"]
-            ctl["EVIO"]["Request"]["Device"] = log_cfg["Device"]
-            ctl["EVIO"]["Request"]["Directory"] = log_cfg["Directory"]
-            ctl["EVIO"]["Request"]["Filename"] = log_cfg["TincanLogFileName"]
-            ctl["EVIO"]["Request"]["MaxArchives"] = log_cfg["MaxArchives"]
-            ctl["EVIO"]["Request"]["MaxFileSize"] = log_cfg["MaxFileSize"]
-            ctl["EVIO"]["Request"]["ConsoleLevel"] = log_cfg["ConsoleLevel"]
+            ctl["EVIO"]["Request"] = log_cfg
         self._cfx_handle._pending_cbts[cbt.tag] = cbt
         self.send_control(json.dumps(ctl))
 
