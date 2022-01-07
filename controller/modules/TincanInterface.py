@@ -32,11 +32,11 @@ import framework.Modlib as modlib
 from framework.ControllerModule import ControllerModule
 import framework.Version as ver
 
-MaxReadSize = 65507,               # Max buffer size for Tincan Messages
-SocketReadWaitTime = 15,           # Socket read wait time for Tincan Messages
-RcvServiceAddress = "127.0.0.1",   # Controller server address
-SndServiceAddress = "127.0.0.1",   # Tincan server address
-CtrlRecvPort = 5801,               # Controller Listening Port
+MaxReadSize = 65507               # Max buffer size for Tincan Messages
+SocketReadWaitTime = 15           # Socket read wait time for Tincan Messages
+RcvServiceAddress = "127.0.0.1"   # Controller server address
+SndServiceAddress = "127.0.0.1"   # Tincan server address
+CtrlRecvPort = 5801               # Controller Listening Port
 CtrlSendPort = 5800               # Tincan Listening Port
 
 class TincanInterface(ControllerModule):

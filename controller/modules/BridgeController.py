@@ -113,7 +113,7 @@ class OvsBridge(BridgeABC):
         elif sw_proto.casefold() == "BF".casefold():
             self.add_sdn_ctrl(sdn_ctrl_port)
         else:
-            raise RuntimeError("Invalid switch protocol specified in bridge configuration.")          
+            self.cm.log("LOG_INFO", f"No switch protocol specified for {name}")
         Modlib.runshell([OvsBridge.iptool, "link",
                         "set", "dev", self.name, "up"])
 

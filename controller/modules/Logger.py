@@ -25,11 +25,11 @@ import os
 from framework.ControllerModule import ControllerModule
 
 LogLevel = "INFO"      # Types of messages to log, <ERROR>/<WARNING>/<INFO>/<DEBUG>
-Directory = "./logs/",
-CtrlLogFileName = "ctrl.log",
-TincanLogFileName = "tincan_log",
-MaxFileSize = 10000000,   # 10MB sized log files
-MaxArchives = 5,   # Keep up to 5 files of history
+Directory = "./logs/"
+CtrlLogFileName = "ctrl.log"
+TincanLogFileName = "tincan_log"
+MaxFileSize = 10000000   # 10MB sized log files
+MaxArchives = 5   # Keep up to 5 files of history
 ConsoleLevel = None
 Device = "All"
 
