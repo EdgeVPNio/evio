@@ -58,7 +58,17 @@ from ryu.topology import event
 from ryu.lib import addrconv
 from ryu.lib.packet import packet_utils
 
-
+DemandThreshold = "10M"
+FlowIdleTimeout = 60
+FlowHardTimeout = 60
+MaxOnDemandEdges = 0
+TrafficAnalysisInterval = 10
+StateLoggingInterval = 60
+ExtendedLogging = False
+ProxyListenAddress = ""
+ProxyListenPort = 5802
+BackupCount = 2
+MaxBytes = "100M"
 CONF = cfg.CONF  # RYU environment
 BF_COUNTER_DIGEST = hashlib.sha256("".encode("utf-8")).hexdigest()
 BF_STATE_DIGEST = hashlib.sha256("".encode("utf-8")).hexdigest()
@@ -239,12 +249,12 @@ class EvioSwitch(MutableMapping):
         self._root_sw_tbl = dict()      # leaf_mac->PeerData
         self._peer_tbl = dict()         # node_id->PeerData
 
-        self.max_on_demand_edges = kwargs["MaxOnDemandEdges"]
+        self.max_on_demand_edges = kwargs.get("MaxOnDemandEdges", FlowHardTimeout)
         self.traffic_analyzer = TrafficAnalyzer(
-            self.logger, kwargs["DemandThreshold"])
+            self.logger, kwargs.get("DemandThreshold", DemandThreshold))
         self._is_tunnel_data_good = False
-        self.idle_timeout = kwargs["FlowIdleTimeout"]
-        self.hard_timeout = kwargs["FlowHardTimeout"]
+        self.idle_timeout = kwargs.get("FlowIdleTimeout", FlowIdleTimeout)
+        self.hard_timeout = kwargs.get("FlowHardTimeout", FlowHardTimeout)
         self._topo_seq = 0
         self._uncategorized_ports = set()
         #self._lock = threading.RLock()
@@ -684,19 +694,19 @@ class BoundedFlood(app_manager.RyuApp):
         self._is_exit = False
         self._load_config()
         self._traffic_analysis_interval = self.config.get(
-            "TrafficAnalysisInterval", 10)
+            "TrafficAnalysisInterval", TrafficAnalysisInterval)
         self._state_logging_interval = self.config.get(
-            "StateLoggingInterval", 60)
+            "StateLoggingInterval", StateLoggingInterval)
         self._setup_logger()
         self.evio_portal = EvioPortal(
-            (self.config["ProxyListenAddress"], self.config["ProxyListenPort"]), self.logger)
+            (self.configget("ProxyListenAddress", ProxyListenAddress), self.config.get("ProxyListenPort", ProxyListenPort)), self.logger)
         self.dpset = kwargs['dpset']
         self._lt = LearningTable(NodeId=self.config["NodeId"],
                                  Logger=self.logger)
         self._ev_bh_update = Queue.Queue()
         hub.spawn(self.monitor_flow_traffic)
         hub.spawn(self.update_tunnels)
-        if self.config.get("ExtendedLogging", False):
+        if self.config.get("ExtendedLogging", ExtendedLogging):
             hub.spawn(self.log_state)
         self.logger.info("BoundedFlood: Module loaded")
 
@@ -724,10 +734,10 @@ class BoundedFlood(app_manager.RyuApp):
                                                OverlayId=overlay_id,
                                                NodeId=self.config["NodeId"],
                                                Logger=self.logger,
-                                               MaxOnDemandEdges=self.config[br_name]["MaxOnDemandEdges"],
-                                               DemandThreshold=self.config[br_name]["DemandThreshold"],
-                                               FlowIdleTimeout=self.config[br_name]["FlowIdleTimeout"],
-                                               FlowHardTimeout=self.config[br_name]["FlowHardTimeout"])
+                                               MaxOnDemandEdges=self.config[br_name].get("MaxOnDemandEdges", FlowHardTimeout),
+                                               DemandThreshold=self.config[br_name].get("DemandThreshold", DemandThreshold),
+                                               FlowIdleTimeout=self.config[br_name].get("FlowIdleTimeout", FlowIdleTimeout),
+                                               FlowHardTimeout=self.config[br_name].get("FlowHardTimeout", FlowHardTimeout))
 
             self.logger.info(
                 f"Switch {br_name} added with overlay ID {overlay_id}")
@@ -899,8 +909,8 @@ class BoundedFlood(app_manager.RyuApp):
         self.logger = logging.getLogger(self.name)
         level = getattr(logging, self.config["LogLevel"])
         self.logger.setLevel(level)
-        handler = lh.RotatingFileHandler(filename=fqname, maxBytes=self.config["MaxBytes"],
-                                         backupCount=self.config["BackupCount"])
+        handler = lh.RotatingFileHandler(filename=fqname, maxBytes=self.config.get("MaxBytes", MaxBytes),
+                                         backupCount=self.config.get("BackupCount", BackupCount))
         formatter = logging.Formatter(
             "[%(asctime)s.%(msecs)03d] %(levelname)s:%(message)s", datefmt="%Y%m%d %H:%M:%S")
         logging.Formatter.converter = time.localtime

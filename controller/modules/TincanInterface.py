@@ -135,7 +135,6 @@ class TincanInterface(ControllerModule):
         # Optional overlay data to create overlay on demand
         req["StunServers"] = msg.get("StunServers")
         req["TurnServers"] = msg.get("TurnServers")
-        req["Type"] = msg["Type"]
         req["TapName"] = msg.get("TapName")
         req["IgnoredNetInterfaces"] = msg.get("IgnoredNetInterfaces")
         self.send_control(json.dumps(ctl))
@@ -147,7 +146,6 @@ class TincanInterface(ControllerModule):
         req = ctl["EVIO"]["Request"]
         req["StunServers"] = msg["StunServers"]
         req["TurnServers"] = msg.get("TurnServers")
-        req["Type"] = msg["Type"]
         req["TapName"] = msg["TapName"]
         req["OverlayId"] = msg["OverlayId"]
         req["TunnelId"] = msg["TunnelId"]

@@ -390,7 +390,6 @@ class LinkManager(ControllerModule):
 
     def _create_tunnel(self, params, parent_cbt=None):
         overlay_id = params["OverlayId"]
-        ol_type = self.config["Overlays"][overlay_id]["Type"]
         tnlid = params["TunnelId"]
         lnkid = params["LinkId"]
         peer_id = params["PeerId"]
@@ -408,7 +407,6 @@ class LinkManager(ControllerModule):
             "TunnelId": tnlid,
             "LinkId": lnkid,
             "StunServers": self.config.get("Stun", []),
-            "Type": ol_type,
             "TapName": tap_name,
             "IgnoredNetInterfaces": list(
                 self._get_ignored_tap_names(overlay_id, tap_name))
@@ -571,8 +569,7 @@ class LinkManager(ControllerModule):
                         "TunnelId": tnlid, "LinkId": lnkid}
         self._link_updates_publisher.post_update(lnkupd_param)
 
-        params = {"OverlayId": olid, "TunnelId": tnlid, "LinkId": lnkid,
-                  "Type": self.config["Overlays"][olid]["Type"], "PeerId": peer_id}
+        params = {"OverlayId": olid, "TunnelId": tnlid, "LinkId": lnkid, "PeerId": peer_id}
         self._create_tunnel(params, parent_cbt=cbt)
 
     def resp_handler_create_tunnel(self, cbt):
@@ -644,7 +641,6 @@ class LinkManager(ControllerModule):
             "TunnelId": tnlid, "LinkId": lnkid}
         self._link_updates_publisher.post_update(lnkupd_param)
         # Send request to Tincan
-        ol_type = self.config["Overlays"][olid]["Type"]
         tap_name_prefix = self.config["Overlays"][olid].get("TapNamePrefix", "")[
             :3]
         end_i = self.TAPNAME_MAXLEN - len(tap_name_prefix)
@@ -657,7 +653,6 @@ class LinkManager(ControllerModule):
             "TunnelId": tnlid,
             "NodeId": self.node_id,
             "StunServers": self.config.get("Stun", []),
-            "Type": ol_type,
             "TapName": tap_name,
             "IgnoredNetInterfaces": list(
                 self._get_ignored_tap_names(olid, tap_name)),
@@ -766,7 +761,7 @@ class LinkManager(ControllerModule):
         olid = rem_act["OverlayId"]
         # add the peer MAC to the tunnel descr
         self._tunnels[tnlid].peer_mac = node_data["MAC"]
-        cbt_params = {"OverlayId": olid, "TunnelId": tnlid, "LinkId": lnkid, "Type": "TUNNEL",
+        cbt_params = {"OverlayId": olid, "TunnelId": tnlid, "LinkId": lnkid,
                       "NodeData": {
                           "UID": node_data["UID"],
                           "MAC": node_data["MAC"],
@@ -822,7 +817,6 @@ class LinkManager(ControllerModule):
         self.logger.debug("Create Link:%s Phase 3/4 Node B - Peer: %s",
                           lnkid[:7], peer_id[:7])
         lcbt = self.create_linked_cbt(cbt)
-        params["Type"] = self.config["Overlays"][olid]["Type"]
         lcbt.set_request(self.module_name, "TincanInterface",
                          "TCI_CREATE_LINK", params)
         self.submit_cbt(lcbt)

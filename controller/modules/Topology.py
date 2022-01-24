@@ -33,6 +33,8 @@ from .NetworkBuilder import EdgeResponse
 from .NetworkBuilder import EdgeNegotiate
 from .GraphBuilder import GraphBuilder
 
+MaxSuccessors = 1
+MaxOnDemandEdges = 0
 PeerDiscoveryCoalesce = 1
 ExclusionBaseInterval = 60
 TrimCheckInterval = 3600
@@ -420,8 +422,8 @@ class Topology(ControllerModule, CFX):
                 if net_ovl["KnownPeers"][peer_id].is_available]
             if not peer_list:
                 return
-            max_succ = int(ovl_cfg.get("MaxSuccessors", 1))
-            max_ond = int(ovl_cfg.get("MaxOnDemandEdges", 2))
+            max_succ = int(ovl_cfg.get("MaxSuccessors", MaxSuccessors))
+            max_ond = int(ovl_cfg.get("MaxOnDemandEdges", MaxOnDemandEdges))
             num_peers = len(peer_list) if len(peer_list) > 1 else 2
             max_ldl = int(ovl_cfg.get("MaxLongDistEdges", math.ceil(math.log(num_peers+1, 2))))
             manual_topo = ovl_cfg.get("ManualTopology", False)

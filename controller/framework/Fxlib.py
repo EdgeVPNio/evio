@@ -21,68 +21,45 @@
 
 import framework.Version as ver
 
-EVIO_VER_REL = "{0}.{1}.{2}.{3}".format(ver.EVIO_VER_MJR, ver.EVIO_VER_MNR, ver.EVIO_VER_REV, ver.EVIO_VER_BLD)
+EVIO_VER_REL = f"{ver.EVIO_VER_MJR}.{ver.EVIO_VER_MNR}.{ver.EVIO_VER_REV}.{ver.EVIO_VER_BLD}"
 
 CONFIG = {
     "CFx": {
-        "NodeId": "",  # Single unique node Id for all overlays
         "Version": EVIO_VER_REL,
         "Model": "Default",
         "RequestTimeout": 120,
     },
     "Logger": {
-        "Enabled": True,
-        "LogLevel": "ERROR",      # Types of messages to log, <ERROR>/<WARNING>/<INFO>/<DEBUG>
-        "Device": "File",      # Send logging output to <File> or <Console>
-        "Directory": "./logs/",
-        "CtrlLogFileName": "ctrl.log",
-        "TincanLogFileName": "tincan_log",
-        "MaxFileSize": 1000000,   # 1MB sized log files
-        "MaxArchives": 5,   # Keep up to 5 files of history
-        "ConsoleLevel": None
+        "Enabled": True      # Send logging output to <File> or <Console>
     },
     "OverlayVisualizer": {
         "Enabled": False,
         "Dependencies": ["Logger"],
-        "TimerInterval": 30,                # Timer thread interval
-        "WebServiceAddress": ":5000",       # Visualizer webservice URL
-        "NodeName": ""                     # Node Name as seen from the UI
+        "TimerInterval": 30
     },
     "TincanInterface": {
         "Enabled": True,
-        "Dependencies": ["Logger"],
-        "MaxReadSize": 65507,               # Max buffer size for Tincan Messages
-        "SocketReadWaitTime": 15,           # Socket read wait time for Tincan Messages
-        "RcvServiceAddress": "127.0.0.1",   # Controller server address
-        "SndServiceAddress": "127.0.0.1",   # Tincan server address
-        "RcvServiceAddress6": "::1",
-        "SndServiceAddress6": "::1",
-        "CtrlRecvPort": 5801,               # Controller Listening Port
-        "CtrlSendPort": 5800               # Tincan Listening Port
+        "Dependencies": ["Logger"]
     },
     "Signal": {
         "Enabled": True,
         "Dependencies": ["Logger"],
-        "TimerInterval": 30,
-        "CacheExpiry": 30,          # Min duration an entry remains in the JID cache in seconds
-        "PresenceInterval": 30      # seconds between presence broadcast
+        "TimerInterval": 30
     },
     "LinkManager": {
         "Enabled": True,
         "Dependencies": ["Logger", "TincanInterface", "Signal"],
-        "TimerInterval": 30,        # Timer thread interval in sec
-        "LinkSetupTimeout": 120
+        "TimerInterval": 30        # Timer thread interval in sec
     },
     "Topology": {
         "Enabled": True,
         "Dependencies": ["Logger", "TincanInterface", "LinkManager"],
-        "TimerInterval": 30,
-        "PeerDiscoveryCoalesce": 1,
-        "ExclusionBaseInterval": 240
+        "TimerInterval": 30
     },
     "BridgeController": {
         "Enabled": True,
-        "Dependencies": ["Logger", "LinkManager"]
+        "Dependencies": ["Logger", "LinkManager"],
+        "TimerInterval": 30
     }
 }
 

@@ -37,6 +37,8 @@ import framework.Modlib as Modlib
 
 NamePrefix = ""
 MTU = 1410
+BridgeAutoDelete = False
+BridgeProvider = "OVS"
 class BridgeABC():
     __metaclass__ = ABCMeta
 
@@ -490,7 +492,7 @@ class BridgeController(ControllerModule):
             self._tunnels[olid] = TunnelsLog()
             br_cfg = self.overlays[olid]
             ign_br_names[olid] = set()
-            self._ovl_net[olid] = BridgeFactory(olid, br_cfg["NetDevice"]["Type"],
+            self._ovl_net[olid] = BridgeFactory(olid, br_cfg["NetDevice"].get("BridgeProvider", BridgeProvider),
                                                 br_cfg["NetDevice"], self)
             if "AppBridge" in br_cfg["NetDevice"]:
                 name = self._create_app_bridge(
@@ -575,10 +577,10 @@ class BridgeController(ControllerModule):
                 self._bfproxy.server_close()
                 self._bfproxy.shutdown()
             for olid in self._ovl_net:
-                if olid in self._appbr and self.overlays[olid]["NetDevice"]["AppBridge"].get("AutoDelete", False):
+                if olid in self._appbr and self.overlays[olid]["NetDevice"]["AppBridge"].get("AutoDelete", BridgeAutoDelete):
                     self._appbr[olid].del_br()
                 br = self._ovl_net[olid]
-                if self.overlays[olid]["NetDevice"].get("AutoDelete", False):
+                if self.overlays[olid]["NetDevice"].get("AutoDelete", BridgeAutoDelete):
                     br.del_br()
                 else:
                     if br.bridge_type == OvsBridge.bridge_type:
@@ -593,7 +595,7 @@ class BridgeController(ControllerModule):
         for olid in self.overlays:
             is_data_available = True
             br_data[olid] = {}
-            br_data[olid]["Type"] = self.overlays[olid]["NetDevice"]["Type"]
+            br_data[olid]["BridgeProvider"] = self.overlays[olid]["NetDevice"].get("BridgeProvider", BridgeProvider)
             br_data[olid]["BridgeName"] = self.overlays[olid]["NetDevice"].get("NamePrefix", NamePrefix)
             if "IP4" in self.overlays[olid]["NetDevice"]:
                 br_data[olid]["IP4"] = self.overlays[olid]["NetDevice"]["IP4"]
@@ -602,7 +604,7 @@ class BridgeController(ControllerModule):
             if "MTU" in self.overlays[olid]["NetDevice"]:
                 br_data[olid]["MTU"] = self.overlays[olid]["NetDevice"]["MTU"]
             br_data[olid]["AutoDelete"] = self.overlays[olid]["NetDevice"].get(
-                "AutoDelete", False)
+                "AutoDelete", BridgeAutoDelete)
         cbt.set_response({"BridgeController": br_data}, is_data_available)
         self.complete_cbt(cbt)
 
@@ -610,7 +612,7 @@ class BridgeController(ControllerModule):
         name_prefix = abr_cfg.get("NamePrefix", NamePrefix)[:3]
         end_i = 15 - len(name_prefix)
         name = name_prefix[:3] + olid[:end_i]
-        gbr = BridgeFactory(olid, abr_cfg["Type"], abr_cfg, self)
+        gbr = BridgeFactory(olid, abr_cfg.get("BridgeProvider", BridgeProvider), abr_cfg, self)
 
         gbr.add_patch_port(self._ovl_net[olid].get_patch_port_name())
         self._ovl_net[olid].add_patch_port(gbr.get_patch_port_name())

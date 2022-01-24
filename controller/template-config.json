@@ -35,6 +35,12 @@
       }
     }
   },
+  "TunnelManager": {
+    "_OVERLAYNAME_":{
+      "LANID": 123456,
+      "RequireEncryption": false
+    }
+  },
   "LinkManager": {
     "Stun": [
       "stun.l.google.com:19302",
@@ -42,7 +48,6 @@
     ],
     "Overlays": {
       "_OVERLAYNAME_": {
-        "Type": "TUNNEL",
         "TapNamePrefix": "tnl"
       }
     }
@@ -53,16 +58,11 @@
       "LogFilename": "bf.log",
       "LogLevel": "WARNING",
       "MaxBytes": 10000000,
-      "BackupCount": 2,
-      "TrafficAnalysisInterval": 5,
-      "ProxyListenAddress": "",
-      "ProxyListenPort": 5802,
+      "ExtendedLogging": true,
       "Overlays": {
         "_OVERLAYNAME_": {
           "DemandThreshold": "10M",
-          "FlowIdleTimeout": 60,
-          "FlowHardTimeout": 60,
-          "MaxOnDemandEdges": 3
+          "MaxOnDemandEdges": 0
         }
       }
     },
@@ -70,13 +70,13 @@
       "_OVERLAYNAME_": {
         "NetDevice": {
           "AutoDelete": true,
-          "Type": "OVS",
+          "BridgeProvider": "OVS",
           "SwitchProtocol": "BF",
           "NamePrefix": "evi",
           "MTU": 1410,
           "AppBridge": {
             "AutoDelete": true,
-            "Type": "OVS",
+            "BridgeProvider": "OVS",
             "NamePrefix": "app",
             "NetworkAddress": "10.10.100.0/24",
             "MTU": 1370,
