@@ -39,6 +39,8 @@ NamePrefix = ""
 MTU = 1410
 BridgeAutoDelete = False
 BridgeProvider = "OVS"
+ProxyListenAddress = ""
+ProxyListenPort = 5802
 class BridgeABC():
     __metaclass__ = ABCMeta
 
@@ -114,8 +116,8 @@ class OvsBridge(BridgeABC):
             self.stp(True)
         elif sw_proto.casefold() == "BF".casefold():
             self.add_sdn_ctrl(sdn_ctrl_port)
-        else:
-            raise RuntimeError("Invalid switch protocol specified in bridge configuration.")          
+        elif sw_proto != "":
+            raise RuntimeError(f"Invalid switch protocol \'{sw_proto}\' specified for bridge {name}.")
         Modlib.runshell([OvsBridge.iptool, "link",
                         "set", "dev", self.name, "up"])
 
@@ -377,7 +379,7 @@ def BridgeFactory(overlay_id, dev_type, config, cm):
                          prefix_len=config.get("PrefixLen", None),
                          mtu=config.get("MTU", MTU),
                          cm=cm,
-                         stp_enable=(True if config.get("SwitchProtocol", "STP").casefold() == "stp" else False))
+                         stp_enable=(True if config.get("SwitchProtocol", "STP").casefold() == "stp".casefold() else False))
     elif dev_type == OvsBridge.bridge_type:
         br_name = get_br_name(overlay_id, config)
         br = OvsBridge(name=br_name,
@@ -468,8 +470,7 @@ class BridgeController(ControllerModule):
         ign_br_names = dict()
         # start the BF proxy if at least one overlay is configured for it
         if "BoundedFlood" in self.config:
-            proxy_listen_address = self.config["BoundedFlood"]["ProxyListenAddress"]
-            proxy_listen_port = self.config["BoundedFlood"]["ProxyListenPort"]
+            proxy_listen_port = self.config["BoundedFlood"].get("ProxyListenPort", ProxyListenPort)
             bf_config = self.config["BoundedFlood"]
             bf_config["NodeId"] = self.node_id
             bf_ovls = bf_config.pop("Overlays")
@@ -479,7 +480,7 @@ class BridgeController(ControllerModule):
                 bf_config[br_name]["OverlayId"] = olid
             time.sleep(1)
             self._bfproxy = BoundedFloodProxy(
-                (proxy_listen_address, proxy_listen_port), bf_config,
+                (ProxyListenAddress, proxy_listen_port), bf_config,
                 BFRequestHandler, self)
             self._server_thread = threading.Thread(target=self._bfproxy.serve_forever,
                                                    name="BFProxyServer")

@@ -699,7 +699,7 @@ class BoundedFlood(app_manager.RyuApp):
             "StateLoggingInterval", StateLoggingInterval)
         self._setup_logger()
         self.evio_portal = EvioPortal(
-            (self.configget("ProxyListenAddress", ProxyListenAddress), self.config.get("ProxyListenPort", ProxyListenPort)), self.logger)
+            (self.config.get("ProxyListenAddress", ProxyListenAddress), self.config.get("ProxyListenPort", ProxyListenPort)), self.logger)
         self.dpset = kwargs['dpset']
         self._lt = LearningTable(NodeId=self.config["NodeId"],
                                  Logger=self.logger)
