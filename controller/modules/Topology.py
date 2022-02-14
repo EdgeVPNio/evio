@@ -28,6 +28,7 @@ from framework.CFx import CFX
 from framework.ControllerModule import ControllerModule
 from framework.Modlib import RemoteAction
 from .NetworkBuilder import NetworkBuilder
+from .TunnelSelector import TunnelSelector
 from .NetworkBuilder import EdgeRequest
 from .NetworkBuilder import EdgeResponse
 from .NetworkBuilder import EdgeNegotiate
@@ -94,19 +95,22 @@ class Topology(ControllerModule, CFX):
         self._trim_check_interval = self.config.get("TrimCheckInterval", TrimCheckInterval)
       
     def initialize(self):
-        self._topo_changed_publisher = self._cfx_handle.publish_subscription("TOP_TOPOLOGY_CHANGE")
-        self._cfx_handle.start_subscription("Signal", "SIG_PEER_PRESENCE_NOTIFY")
-        self._cfx_handle.start_subscription("LinkManager", "LNK_TUNNEL_EVENTS")
+        self._topo_changed_publisher = self.publish_subscription("TOP_TOPOLOGY_CHANGE")
+        self.start_subscription("Signal", "SIG_PEER_PRESENCE_NOTIFY")
+        self.start_subscription("LinkManager", "LNK_TUNNEL_EVENTS")
         nid = self.node_id
         for olid in self.overlays:
+            loc_id = self.config["OverlayId"][olid].get("LocationId", None)
+            req_encr = self.config["OverlayId"][olid].get("RequireEncryption", False)
             self._net_ovls[olid] = dict(NewPeerCount=0,
                                         NetBuilder=NetworkBuilder(self, olid, nid),
-                                        KnownPeers=dict(), NegoConnEdges=dict(),
+                                        TunnelSelector=TunnelSelector(self, olid, nid, loc_id, req_encr),
+                                        KnownPeers=dict(), PendingAuthConnEdges=dict(),
                                         OndPeers=[])
         try:
             # Subscribe for data request notifications from OverlayVisualizer
-            self._cfx_handle.start_subscription("OverlayVisualizer",
-                                                "VIS_DATA_REQ")
+            self.start_subscription("OverlayVisualizer",
+                                    "VIS_DATA_REQ")
         except NameError as err:
             if "OverlayVisualizer" in str(err):
                 self.log("LOG_WARNING",
@@ -116,26 +120,6 @@ class Topology(ControllerModule, CFX):
         
     def terminate(self):
         pass
-
-    def resp_handler_create_tnl(self, cbt):
-        params = cbt.request.params
-        olid = params["OverlayId"]
-        peer_id = params["PeerId"]
-        if not cbt.response.status:
-            self.log("LOG_WARNING", "Failed to create topology edge to %s. %s",
-                     cbt.request.params["PeerId"], cbt.response.data)
-            self._net_ovls[olid]["KnownPeers"][peer_id].exclude()
-        self.free_cbt(cbt)
-
-    def resp_handler_remove_tnl(self, cbt):
-        if not cbt.response.status:
-            self.log("LOG_WARNING", "Failed to remove topology edge %s", cbt.response.data)
-            params = cbt.request.params
-            params["UpdateType"] = "RemoveEdgeFailed"
-            params["TunnelId"] = None
-            olid = params["OverlayId"]
-            self._net_ovls[olid]["NetBuilder"].update_edge_state(params)
-        self.free_cbt(cbt)
 
     def req_handler_peer_presence(self, cbt):
         """
@@ -257,8 +241,9 @@ class Topology(ControllerModule, CFX):
         if edge_resp.is_accepted:
             peer_id = edge_req.initiator_id
             edge_id = edge_req.edge_id
-            self._net_ovls[olid]["NegoConnEdges"][peer_id] = (edge_req, edge_resp)
-            self._authorize_edge(olid, peer_id, edge_id, parent_cbt=edge_cbt)
+            self._net_ovls[olid]["PendingAuthConnEdges"][peer_id] = (edge_req, edge_resp)
+            self._net_ovls[olid]["TunnelSelector"].authorize_tunnel(peer_id, edge_id)
+            #self._authorize_edge(olid, peer_id, edge_id, parent_cbt=edge_cbt)
         else:
             edge_cbt.set_response(edge_resp.data, False)
             self.complete_cbt(edge_cbt)
@@ -273,7 +258,7 @@ class Topology(ControllerModule, CFX):
                     peer_list[olid].append(peer_id)
         cbt.set_response(peer_list, True)
         self.complete_cbt(cbt)
-
+        
     def resp_handler_auth_tunnel(self, cbt):
         """ Role B
             LNK auth completed, add the CE to Netbuilder and send response to initiator ie., Role A
@@ -281,10 +266,9 @@ class Topology(ControllerModule, CFX):
         olid = cbt.request.params["OverlayId"]
         peer_id = cbt.request.params["PeerId"]
         if cbt.response.status:
-            _, edge_resp = self._net_ovls[olid]["NegoConnEdges"].pop(peer_id)
+            _, edge_resp = self._net_ovls[olid]["PendingAuthConnEdges"].pop(peer_id)
         else:
-            self._net_ovls[olid]["NegoConnEdges"].pop(peer_id, None) # pop fails as no matching
-            # peer_id, posssible duplication of create edge request
+            self._net_ovls[olid]["PendingAuthConnEdges"].pop(peer_id, None)
             edge_resp = EdgeResponse("E4 - Tunnel nego failed {0}"
                                      .format(cbt.response.data), False)
         nego_cbt = cbt.parent
@@ -315,6 +299,26 @@ class Topology(ControllerModule, CFX):
         else:
             self.log("LOG_WARNING", "Unrecognized remote action %s",
                      rem_act.action)
+
+    def resp_handler_create_tnl(self, cbt):
+        params = cbt.request.params
+        olid = params["OverlayId"]
+        peer_id = params["PeerId"]
+        if not cbt.response.status:
+            self.log("LOG_WARNING", "Failed to create topology edge to %s. %s",
+                     cbt.request.params["PeerId"], cbt.response.data)
+            self._net_ovls[olid]["KnownPeers"][peer_id].exclude()
+        self.free_cbt(cbt)
+
+    def resp_handler_remove_tnl(self, cbt):
+        if not cbt.response.status:
+            self.log("LOG_WARNING", "Failed to remove topology edge %s", cbt.response.data)
+            params = cbt.request.params
+            params["UpdateType"] = "RemoveEdgeFailed"
+            params["TunnelId"] = None
+            olid = params["OverlayId"]
+            self._net_ovls[olid]["NetBuilder"].update_edge_state(params)
+        self.free_cbt(cbt)
 
     def process_cbt(self, cbt):
         with self._lock:
@@ -368,28 +372,33 @@ class Topology(ControllerModule, CFX):
         """
         Instruct LinkManager to commence building a tunnel to the specified peer
         """
-        # self.log("LOG_INFO", "Creating peer edge %s:%s->%s",
-        #          overlay_id[:7], self.node_id[:7], peer_id[:7])
         self.logger.info("Creating peer edge %s:%s->%s",
-                 overlay_id[:7], self.node_id[:7], peer_id[:7])
+                         overlay_id[:7], self.node_id[:7], peer_id[:7])
+        self._net_ovls[overlay_id]["TunnelSelector"].create_tunnel(peer_id, edge_id)
+        return
         params = {"OverlayId": overlay_id, "PeerId": peer_id, "TunnelId": edge_id}
         self.register_cbt("LinkManager", "LNK_CREATE_TUNNEL", params)
 
     def top_remove_edge(self, overlay_id, peer_id):
         self.log("LOG_INFO", "Removing peer edge %s:%s->%s",
                  overlay_id, self.node_id[:7], peer_id[:7])
+        self._net_ovls[overlay_id]["TunnelSelector"].remove_tunnel(peer_id)
+        return
         params = {"OverlayId": overlay_id, "PeerId": peer_id}
         self.register_cbt("LinkManager", "LNK_REMOVE_TUNNEL", params)
 
     def top_send_negotiate_edge_req(self, edge_req):
         """Role Node A, Send a request to create an edge to the peer """
+        olid = edge_req.overlay_id
+        edge_req.location_id = self.config["OverlayId"][olid].get("LocationId", None)
+        edge_req.encryption_required = self.config["OverlayId"][olid].get("EncryptionRequired", None)
         self.log("LOG_DEBUG", "Requesting edge auth edge_req=%s", edge_req)
         edge_params = edge_req._asdict()
-        rem_act = RemoteAction(edge_req.overlay_id, recipient_id=edge_req.recipient_id,
+        rem_act = RemoteAction(olid, recipient_id=edge_req.recipient_id,
                                recipient_cm="Topology", action="TOP_NEGOTIATE_EDGE",
                                params=edge_params)
         rem_act.submit_remote_act(self)
-
+        
     def _do_topo_change_post(self, overlay_id):
         # create and post the dict of adjacent connection edges
         adjl = self._net_ovls[overlay_id]["NetBuilder"].get_adj_list()

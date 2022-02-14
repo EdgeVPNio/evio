@@ -19,7 +19,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-import datetime
 import hashlib
 import threading
 try:
@@ -32,13 +31,14 @@ from framework.ControllerModule import ControllerModule
 
 class UsageReport(ControllerModule):
     def __init__(self, cfx_handle, module_config, module_name):
-        super(UsageReport, self).__init__(cfx_handle, module_config, module_name)
-        self._stat_data = None 
+        super(UsageReport, self).__init__(
+            cfx_handle, module_config, module_name)
+        self._stat_data = None
         self._lck = threading.Lock()
         self._report_id = 0
-        self._report = {"Version": self._cfx_handle.query_param("Version"),
+        self._report = {"Version": self.version,
                         "NodeId": hashlib.sha256(self.node_id.encode("utf-8")).hexdigest()}
-        
+
     def initialize(self):
         self.log("LOG_INFO", "Module loaded")
 
@@ -65,12 +65,13 @@ class UsageReport(ControllerModule):
             if not olid_hash in self._report:
                 self._report[olid_hash] = []
             for peer_id in data[olid]:
-                peer_id_hash = hashlib.sha256(peer_id.encode("utf-8")).hexdigest()
+                peer_id_hash = hashlib.sha256(
+                    peer_id.encode("utf-8")).hexdigest()
                 if not peer_id_hash in self._report[olid_hash]:
                     self._report[olid_hash].append(peer_id_hash)
 
     def submit_report(self, rpt_data):
-        self.log("LOG_DEBUG", "report data= %s", rpt_data )
+        self.log("LOG_DEBUG", "report data= %s", rpt_data)
         url = None
         try:
             url = self.config["WebService"]
@@ -91,7 +92,7 @@ class UsageReport(ControllerModule):
             with self._lck:
                 self.create_report(data)
                 rpt_data = json.dumps(self._report).encode('utf8')
-                self._report = {"Version": self._cfx_handle.query_param("Version"),
+                self._report = {"Version": self.version,
                                 "NodeId": hashlib.sha256(self.node_id.encode("utf-8")).hexdigest()}
             self.submit_report(rpt_data)
         self.free_cbt(cbt)

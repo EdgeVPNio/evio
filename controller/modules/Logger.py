@@ -25,13 +25,14 @@ import os
 from framework.ControllerModule import ControllerModule
 
 LogLevel = "INFO"      # Types of messages to log, <ERROR>/<WARNING>/<INFO>/<DEBUG>
-Directory = "./logs/",
-CtrlLogFileName = "ctrl.log",
-TincanLogFileName = "tincan_log",
-MaxFileSize = 10000000,   # 10MB sized log files
-MaxArchives = 5,   # Keep up to 5 files of history
+Directory = "./logs/"
+CtrlLogFileName = "ctrl.log"
+TincanLogFileName = "tincan_log"
+MaxFileSize = 10000000   # 10MB sized log files
+MaxArchives = 5   # Keep up to 5 files of history
 ConsoleLevel = None
 Device = "All"
+
 
 class Logger(ControllerModule):
     def __init__(self, cfx_handle, module_config, module_name):
@@ -66,7 +67,8 @@ class Logger(ControllerModule):
             self._logger.setLevel(level)
             # Creates rotating filehandler
             handler = lh.RotatingFileHandler(filename=fqname,
-                                             maxBytes=self.config.get("MaxFileSize", MaxFileSize),
+                                             maxBytes=self.config.get(
+                                                 "MaxFileSize", MaxFileSize),
                                              backupCount=self.config.get("MaxArchives", MaxArchives))
             formatter = logging.Formatter(
                 "[%(asctime)s.%(msecs)03d] %(levelname)s:%(name)s: %(message)s", datefmt="%Y%m%d %H:%M:%S")
@@ -79,7 +81,7 @@ class Logger(ControllerModule):
             self._logger = logging.getLogger()
             self._logger.setLevel(level)
 
-            #Console Logger
+            # Console Logger
             console_handler = logging.StreamHandler()
             console_log_formatter = logging.Formatter(
                 "[%(asctime)s.%(msecs)03d] %(levelname)s: %(message)s",
@@ -96,7 +98,7 @@ class Logger(ControllerModule):
             if os.path.isfile(fqname):
                 os.remove(fqname)
 
-            #File Logger
+            # File Logger
             # Creates rotating filehandler
             file_handler = lh.RotatingFileHandler(filename=fqname)
             file_log_formatter = logging.Formatter(
@@ -105,7 +107,7 @@ class Logger(ControllerModule):
             self._logger.addHandler(file_handler)
 
         self._logger.info("Logger: Module loaded")
-        
+
     def req_handler_tincan_log_config(self, cbt):
         cfg = {
             "Level": self.config.get("LogLevel", LogLevel),
@@ -115,18 +117,18 @@ class Logger(ControllerModule):
             "MaxArchives": self.config.get("MaxArchives", MaxArchives),
             "MaxFileSize": self.config.get("MaxFileSize", MaxFileSize),
             "ConsoleLevel": self.config.get("ConsoleLevel", ConsoleLevel)
-            }
+        }
         cbt.set_response(cfg, True)
-        
+
     def process_cbt(self, cbt):
         if cbt.op_type == "Request":
             lvl = cbt.request.action
             mod = cbt.request.initiator
             if isinstance(cbt.request.params, tuple):
-                fmt = "%s: "+ cbt.request.params[0]
+                fmt = "LOGGER MODULE DEPRECATD: %s: " + cbt.request.params[0]
                 vals = cbt.request.params[1]
             else:
-                fmt = "%s: %s"
+                fmt = "LOGGER MODULE DEPRECATD: %s: %s"
                 vals = [cbt.request.params]
 
             if lvl == "LOG_DEBUG":
@@ -144,7 +146,8 @@ class Logger(ControllerModule):
             elif lvl == "LOG_QUERY_CONFIG":
                 self.req_handler_tincan_log_config(cbt)
             else:
-                self._logger.warning("%s: Unsupported CBT action %s", self._module_name, str(cbt))
+                self._logger.warning(
+                    "%s: Unsupported CBT action %s", self._module_name, str(cbt))
                 cbt.set_response("Unsupported CBT action", False)
             self.complete_cbt(cbt)
 

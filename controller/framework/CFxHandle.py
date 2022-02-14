@@ -25,6 +25,7 @@ import queue as Queue
 import time
 from .CBT import CBT
 
+
 class CFxHandle():
     def __init__(self, CFxObject):
         self._cm_queue = Queue.Queue()  # CBT queue
@@ -74,7 +75,8 @@ class CFxHandle():
         cbt.completed = True
         self._pending_cbts.pop(cbt.tag, None)
         if not cbt.child_count == 0:
-            raise RuntimeError("Invalid attempt to complete a CBT with outstanding dependencies")
+            raise RuntimeError(
+                "Invalid attempt to complete a CBT with outstanding dependencies")
         self.__cfx_object.submit_cbt(cbt)
 
     def initialize(self):
@@ -146,19 +148,21 @@ class CFxHandle():
         return pv
 
     # Caller is the subscription source
-    def publish_subscription(self, subscription_name):
-        return self.__cfx_object.publish_subscription(self._cm_instance.__class__.__name__,
-                                                      subscription_name, self._cm_instance)
+    def publish_subscription(self, owner_name, subscription_name, owner):
+        return self.__cfx_object.publish_subscription(owner_name,
+                                                      subscription_name, owner)
 
     def remove_subscription(self, sub):
-        self.__cfx_object.RemoveSubscriptionPublisher(sub)
+        self.__cfx_object.remove_subscription(sub)
 
     # Caller is the subscription sink
-    def start_subscription(self, owner_name, subscription_name):
-        self.__cfx_object.start_subscription(owner_name, subscription_name, self._cm_instance)
+    def start_subscription(self, owner_name, subscription_name, owner):
+        self.__cfx_object.start_subscription(
+            owner_name, subscription_name, owner)
 
-    def end_subscription(self, owner_name, subscription_name):
-        self.__cfx_object.end_subscription(owner_name, subscription_name, self._cm_instance)
+    def end_subscription(self, owner_name, subscription_name, owner):
+        self.__cfx_object.end_subscription(
+            owner_name, subscription_name, owner)
 
     def _check_container_bounds(self):
         if self._timer_loop_cnt % 10 == 0:

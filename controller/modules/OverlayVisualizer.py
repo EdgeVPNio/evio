@@ -34,13 +34,15 @@ from framework.ControllerModule import ControllerModule
 
 class OverlayVisualizer(ControllerModule):
     def __init__(self, cfx_handle, module_config, module_name):
-        super(OverlayVisualizer, self).__init__(cfx_handle, module_config, module_name)
+        super(OverlayVisualizer, self).__init__(
+            cfx_handle, module_config, module_name)
         self._vis_ds_lock = threading.Lock()
         self._vis_req_publisher = None
         # Visualizer webservice URL
         self._vis_address = "http://" + self.config["WebServiceAddress"]
-        self._req_url = "{}/EVIO/nodes/{}".format(self._vis_address, self.node_id)
-        self._vis_ds:dict
+        self._req_url = "{}/EVIO/nodes/{}".format(
+            self._vis_address, self.node_id)
+        self._vis_ds: dict
         self._boot_time = str(datetime.fromtimestamp(time.time()))
 
     def initialize(self):
@@ -50,7 +52,7 @@ class OverlayVisualizer(ControllerModule):
         # timer_method() and all subscribing modules are expected to reply
         # with the data they want to forward to the visualiser
         self._vis_ds = self.init_viz_data()
-        self._vis_req_publisher = self._cfx_handle.publish_subscription("VIS_DATA_REQ")
+        self._vis_req_publisher = self.publish_subscription("VIS_DATA_REQ")
 
         self.log("LOG_INFO", "Module loaded")
         self.post_viz_data(self.init_viz_data())
@@ -58,8 +60,8 @@ class OverlayVisualizer(ControllerModule):
     def init_viz_data(self, boot_time=None):
         ds = dict(NodeId=self.node_id, VizData=defaultdict(dict))
         ds["BootTime"] = self._boot_time
-        ds["Version"] = self._cfx_handle.query_param("Version")
-        for olid in self._cfx_handle.query_param("Overlays"):
+        ds["Version"] = self.version
+        for olid in self.overlay_names:
             ds["VizData"][olid] = defaultdict(dict, Tunnels=defaultdict(dict))
         if "NodeName" in self.config:
             ds["NodeName"] = self.config["NodeName"]
