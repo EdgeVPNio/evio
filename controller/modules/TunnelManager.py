@@ -73,7 +73,7 @@ class Tunnel():
 
 
 class TunnelManager(ControllerModule):
-    
+
     def __init__(self, cfx_handle, module_config, module_name):
         super(TunnelManager, self).__init__(cfx_handle, module_config, module_name)
         self.ipr = IPRoute()
@@ -86,17 +86,33 @@ class TunnelManager(ControllerModule):
         self._tnl_updates_publisher = \
             self._cfx_handle.publish_subscription("TNL_TUNNEL_EVENTS")
         for olid in self.config["Overlays"]:
-            self._peers[olid] = dict()        
-    
+            self._peers[olid] = dict()
+
     def req_handler_create_tunnel(self, cbt):
         """
         invoked by TOP, cbt contains the remote's LANID and encryption flag if it exists.
         inspect the LAN ID and tunnel encryption parameters to determine the type of tunnel to
         be created. Issue create tunnel request to the appropriate tunnel class.
         """
-        pass
+        lanid = cbt.request.params.get("LANID", None)
+        encrypt = cbt.request.params.get("RequireEncryption", None)
+        is_same_lan = False
+        if lanid is not None:
+            for olid in self.config["Overlays"]:
+                if self.config["Overlays"][olid].get("LANID", None) == lanid:
+                    is_same_lan = True
+                    if encrypt is None:
+                        cbt.set_response("GENEVE tunnel in order", True)
+                        create_geneve_tunnel(self, cbt)
+                    else:
+                        cbt.set_response("WireGuard tunnel in order", True)
+                        create_wireguard_tunnel(self, cbt)
+                    pass
+        if is_same_lan is False:
+            cbt.set_response("Tincan tunnel in order", True)
+            create_tincan_tunnel(self, cbt)
+        return
 
-    
     def req_handler_remove_tunnel(self, cbt):
         dev_name = cbt.request.params["DeviceName"]
         self._del_tunnel(dev_name)
@@ -120,7 +136,7 @@ class TunnelManager(ControllerModule):
             "PeerId": peer_id, "TunnelId": tnlid}
         self._tnl_updates_publisher.post_update(tnl_upd_param)
         self.complete_cbt(cbt)
-            
+
     def process_cbt(self, cbt):
         if cbt.op_type == "Request":
             if cbt.request.action == "TNL_CREATE_TUNNEL":
@@ -134,3 +150,11 @@ class TunnelManager(ControllerModule):
         elif cbt.op_type == "Response":
             self.free_cbt(cbt)
 
+    def create_geneve_tunnel():
+        raise NotImplementedError
+
+    def create_wireguard_tunnel():
+        raise NotImplementedError
+
+    def create_tincan_tunnel():
+        raise NotImplementedError

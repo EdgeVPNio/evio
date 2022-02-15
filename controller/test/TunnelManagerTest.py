@@ -27,20 +27,20 @@ import unittest
 import logging
 import logging.handlers as lh
 
-from evio.controller.modules.BoundedFlood import EvioPortal
+from evio.controller.modules.TunnelManager import EvioPortal
 
-class BoundedFloodTestCase(unittest.TestCase):
+class TunnelManagerTestCase(unittest.TestCase):
 
     def setUp(self):
         # Console logging
         logging.basicConfig(format="[%(asctime)s.%(msecs)03d] %(levelname)s: %(message)s",
                             datefmt="%H:%M:%S",
                             level=logging.DEBUG)
-        self.logger = logging.getLogger("BoundedFloodTest console logger")
+        self.logger = logging.getLogger("TunnelManagerTest console logger")
         self.config = {
                     "NodeId": "a100019ffffffffffffffffffffff019",
                     "LogDir": "/var/log/evio/",
-                    "LogFilename": "bf.log",
+                    "LogFilename": "tm.log",
                     "LogLevel": "DEBUG",
                     "MaxBytes": 10000000,
                     "BackupCount": 2,
