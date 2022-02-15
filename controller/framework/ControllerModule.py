@@ -26,6 +26,8 @@ import logging
 # abstract ControllerModule (CM) class
 # all CM implementations inherit the variables declared here
 # all CM implementations must override the abstract methods declared here
+
+
 class ControllerModule():
 
     __metaclass__ = ABCMeta
@@ -36,14 +38,14 @@ class ControllerModule():
         self._module_name = module_name
         self._state_digest = None
         self.logger = logging.getLogger(self._module_name)
-      
+
     def __repr__(self):
         items = set()
         if hasattr(self, "_REFLECT"):
             for k in self._REFLECT:
                 items.add(f"\"{k}\": {self.__dict__[k]!r}")
         return "{{{}}}".format(", ".join(items))
-          
+
     @abstractmethod
     def initialize(self):
         pass
@@ -76,6 +78,14 @@ class ControllerModule():
     def module_name(self):
         return self._module_name
 
+    @property
+    def version(self):
+        return self._cfx_handle.query_param("Version")
+
+    @property
+    def overlay_names(self):
+        return self._cfx_handle.query_param("Overlays")
+
     def req_handler_default(self, cbt):
         log = "Unsupported CBT action {0}".format(cbt)
         self.register_cbt("Logger", "LOG_WARNING", log)
@@ -91,7 +101,26 @@ class ControllerModule():
             parent_cbt.set_response(cbt_data, cbt_status)
             self.complete_cbt(parent_cbt)
 
-    # create and submit CBT mask method
+    def log(self, level, fmt, *args):
+        if level == "LOG_DEBUG":
+            self.logger.debug(fmt, *args)
+        elif level == "LOG_INFO":
+            self.logger.info(fmt, *args)
+        elif level == "LOG_WARNING":
+            self.logger.warning(fmt, *args)
+        elif level == "LOG_ERROR":
+            self.logger.error(fmt, *args)
+        else:
+            self.logger.debug(fmt, *args)
+
+    def trace_state(self):
+        if self.config.get("StateTracingEnabled", False):
+            state = str(self)
+            new_digest = hashlib.sha256(state.encode("utf-8")).hexdigest()
+            if self._state_digest != new_digest:
+                self._state_digest = new_digest
+                self.logger.info(state)
+
     def register_cbt(self, _recipient, _action, _params=None):
         cbt = self._cfx_handle.create_cbt(
             initiator=self._module_name,
@@ -117,24 +146,18 @@ class ControllerModule():
     def submit_cbt(self, cbt):
         self._cfx_handle.submit_cbt(cbt)
 
-    def log(self, level, fmt, *args):
-        if level == "LOG_DEBUG":
-            self.logger.debug(fmt, *args)
-        elif level == "LOG_INFO":
-            self.logger.info(fmt, *args)
-        elif level == "LOG_WARNING":
-            self.logger.warning(fmt, *args)
-        elif level == "LOG_ERROR":
-            self.logger.error(fmt, *args)
-        else:
-            self.logger.debug(fmt, *args)
-        
-        # self.register_cbt("Logger", level, _params=(msg, args))
+    # Caller is the subscription source
+    def publish_subscription(self, subscription_name):
+        return self._cfx_handle.publish_subscription(self.module_name,
+                                                     subscription_name, self)
 
-    def trace_state(self):
-        if self.config.get("StateTracingEnabled", False):
-            state = str(self)
-            new_digest = hashlib.sha256(state.encode("utf-8")).hexdigest()
-            if self._state_digest != new_digest:
-                self._state_digest = new_digest
-                self.logger.info(state)
+    def remove_subscription(self, sub):
+        self._cfx_handle.remove_subscription(sub)
+
+    # Caller is the subscription sink
+    def start_subscription(self, owner_name, subscription_name):
+        self._cfx_handle.start_subscription(
+            owner_name, subscription_name, self)
+
+    def end_subscription(self, owner_name, subscription_name):
+        self._cfx_handle.end_subscription(owner_name, subscription_name, self)

@@ -346,7 +346,7 @@ class Signal(ControllerModule):
         self._circles = {}
         self._remote_acts = {}
         self._lock = threading.Lock()
-        self.request_timeout = self._cfx_handle.query_param("RequestTimeout")
+        self._request_timeout = self._cfx_handle.query_param("RequestTimeout")
         #self._scavenge_timer = time.time()
    
     def _setup_transport_instance(self, overlay_id):
@@ -375,7 +375,7 @@ class Signal(ControllerModule):
         xmpp_thread.start()
 
     def initialize(self):
-        self._presence_publisher = self._cfx_handle.publish_subscription("SIG_PEER_PRESENCE_NOTIFY")
+        self._presence_publisher = self.publish_subscription("SIG_PEER_PRESENCE_NOTIFY")
         for overlay_id in self.overlays:
             self._setup_circle(overlay_id)
         self.log("LOG_INFO", "Module loaded")
@@ -537,7 +537,7 @@ class Signal(ControllerModule):
     def scavenge_pending_cbts(self):
         scavenge_list = []
         for item in self._cfx_handle._pending_cbts.items():
-            if time.time() - item[1].time_submit >= self.request_timeout:
+            if time.time() - item[1].time_submit >= self._request_timeout:
                 scavenge_list.append(item[0])
         for tag in scavenge_list:
             pending_cbt = self._cfx_handle._pending_cbts.pop(tag, None)
@@ -553,7 +553,7 @@ class Signal(ControllerModule):
             if not outgoing_rem_acts[peer_id].queue:
                 continue
             remact_descr = outgoing_rem_acts[peer_id].queue[0] # peek at the first/oldest entry
-            if time.time() - remact_descr[2] >= self.request_timeout:
+            if time.time() - remact_descr[2] >= self._request_timeout:
                 peer_ids.append(peer_id)
                 self.log("LOG_DEBUG", "Remote acts scavenged for removal peer id %s qlength %d",
                              peer_id, peer_qlen)

@@ -27,7 +27,7 @@ import time
 from framework.ControllerModule import ControllerModule
 
 LinkSetupTimeout = 120
-LinkEvent = ["LnkEvCreating", "LnkEvCreated", "LnkEvConnected", 
+LinkEvent = ["LnkEvCreating", "LnkEvCreated", "LnkEvConnected",
              "LnkEvDisconnected", "LnkEvRemoved", "LnkEvAuthorized",
              "LnkEvDeauthorized"]
 
@@ -37,9 +37,11 @@ TunnelStates = types.SimpleNamespace(TNL_AUTHORIZED="TNL_AUTHORIZED",
                                      TNL_ONLINE="TNL_ONLINE",
                                      TNL_OFFLINE="TNL_OFFLINE")
 
+
 class Link():
     _REFLECT = set(
         ["lnkid", "_creation_state", "status_retry"])
+
     def __init__(self, lnkid, state):
         self.lnkid = lnkid
         self._creation_state = state
@@ -60,6 +62,7 @@ class Link():
     def creation_state(self, new_state):
         "todo: implement transition checks"
         self._creation_state = new_state
+
 
 class Tunnel():
     def __init__(self, tnlid, overlay_id, peer_id, tnl_state, state_timeout):
@@ -105,13 +108,13 @@ class LinkManager(ControllerModule):
 
     def initialize(self):
         self._link_updates_publisher = \
-            self._cfx_handle.publish_subscription("LNK_TUNNEL_EVENTS")
-        self._cfx_handle.start_subscription("TincanInterface",
-                                            "TCI_TINCAN_MSG_NOTIFY")
+            self.publish_subscription("LNK_TUNNEL_EVENTS")
+        self.start_subscription("TincanInterface",
+                                "TCI_TINCAN_MSG_NOTIFY")
         try:
             # Subscribe for data request notifications from OverlayVisualizer
-            self._cfx_handle.start_subscription("OverlayVisualizer",
-                                                "VIS_DATA_REQ")
+            self.start_subscription("OverlayVisualizer",
+                                    "VIS_DATA_REQ")
         except NameError as err:
             if "OverlayVisualizer" in str(err):
                 self.log("LOG_WARNING",
@@ -289,7 +292,7 @@ class LinkManager(ControllerModule):
                         tnl.link.status_retry = 0
                     else:
                         self.log("LOG_WARNING", "Unrecognized tunnel state ",
-                                          "%s:%s", lnkid, data[tnlid][lnkid]["Status"])
+                                 "%s:%s", lnkid, data[tnlid][lnkid]["Status"])
         self.free_cbt(cbt)
 
     def _cleanup_tunnel(self, tnl):
@@ -352,7 +355,7 @@ class LinkManager(ControllerModule):
             parent_cbt.set_response("Tunnel removed", True)
             self.complete_cbt(parent_cbt)
         self.log("LOG_INFO", "Tunnel %s removed: %s:%s<->%s",
-                          tnlid[:7], olid[:7], self.node_id[:7], peer_id[:7])
+                 tnlid[:7], olid[:7], self.node_id[:7], peer_id[:7])
 
     def resp_handler_remove_link(self, rmv_tnl_cbt):
         parent_cbt = rmv_tnl_cbt.parent
@@ -373,7 +376,7 @@ class LinkManager(ControllerModule):
             parent_cbt.set_response("Link removed", True)
             self.complete_cbt(parent_cbt)
         self.log("LOG_INFO", "Link %s from Tunnel %s removed: %s:%s<->%s",
-                          lnkid[:7], tnlid[:7], olid[:7], self.node_id[:7], peer_id[:7])
+                 lnkid[:7], tnlid[:7], olid[:7], self.node_id[:7], peer_id[:7])
 
     def req_handler_query_tunnels_info(self, cbt):
         results = {}
@@ -482,7 +485,7 @@ class LinkManager(ControllerModule):
                                           tnl_state=TunnelStates.TNL_AUTHORIZED,
                                           state_timeout=self.config.get("LinkSetupTimeout", LinkSetupTimeout))
             self.log("LOG_DEBUG", "TunnelId:%s auth for Peer:%s completed",
-                              tnlid[:7], peer_id[:7])
+                     tnlid[:7], peer_id[:7])
             cbt.set_response(
                 "Auth completed, TunnelId:{0}".format(tnlid[:7]), True)
             lnkupd_param = {
@@ -569,7 +572,8 @@ class LinkManager(ControllerModule):
                         "TunnelId": tnlid, "LinkId": lnkid}
         self._link_updates_publisher.post_update(lnkupd_param)
 
-        params = {"OverlayId": olid, "TunnelId": tnlid, "LinkId": lnkid, "PeerId": peer_id}
+        params = {"OverlayId": olid, "TunnelId": tnlid,
+                  "LinkId": lnkid, "PeerId": peer_id}
         self._create_tunnel(params, parent_cbt=cbt)
 
     def resp_handler_create_tunnel(self, cbt):
@@ -586,7 +590,7 @@ class LinkManager(ControllerModule):
             parent_cbt.set_response(resp_data, False)
             self.complete_cbt(parent_cbt)
             self.logger.warn("The create tunnel operation failed:%s",
-                              parent_cbt.response.data)
+                             parent_cbt.response.data)
             return
         # transistion connection connection state
         self._tunnels[tnlid].link.creation_state = 0xA2
@@ -610,7 +614,7 @@ class LinkManager(ControllerModule):
         peer_id = node_data["UID"]
         if olid not in self.config["Overlays"]:
             self.logger.warn("The requested overlay is not specified in "
-                              "local config, it will not be created")
+                             "local config, it will not be created")
             lnk_endpt_cbt.set_response(
                 "Unknown overlay id specified in request", False)
             self.complete_cbt(lnk_endpt_cbt)
@@ -632,7 +636,7 @@ class LinkManager(ControllerModule):
         lnkid = tnlid
         self._tunnels[tnlid].tunnel_state = TunnelStates.TNL_CREATING
         self._tunnels[tnlid].timeout = time.time(
-        ) + self.config["LinkSetupTimeout"]
+        ) + self.config.get("LinkSetupTimeout", LinkSetupTimeout)
         self._assign_link_to_tunnel(tnlid, lnkid, 0xB1)
         self.logger.debug("Create Link:%s Phase 1/4 Node B", lnkid[:7])
         # publish notification of link creation initiated Node B
@@ -681,10 +685,12 @@ class LinkManager(ControllerModule):
             parent_cbt.set_response(resp_data, False)
             if parent_cbt.child_count == 1:
                 self.complete_cbt(parent_cbt)
-            self.logger.warn("Create link endpoint failed :%s", cbt.response.data)
+            self.logger.warn(
+                "Create link endpoint failed :%s", cbt.response.data)
             self._rollback_link_creation_changes(tnlid)
             return
-        self.logger.debug("Create Link:%s Phase 2/4 Node B - Peer: %s", lnkid[:7], peer_id[:7])
+        self.logger.debug(
+            "Create Link:%s Phase 2/4 Node B - Peer: %s", lnkid[:7], peer_id[:7])
         # store the overlay data
         self._update_tunnel_descriptor(resp_data, tnlid)
         # add the peer MAC to the tunnel descr
@@ -718,7 +724,8 @@ class LinkManager(ControllerModule):
         tnlid = self.tunnel_id(lnkid)
         peer_id = rem_act["NodeData"]["UID"]
         self._tunnels[tnlid].link.creation_state = 0xC0
-        self.logger.debug("Create Link:%s Phase 4/4 Node B - Peer: %s", lnkid[:7], peer_id[:7])
+        self.logger.debug(
+            "Create Link:%s Phase 4/4 Node B - Peer: %s", lnkid[:7], peer_id[:7])
         peer_id = rem_act["NodeData"]["UID"]
         olid = rem_act["OverlayId"]
         resp_data = cbt.response.data
@@ -810,7 +817,7 @@ class LinkManager(ControllerModule):
                 or self._tunnels[tnlid].link is None:
             self._cleanup_removed_tunnel(tnlid)
             self.logger.info("A response to an aborted add peer CAS operation was discarded: %s",
-                              str(cbt))
+                             str(cbt))
             return
 
         self._tunnels[tnlid].link.creation_state = 0xB3
@@ -825,7 +832,7 @@ class LinkManager(ControllerModule):
         parent_cbt = cbt.parent
         resp_data = cbt.response.data
         if not cbt.response.status:
-            self.logger.warn("Create link endpoint failed :%s",cbt)
+            self.logger.warn("Create link endpoint failed :%s", cbt)
             lnkid = cbt.request.params["LinkId"]
             self._rollback_link_creation_changes(lnkid)
             self.free_cbt(cbt)
@@ -862,7 +869,7 @@ class LinkManager(ControllerModule):
         peer_id = parent_cbt.request.params["PeerId"]
         if peer_id not in self._peers[olid]:
             self.logger.info("A response to an aborted create link operation was discarded: %s",
-                              parent_cbt)
+                             parent_cbt)
             return
         tnlid = self._peers[olid][peer_id]
         lnkid = self.link_id(tnlid)
@@ -1057,8 +1064,10 @@ class LinkManager(ControllerModule):
                     rvals = stat_entry["remote_candidate"].split(":")
                     if len(lvals) < 10 or len(rvals) < 8:
                         continue
-                    tnl_data["LocalEndpoint"] = {"Proto": lvals[7], "External": lvals[5]+":"+lvals[6], "Internal": lvals[8]+":"+lvals[9]}
-                    tnl_data["RemoteEndpoint"] = {"Proto": rvals[7], "External": rvals[5]+":"+rvals[6]}
+                    tnl_data["LocalEndpoint"] = {
+                        "Proto": lvals[7], "External": lvals[5]+":"+lvals[6], "Internal": lvals[8]+":"+lvals[9]}
+                    tnl_data["RemoteEndpoint"] = {
+                        "Proto": rvals[7], "External": rvals[5]+":"+rvals[6]}
                     continue
             overlay_id = self._tunnels[tnlid].overlay_id
             if overlay_id not in tnls:

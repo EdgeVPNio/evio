@@ -31,14 +31,10 @@
       "_OVERLAYNAME_": {
         "MaxSuccessors": 2,
         "MaxOnDemandEdges": 3,
-        "Role": "Switch"
+        "Role": "Switch",
+        "LocationId": 12345,
+        "EncryptionRequired": false
       }
-    }
-  },
-  "TunnelManager": {
-    "_OVERLAYNAME_":{
-      "LANID": 123456,
-      "RequireEncryption": false
     }
   },
   "LinkManager": {

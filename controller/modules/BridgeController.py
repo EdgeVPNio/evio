@@ -31,7 +31,6 @@ import socketserver
 from abc import ABCMeta, abstractmethod
 from collections.abc import MutableMapping
 from distutils import spawn
-from typing import Dict
 from framework.ControllerModule import ControllerModule
 import framework.Modlib as Modlib
 
@@ -41,6 +40,8 @@ BridgeAutoDelete = False
 BridgeProvider = "OVS"
 ProxyListenAddress = ""
 ProxyListenPort = 5802
+
+
 class BridgeABC():
     __metaclass__ = ABCMeta
 
@@ -117,16 +118,17 @@ class OvsBridge(BridgeABC):
         elif sw_proto.casefold() == "BF".casefold():
             self.add_sdn_ctrl(sdn_ctrl_port)
         elif sw_proto != "":
-            raise RuntimeError(f"Invalid switch protocol \'{sw_proto}\' specified for bridge {name}.")
+            raise RuntimeError(
+                f"Invalid switch protocol \'{sw_proto}\' specified for bridge {name}.")
         Modlib.runshell([OvsBridge.iptool, "link",
                         "set", "dev", self.name, "up"])
 
     def add_sdn_ctrl(self, sdn_ctrl_port):
         ctrl_conn_str = f"tcp:127.0.0.1:{sdn_ctrl_port}"
         Modlib.runshell([OvsBridge.brctl,
-                            "set-controller",
-                            self.name,
-                            ctrl_conn_str])
+                         "set-controller",
+                         self.name,
+                         ctrl_conn_str])
 
     def del_sdn_ctrl(self):
         Modlib.runshell([OvsBridge.brctl, "del-controller", self.name])
@@ -323,7 +325,7 @@ class BFRequestHandler(socketserver.BaseRequestHandler):
         topo = self.server.netman.get_tunnels()
         task["Response"] = dict(Status=bool(topo), Data=topo)
         return task
-    
+
     # def _handle_get_current_seq(self, task):
     #     olid = task["Request"]["Params"]["OverlayId"]
     #     topo = self.server.netman.get_overlay_seq(olid)
@@ -470,7 +472,8 @@ class BridgeController(ControllerModule):
         ign_br_names = dict()
         # start the BF proxy if at least one overlay is configured for it
         if "BoundedFlood" in self.config:
-            proxy_listen_port = self.config["BoundedFlood"].get("ProxyListenPort", ProxyListenPort)
+            proxy_listen_port = self.config["BoundedFlood"].get(
+                "ProxyListenPort", ProxyListenPort)
             bf_config = self.config["BoundedFlood"]
             bf_config["NodeId"] = self.node_id
             bf_ovls = bf_config.pop("Overlays")
@@ -505,14 +508,14 @@ class BridgeController(ControllerModule):
         # self.log("LOG_DEBUG", "ignored bridges=%s", ign_br_names)
         # try:
         #    # Subscribe for data request notifications from OverlayVisualizer
-        #    self._cfx_handle.start_subscription("OverlayVisualizer", "VIS_DATA_REQ")
+        #    self.start_subscription("OverlayVisualizer", "VIS_DATA_REQ")
         # except NameError as err:
         #    if "OverlayVisualizer" in str(err):
         #        self.register_cbt("Logger", "LOG_INFO",
         #                          "OverlayVisualizer module not loaded."
         #                          " Visualization data will not be sent.")
 
-        self._cfx_handle.start_subscription("LinkManager", "LNK_TUNNEL_EVENTS")
+        self.start_subscription("LinkManager", "LNK_TUNNEL_EVENTS")
         self.logger.info("Module Loaded")
 
     def req_handler_manage_bridge(self, cbt):
@@ -596,8 +599,10 @@ class BridgeController(ControllerModule):
         for olid in self.overlays:
             is_data_available = True
             br_data[olid] = {}
-            br_data[olid]["BridgeProvider"] = self.overlays[olid]["NetDevice"].get("BridgeProvider", BridgeProvider)
-            br_data[olid]["BridgeName"] = self.overlays[olid]["NetDevice"].get("NamePrefix", NamePrefix)
+            br_data[olid]["BridgeProvider"] = self.overlays[olid]["NetDevice"].get(
+                "BridgeProvider", BridgeProvider)
+            br_data[olid]["BridgeName"] = self.overlays[olid]["NetDevice"].get(
+                "NamePrefix", NamePrefix)
             if "IP4" in self.overlays[olid]["NetDevice"]:
                 br_data[olid]["IP4"] = self.overlays[olid]["NetDevice"]["IP4"]
             if "PrefixLen" in self.overlays[olid]["NetDevice"]:
@@ -613,7 +618,8 @@ class BridgeController(ControllerModule):
         name_prefix = abr_cfg.get("NamePrefix", NamePrefix)[:3]
         end_i = 15 - len(name_prefix)
         name = name_prefix[:3] + olid[:end_i]
-        gbr = BridgeFactory(olid, abr_cfg.get("BridgeProvider", BridgeProvider), abr_cfg, self)
+        gbr = BridgeFactory(olid, abr_cfg.get(
+            "BridgeProvider", BridgeProvider), abr_cfg, self)
 
         gbr.add_patch_port(self._ovl_net[olid].get_patch_port_name())
         self._ovl_net[olid].add_patch_port(gbr.get_patch_port_name())
