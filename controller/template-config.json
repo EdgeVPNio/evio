@@ -37,6 +37,17 @@
       }
     }
   },
+  "TunnelManager": {
+    "_OVERLAYNAME_": {
+      "LANID": 123456,
+      "RequireEncryption": false
+    }
+  },
+  "GeneveTunnel": {
+    "Overlays":[
+      "_OVERLAYNAME_"
+    ]
+  },
   "LinkManager": {
     "Stun": [
       "stun.l.google.com:19302",
