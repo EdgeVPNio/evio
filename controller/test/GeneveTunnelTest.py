@@ -24,12 +24,11 @@ import logging
 import importlib
 from framework.CBT import CBT
 from unittest.mock import MagicMock, Mock, patch
-from pyroute2 import IPRoute
 
 from modules.GeneveTunnel import GeneveTunnel
 
 class GeneveTunnelTestCase(unittest.TestCase):
-    def setUp(self):
+    def setup(self):
         logging.basicConfig(format="[%(asctime)s.%(msecs)03d] %(levelname)s: %(message)s",
                             datefmt="%H:%M:%S",
                             level=logging.DEBUG)
@@ -41,12 +40,11 @@ class GeneveTunnelTestCase(unittest.TestCase):
             "GeneveTunnel" : {
                 "Overlays": {
                     "A0FB389": {
-                        "TunnelType": "geneve",
-                        "DeviceName": "gentun", 
-                        "UID": 1234, 
-                        "NodeA": "192.168.0.5", 
-                        "NodeB": "192.168.0.6",
-                        "DestPort": None
+                        "dev_name": "gentun", 
+                        "id": "1234", 
+                        "node_a": "192.168.0.5", 
+                        "node_b": "192.168.0.6",
+                        "dst_port": None
                     }
                 },
                 "NodeId": "1234434323"
@@ -58,41 +56,29 @@ class GeneveTunnelTestCase(unittest.TestCase):
         cfx_handle._cm_config = gen_dict
         geneveTunnel.initialize()
         self.logger = logging.getLogger("GeneveTunnelTest console logger")
-        return gen_dict, geneveTunnel      
-    
-    def test_req_handler_create_tunnel(self):
+        return gen_dict, geneveTunnel
+
+    def test_create_geneve_tunnel(self):
         """
         Test to check the creation of geneve tunnel.
         """
-        gen_dict, geneveTunnel = self.setUp()
-        cbt = CBT()
-        cbt.request.params = {"TunnelType": gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["TunnelType"], 
-        "DeviceName": gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["DeviceName"], 
-        "UID": gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["UID"], 
-        "RemoteAddr": gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["NodeA"], 
-        "DstPort": gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["DestPort"]}
-        geneveTunnel.req_handler_create_tunnel(cbt)
-        exists = geneveTunnel._is_tunnel_exist(gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["DeviceName"])
-        assert (exists), "Link not created!"
-        ipr = IPRoute() 
-        idx = ipr.link_lookup(ifname=gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["DeviceName"])
-        assert (len(idx)==1),"Link not created!"
-        print("Passed : test_req_handler_create_tunnel")
+        gen_dict, geneveTunnel = self.setup()
+        
+        geneveTunnel._create_geneve_tunnel(gen_dict["GeneveTunnel"]["dev_name"], gen_dict["id"], gen_dict["remote_addr"], gen_dict["dst_port"])
+        # geneveTunnel._create_geneve_tunnel = MagicMock()
+        # geneveTunnel._create_geneve_tunnel.assert_called_once()
 
-    def test_req_handler_remove_tunnel(self):
+    def test_request_create_geneve_tunnel(self):
         """
-        Test to check the deletion of geneve tunnel.
+        Test to check the creation of geneve tunnel.
         """
-        gen_dict, geneveTunnel = self.setUp()
+        gen_dict, geneveTunnel = self.setup()
         cbt = CBT()
-        cbt.request.params = {"DeviceName": gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["DeviceName"]}
-        geneveTunnel.req_handler_remove_tunnel(cbt)
-        exists = geneveTunnel._is_tunnel_exist(gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["DeviceName"])
-        assert (not exists), "Link not removed!"
-        ipr = IPRoute() 
-        idx = ipr.link_lookup(ifname=gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["DeviceName"])
-        assert (len(idx)==0),"Link not removed!"
-        print("Passed : test_req_handler_remove_tunnel")
+        cbt.request.params = {"dev_name": "gentun", "id": "1234", "remote_addr": "192.160.0.5", "dst_port": None}
+        geneveTunnel.req_handler_create_tunnel(cbt)
+
+        # tunnel.req_handler_create_tunnel = MagicMock()
+        # tunnel.req_handler_create_tunnel.assert_called_once()
 
 if __name__ == '__main__':
     unittest.main()
