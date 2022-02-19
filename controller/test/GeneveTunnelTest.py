@@ -24,6 +24,7 @@ import logging
 import importlib
 from framework.CBT import CBT
 from unittest.mock import MagicMock, Mock, patch
+from pyroute2 import IPRoute
 
 from modules.GeneveTunnel import GeneveTunnel
 
@@ -40,11 +41,11 @@ class GeneveTunnelTestCase(unittest.TestCase):
             "GeneveTunnel" : {
                 "Overlays": {
                     "A0FB389": {
-                        "dev_name": "gentun", 
-                        "id": "1234", 
-                        "node_a": "192.168.0.5", 
-                        "node_b": "192.168.0.6",
-                        "dst_port": None
+                        "DevName": "gentun", 
+                        "ID": "1234", 
+                        "NodeA": "192.168.0.5", 
+                        "NodeB": "192.168.0.6",
+                        "DestPort": None
                     }
                 },
                 "NodeId": "1234434323"
@@ -56,29 +57,33 @@ class GeneveTunnelTestCase(unittest.TestCase):
         cfx_handle._cm_config = gen_dict
         geneveTunnel.initialize()
         self.logger = logging.getLogger("GeneveTunnelTest console logger")
-        return gen_dict, geneveTunnel
-
-    def test_create_geneve_tunnel(self):
-        """
-        Test to check the creation of geneve tunnel.
-        """
-        gen_dict, geneveTunnel = self.setup()
-        
-        geneveTunnel._create_geneve_tunnel(gen_dict["GeneveTunnel"]["dev_name"], gen_dict["id"], gen_dict["remote_addr"], gen_dict["dst_port"])
-        # geneveTunnel._create_geneve_tunnel = MagicMock()
-        # geneveTunnel._create_geneve_tunnel.assert_called_once()
-
-    def test_request_create_geneve_tunnel(self):
+        return gen_dict, geneveTunnel      
+    
+    def test_req_handler_create_tunnel(self):
         """
         Test to check the creation of geneve tunnel.
         """
         gen_dict, geneveTunnel = self.setup()
         cbt = CBT()
-        cbt.request.params = {"dev_name": "gentun", "id": "1234", "remote_addr": "192.160.0.5", "dst_port": None}
+        cbt.request.params = {"TunnelType": "geneve", "DeviceName": "gentun", "UID": 1234, "RemoteAddr": "192.160.0.5", "DstPort": None}
         geneveTunnel.req_handler_create_tunnel(cbt)
+        ipr = IPRoute() 
+        idx = ipr.link_lookup(ifname="gentun")
+        assert (len(idx)==1),"Link not created!"
+        print("Passed : test_req_handler_create_tunnel")
 
-        # tunnel.req_handler_create_tunnel = MagicMock()
-        # tunnel.req_handler_create_tunnel.assert_called_once()
+    def test_req_handler_remove_tunnel(self):
+        """
+        Test to check the deletion of geneve tunnel.
+        """
+        gen_dict, geneveTunnel = self.setup()
+        cbt = CBT()
+        cbt.request.params = {"DeviceName": "gentun"}
+        geneveTunnel.req_handler_remove_tunnel(cbt)
+        ipr = IPRoute() 
+        idx = ipr.link_lookup(ifname="gentun")
+        assert (len(idx)==0),"Link not removed!"
+        print("Passed : test_req_handler_remove_tunnel")
 
 if __name__ == '__main__':
     unittest.main()

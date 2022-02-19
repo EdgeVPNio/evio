@@ -44,9 +44,15 @@
     }
   },
   "GeneveTunnel": {
-    "Overlays":[
-      "_OVERLAYNAME_"
-    ]
+    "Overlays":{
+      "_OVERLAYNAME_": {
+        "DevName": "gentunnel",
+        "ID": 123456,
+        "NodeA": "192.168.0.5",
+        "NodeB": "192.168.0.6",
+        "DestPort": ""
+      }
+    }
   },
   "LinkManager": {
     "Stun": [

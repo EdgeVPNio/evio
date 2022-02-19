@@ -29,13 +29,11 @@ class GeneveTunnel(ControllerModule):
     def __init__(self, cfx_handle, module_config, module_name):
         super(GeneveTunnel, self).__init__(
             cfx_handle, module_config, module_name)
-        print("Geneve Tunnel constructor")
         self.ipr = IPRoute()
         self.ndb = NDB()
     
     def initialize(self):
-        self.logger.info("Module loaded")
-        print("Config data: %s", self.config)
+        self.log("LOG_INFO", "Module loaded")
 
     def process_cbt(self, cbt):
         if cbt.op_type == "Request":
@@ -67,8 +65,8 @@ class GeneveTunnel(ControllerModule):
                       geneve_id=id,
                       geneve_remote=remote_addr)
 
-    def _del_tunnel(self, dev_name):
-        self.ipr.link("del", index=self.ip.link_lookup(ifname=dev_name)[0])
+    def _remove_geneve_tunnel(self, dev_name):
+        self.ipr.link("del", index=self.ipr.link_lookup(ifname=dev_name)[0])
       
     def _is_tunnel_exist(self):
         return False
@@ -78,11 +76,11 @@ class GeneveTunnel(ControllerModule):
         remote_addr = cbt.request.params["RemoteAddr"]
         dst_port = cbt.request.params["DstPort"]
         dev_name = cbt.request.params["DeviceName"]
-        vlid = cbt.request.params["VxLanID"]
+        uid = cbt.request.params["UID"]
         if not self._is_tunnel_exist():
             self._create_geneve_tunnel(
-                dev_name, id, remote_addr, dst_port)
-            cbt.response.set_response(
+                dev_name, uid, remote_addr, dst_port)
+            cbt.set_response(
                 data=f"Tunnel {dev_name} created", status=True)
         else:
             cbt.set_response(
@@ -90,6 +88,6 @@ class GeneveTunnel(ControllerModule):
 
     def req_handler_remove_tunnel(self, cbt):
         dev_name = cbt.request.params["DeviceName"]
-        self._del_tunnel(dev_name)
-        cbt.response.set_response(
+        self._remove_geneve_tunnel(dev_name)
+        cbt.set_response(
             data=f"Tunnel {dev_name} deleted", status=True)
