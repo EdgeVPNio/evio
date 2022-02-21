@@ -589,7 +589,7 @@ class LinkManager(ControllerModule):
             self.free_cbt(cbt)
             parent_cbt.set_response(resp_data, False)
             self.complete_cbt(parent_cbt)
-            self.logger.warn("The create tunnel operation failed:%s",
+            self.logger.warning("The create tunnel operation failed:%s",
                              parent_cbt.response.data)
             return
         # transistion connection connection state
@@ -613,7 +613,7 @@ class LinkManager(ControllerModule):
         node_data = params["NodeData"]
         peer_id = node_data["UID"]
         if olid not in self.config["Overlays"]:
-            self.logger.warn("The requested overlay is not specified in "
+            self.logger.warning("The requested overlay is not specified in "
                              "local config, it will not be created")
             lnk_endpt_cbt.set_response(
                 "Unknown overlay id specified in request", False)
@@ -622,14 +622,14 @@ class LinkManager(ControllerModule):
         if peer_id not in self._peers[olid] or tnlid not in self._tunnels:
             msg = str("The requested lnk endpt was not authorized it will not be created. "
                       "TunnelId={0}, PeerId={1}".format(tnlid, peer_id))
-            self.logger.warn(msg)
+            self.logger.warning(msg)
             lnk_endpt_cbt.set_response(msg, False)
             self.complete_cbt(lnk_endpt_cbt)
             return
         if self._tunnels[tnlid].link:
             msg = str("A link already exist for this tunnel, it will not be created. "
                       "TunnelId={0}, PeerId={1}".format(tnlid, peer_id))
-            self.logger.warn(msg)
+            self.logger.warning(msg)
             lnk_endpt_cbt.set_response(msg, False)
             self.complete_cbt(lnk_endpt_cbt)
             return
@@ -685,7 +685,7 @@ class LinkManager(ControllerModule):
             parent_cbt.set_response(resp_data, False)
             if parent_cbt.child_count == 1:
                 self.complete_cbt(parent_cbt)
-            self.logger.warn(
+            self.logger.warning(
                 "Create link endpoint failed :%s", cbt.response.data)
             self._rollback_link_creation_changes(tnlid)
             return
@@ -832,7 +832,7 @@ class LinkManager(ControllerModule):
         parent_cbt = cbt.parent
         resp_data = cbt.response.data
         if not cbt.response.status:
-            self.logger.warn("Create link endpoint failed :%s", cbt)
+            self.logger.warning("Create link endpoint failed :%s", cbt)
             lnkid = cbt.request.params["LinkId"]
             self._rollback_link_creation_changes(lnkid)
             self.free_cbt(cbt)

@@ -117,7 +117,7 @@ class TincanInterface(ControllerModule):
 
     def resp_handler_configure_tincan_logging(self, cbt):
         if cbt.response.status == "False":
-            self.logger.warn("Failed to configure Tincan logging: CBT=%s", cbt)
+            self.logger.warning("Failed to configure Tincan logging: CBT=%s", cbt)
 
     def req_handler_create_link(self, cbt):
         msg = cbt.request.params
