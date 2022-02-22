@@ -59,16 +59,25 @@ class GeneveTunnel(ControllerModule):
         pass
 
     def _create_geneve_tunnel(self, dev_name, id, remote_addr, dst_port=None):
-        self.ipr.link("add",
-                      ifname=dev_name,
-                      kind="geneve",
-                      geneve_id=id,
-                      geneve_remote=remote_addr)
+        try:            
+            self.ipr.link("add",
+                        ifname=dev_name,
+                        kind="geneve",
+                        geneve_id=id,
+                        geneve_remote=remote_addr)
+        except Exception as e:
+            self.log("LOG_INFO", "Error creating tunnel. Reported error: %s", str(e))
 
     def _remove_geneve_tunnel(self, dev_name):
-        self.ipr.link("del", index=self.ipr.link_lookup(ifname=dev_name)[0])
+        try:        
+            self.ipr.link("del", index=self.ipr.link_lookup(ifname=dev_name)[0])
+        except Exception as e:
+            self.log("LOG_INFO", "Error deleting tunnel. Reported error: %s", str(e))
       
-    def _is_tunnel_exist(self):
+    def _is_tunnel_exist(self, dev_name):
+        idx = self.ipr.link_lookup(ifname=dev_name)
+        if len(idx)==1:
+            return True
         return False
 
     def req_handler_create_tunnel(self, cbt):
@@ -77,17 +86,21 @@ class GeneveTunnel(ControllerModule):
         dst_port = cbt.request.params["DstPort"]
         dev_name = cbt.request.params["DeviceName"]
         uid = cbt.request.params["UID"]
-        if not self._is_tunnel_exist():
+        if not self._is_tunnel_exist(dev_name):
             self._create_geneve_tunnel(
                 dev_name, uid, remote_addr, dst_port)
             cbt.set_response(
                 data=f"Tunnel {dev_name} created", status=True)
         else:
             cbt.set_response(
-                data=f"Tunnel {dev_name} already exist", status=False)
+                data=f"Tunnel {dev_name} already exists", status=False)
 
     def req_handler_remove_tunnel(self, cbt):
         dev_name = cbt.request.params["DeviceName"]
-        self._remove_geneve_tunnel(dev_name)
-        cbt.set_response(
-            data=f"Tunnel {dev_name} deleted", status=True)
+        if self._is_tunnel_exist(dev_name):
+            self._remove_geneve_tunnel(dev_name)
+            cbt.set_response(
+                data=f"Tunnel {dev_name} deleted", status=True)
+        else:
+            cbt.set_response(
+                data=f"Tunnel {dev_name} does not exists", status=False)

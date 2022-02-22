@@ -37,17 +37,12 @@
       }
     }
   },
-  "TunnelManager": {
-    "_OVERLAYNAME_": {
-      "LANID": 123456,
-      "RequireEncryption": false
-    }
-  },
   "GeneveTunnel": {
     "Overlays":{
       "_OVERLAYNAME_": {
-        "DevName": "gentunnel",
-        "ID": 123456,
+        "TunnelType": "geneve",
+        "DeviceName": "gentunnel",
+        "UID": 123456,
         "NodeA": "192.168.0.5",
         "NodeB": "192.168.0.6",
         "DestPort": ""
