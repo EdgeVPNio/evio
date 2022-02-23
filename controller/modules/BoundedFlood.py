@@ -721,7 +721,7 @@ class BoundedFlood(app_manager.RyuApp):
                 hub.sleep(1)
             br_name = datapath.ports[INTERNAL_PORT_NUM].name.decode("utf-8")
             if datapath.id in self._lt:
-                self.logger.warn(f"Datapath {datapath.id} is already in learning table, "
+                self.logger.warning(f"Datapath {datapath.id} is already in learning table, "
                                  "reinitializing")
                 self._lt.pop(datapath.id)
             if br_name not in self.config:
@@ -810,7 +810,7 @@ class BoundedFlood(app_manager.RyuApp):
                 self.logger.debug(f"packet_in[{in_port}]<=={pkt}")
 
             if not self._lt[dpid].is_valid_port(in_port):
-                self.logger.warn(
+                self.logger.warning(
                     f"On removed port:{self._lt[dpid].name}/{in_port} bufferd frame: {pkt}")
                 return
             if not self._lt[dpid].is_port_ready(in_port):
@@ -1255,7 +1255,7 @@ class BoundedFlood(app_manager.RyuApp):
         if len(pkt.protocols) == 3:
             payload = pkt.protocols[2]
         if self._lt._node_id == rcvd_frb.root_nid:
-            self.logger.warn(f"Discarded a FRB from self {rcvd_frb}")
+            self.logger.warning(f"Discarded a FRB from self {rcvd_frb}")
             return
         if rcvd_frb.frb_type != FloodRouteBound.FRB_BRDCST:
             # discard these types
