@@ -30,9 +30,6 @@ from modules.GeneveTunnel import GeneveTunnel
 
 class GeneveTunnelTestCase(unittest.TestCase):
     def setUp(self):
-        logging.basicConfig(format="[%(asctime)s.%(msecs)03d] %(levelname)s: %(message)s",
-                            datefmt="%H:%M:%S",
-                            level=logging.DEBUG)
         cfx_handle = Mock()
         module = importlib.import_module("modules.{0}"
                                          .format("GeneveTunnel"))

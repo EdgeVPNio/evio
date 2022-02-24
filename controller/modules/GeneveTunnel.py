@@ -35,15 +35,10 @@ class GeneveTunnel(ControllerModule):
     def __init__(self, cfx_handle, module_config, module_name):
         super(GeneveTunnel, self).__init__(
             cfx_handle, module_config, module_name)
-        print("Geneve Tunnel constructor")
         self.ipr = IPRoute()
         self.ndb = NDB()
         self._tunnels = {}   # maps tunnel id to its descriptor
-        self._peers = {}     # maps overlay id to peers map, which maps peer id to tunnel id
-        self._auth_tunnels = {} # overlay id tunnel id,  
-        # self._links = {}     # maps link id to tunnel id
-        # self._lock = threading.Lock()  # serializes access to _overlays, _links
-        # self._link_updates_publisher = None
+        self._auth_tunnels = {} # overlay id tunnel id  
     
     def initialize(self):
         self.logger.info("Module loaded")
