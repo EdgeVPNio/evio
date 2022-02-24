@@ -29,12 +29,12 @@ from pyroute2 import IPRoute
 from modules.GeneveTunnel import GeneveTunnel
 
 class GeneveTunnelTestCase(unittest.TestCase):
-    def setUp(self):
-        cfx_handle = Mock()
-        module = importlib.import_module("modules.{0}"
-                                         .format("GeneveTunnel"))
-        module_class = getattr(module, "GeneveTunnel")
-        gen_dict = {
+    def __init__(self, *args, **kwargs):
+        super(GeneveTunnelTestCase, self).__init__(*args, **kwargs)
+
+    @classmethod
+    def setUpClass(self):
+        self.config = {
             "GeneveTunnel" : {
                 "Overlays": {
                     "A0FB389": {
@@ -50,12 +50,22 @@ class GeneveTunnelTestCase(unittest.TestCase):
             }
         }
 
-        geneveTunnel = module_class(cfx_handle, gen_dict, "GeneveTunnel")
-        cfx_handle._cm_instance = geneveTunnel
-        cfx_handle._cm_config = gen_dict
-        geneveTunnel.initialize()
+    @classmethod
+    def tearDownClass(self):
+        self.config = None
+
+    def setUp(self):
+        cfx_handle = Mock()
+        module = importlib.import_module("modules.{0}"
+                                         .format("GeneveTunnel"))
+        module_class = getattr(module, "GeneveTunnel")
+
+        self.geneveTunnel = module_class(cfx_handle, self.config["GeneveTunnel"], "GeneveTunnel")
+        cfx_handle._cm_instance = self.geneveTunnel
+        cfx_handle._cm_config = self.config["GeneveTunnel"]
+
         self.logger = logging.getLogger("GeneveTunnelTest console logger")
-        return gen_dict, geneveTunnel
+        return self.config["GeneveTunnel"], self.geneveTunnel
 
     def test_create_geneve_tunnel(self):
         """
@@ -63,20 +73,20 @@ class GeneveTunnelTestCase(unittest.TestCase):
         """
         gen_dict, geneveTunnel = self.setUp()
         cbt = CBT()
-        cbt.request.params = {"TunnelType": gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["TunnelType"], 
-        "DeviceName": gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["DeviceName"], 
-        "TunnelId": gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["TunnelId"], 
-        "RemoteAddr": gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["NodeA"], 
-        "DstPort": gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["DestPort"], 
-        "OverlayId": gen_dict["GeneveTunnel"]["Overlays"], 
-        "PeerId": gen_dict["GeneveTunnel"]["NodeId"]
+        cbt.request.params = {"TunnelType": gen_dict["Overlays"]["A0FB389"]["TunnelType"], 
+        "DeviceName": gen_dict["Overlays"]["A0FB389"]["DeviceName"], 
+        "TunnelId": gen_dict["Overlays"]["A0FB389"]["TunnelId"], 
+        "RemoteAddr": gen_dict["Overlays"]["A0FB389"]["NodeA"], 
+        "DstPort": gen_dict["Overlays"]["A0FB389"]["DestPort"], 
+        "OverlayId": gen_dict["Overlays"], 
+        "PeerId": gen_dict["NodeId"]
         }
         geneveTunnel.req_handler_auth_tunnel(cbt)
         geneveTunnel.req_handler_create_tunnel(cbt)
-        exists = geneveTunnel._is_tunnel_exist(gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["DeviceName"])
+        exists = geneveTunnel._is_tunnel_exist(gen_dict["Overlays"]["A0FB389"]["DeviceName"])
         assert (exists), "Link not created!"
         ipr = IPRoute() 
-        idx = ipr.link_lookup(ifname=gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["DeviceName"])
+        idx = ipr.link_lookup(ifname=gen_dict["Overlays"]["A0FB389"]["DeviceName"])
         assert (len(idx)==1),"Link not created!"
         print("Passed : test_req_handler_create_tunnel")
 
@@ -86,12 +96,12 @@ class GeneveTunnelTestCase(unittest.TestCase):
         """
         gen_dict, geneveTunnel = self.setUp()
         cbt = CBT()
-        cbt.request.params = {"DeviceName": gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["DeviceName"]}
+        cbt.request.params = {"DeviceName": gen_dict["Overlays"]["A0FB389"]["DeviceName"]}
         geneveTunnel.req_handler_remove_tunnel(cbt)
-        exists = geneveTunnel._is_tunnel_exist(gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["DeviceName"])
+        exists = geneveTunnel._is_tunnel_exist(gen_dict["Overlays"]["A0FB389"]["DeviceName"])
         assert (not exists), "Link not removed!"
         ipr = IPRoute() 
-        idx = ipr.link_lookup(ifname=gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["DeviceName"])
+        idx = ipr.link_lookup(ifname=gen_dict["Overlays"]["A0FB389"]["DeviceName"])
         assert (len(idx)==0),"Link not removed!"
         print("Passed : test_req_handler_remove_tunnel")
 
@@ -101,11 +111,11 @@ class GeneveTunnelTestCase(unittest.TestCase):
         """
         gen_dict, geneveTunnel = self.setUp()
         cbt = CBT()
-        cbt.request.params = {"OverlayId": gen_dict["GeneveTunnel"]["Overlays"], 
-                            "PeerId": gen_dict["GeneveTunnel"]["NodeId"], 
-                            "TunnelId": gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["TunnelId"]}
+        cbt.request.params = {"OverlayId": gen_dict["Overlays"], 
+                            "PeerId": gen_dict["NodeId"], 
+                            "TunnelId": gen_dict["Overlays"]["A0FB389"]["TunnelId"]}
         geneveTunnel.req_handler_auth_tunnel(cbt)
-        authorised = geneveTunnel._is_tunnel_authorised(gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["TunnelId"])
+        authorised = geneveTunnel._is_tunnel_authorised(gen_dict["Overlays"]["A0FB389"]["TunnelId"])
         assert (authorised), "Tunnel not authorized!"
         print("Passed: test_req_hanlder_auth_tunnel")
        
