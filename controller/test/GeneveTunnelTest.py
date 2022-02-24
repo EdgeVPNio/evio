@@ -43,7 +43,7 @@ class GeneveTunnelTestCase(unittest.TestCase):
                     "A0FB389": {
                         "TunnelType": "geneve",
                         "DeviceName": "gentun", 
-                        "UID": 1234, 
+                        "TunnelId": 1234, 
                         "NodeA": "192.168.0.5", 
                         "NodeB": "192.168.0.6",
                         "DestPort": None
@@ -58,9 +58,9 @@ class GeneveTunnelTestCase(unittest.TestCase):
         cfx_handle._cm_config = gen_dict
         geneveTunnel.initialize()
         self.logger = logging.getLogger("GeneveTunnelTest console logger")
-        return gen_dict, geneveTunnel      
-    
-    def test_req_handler_create_tunnel(self):
+        return gen_dict, geneveTunnel
+
+    def test_create_geneve_tunnel(self):
         """
         Test to check the creation of geneve tunnel.
         """
@@ -68,9 +68,13 @@ class GeneveTunnelTestCase(unittest.TestCase):
         cbt = CBT()
         cbt.request.params = {"TunnelType": gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["TunnelType"], 
         "DeviceName": gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["DeviceName"], 
-        "UID": gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["UID"], 
+        "TunnelId": gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["TunnelId"], 
         "RemoteAddr": gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["NodeA"], 
-        "DstPort": gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["DestPort"]}
+        "DstPort": gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["DestPort"], 
+        "OverlayId": gen_dict["GeneveTunnel"]["Overlays"], 
+        "PeerId": gen_dict["GeneveTunnel"]["NodeId"]
+        }
+        geneveTunnel.req_handler_auth_tunnel(cbt)
         geneveTunnel.req_handler_create_tunnel(cbt)
         exists = geneveTunnel._is_tunnel_exist(gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["DeviceName"])
         assert (exists), "Link not created!"
@@ -79,9 +83,9 @@ class GeneveTunnelTestCase(unittest.TestCase):
         assert (len(idx)==1),"Link not created!"
         print("Passed : test_req_handler_create_tunnel")
 
-    def test_req_handler_remove_tunnel(self):
+    def test_request_create_geneve_tunnel(self):
         """
-        Test to check the deletion of geneve tunnel.
+        Test to check the creation of geneve tunnel.
         """
         gen_dict, geneveTunnel = self.setUp()
         cbt = CBT()
@@ -93,6 +97,21 @@ class GeneveTunnelTestCase(unittest.TestCase):
         idx = ipr.link_lookup(ifname=gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["DeviceName"])
         assert (len(idx)==0),"Link not removed!"
         print("Passed : test_req_handler_remove_tunnel")
+
+    def test_req_handler_auth_tunnel(self):
+        """
+        Test to check the authorization of geneve tunnel.
+        """
+        gen_dict, geneveTunnel = self.setUp()
+        cbt = CBT()
+        cbt.request.params = {"OverlayId": gen_dict["GeneveTunnel"]["Overlays"], 
+                            "PeerId": gen_dict["GeneveTunnel"]["NodeId"], 
+                            "TunnelId": gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["TunnelId"]}
+        geneveTunnel.req_handler_auth_tunnel(cbt)
+        authorised = geneveTunnel._is_tunnel_authorised(gen_dict["GeneveTunnel"]["Overlays"]["A0FB389"]["TunnelId"])
+        assert (authorised), "Tunnel not authorized!"
+        print("Passed: test_req_hanlder_auth_tunnel")
+       
 
 if __name__ == '__main__':
     unittest.main()
