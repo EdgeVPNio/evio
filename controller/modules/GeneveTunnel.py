@@ -47,7 +47,6 @@ class GeneveTunnel(ControllerModule):
     
     def initialize(self):
         self.logger.info("Module loaded")
-        print("Config data: %s", self.config)
 
     def process_cbt(self, cbt):
         if cbt.op_type == "Request":
@@ -95,8 +94,6 @@ class GeneveTunnel(ControllerModule):
         return False
 
     def _is_tunnel_authorised(self, tunnel_id):
-        print(self._auth_tunnels.get(tunnel_id))
-        print(self._auth_tunnels.get(tunnel_id).state)
         tun = self._auth_tunnels.get(tunnel_id)
         if tun is not None and tun.state == "Authorized":
             return True

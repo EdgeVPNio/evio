@@ -24,6 +24,7 @@ import logging
 import importlib
 from framework.CBT import CBT
 from unittest.mock import MagicMock, Mock, patch
+from pyroute2 import IPRoute
 
 from modules.GeneveTunnel import GeneveTunnel
 
