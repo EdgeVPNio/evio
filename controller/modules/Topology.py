@@ -28,11 +28,12 @@ from framework.CFx import CFX
 from framework.ControllerModule import ControllerModule
 from framework.Modlib import RemoteAction
 from .NetworkBuilder import NetworkBuilder
-from .TunnelSelector import TunnelSelector
 from .NetworkBuilder import EdgeRequest
 from .NetworkBuilder import EdgeResponse
 from .NetworkBuilder import EdgeNegotiate
+from .NetworkGraph import EdgeState
 from .GraphBuilder import GraphBuilder
+from .TunnelSelector import TunnelSelector
 
 MaxSuccessors = 1
 MaxOnDemandEdges = 0
@@ -100,8 +101,8 @@ class Topology(ControllerModule, CFX):
         self.start_subscription("LinkManager", "LNK_TUNNEL_EVENTS")
         nid = self.node_id
         for olid in self.overlays:
-            loc_id = self.config["OverlayId"][olid].get("LocationId", None)
-            req_encr = self.config["OverlayId"][olid].get("RequireEncryption", False)
+            loc_id = self.config["Overlays"][olid].get("LocationId", None)
+            req_encr = self.config["Overlays"][olid].get("EncryptionRequired", False)
             self._net_ovls[olid] = dict(NewPeerCount=0,
                                         NetBuilder=NetworkBuilder(self, olid, nid),
                                         TunnelSelector=TunnelSelector(self, olid, nid, loc_id, req_encr),
@@ -180,7 +181,7 @@ class Topology(ControllerModule, CFX):
         olid = params["OverlayId"]
         peer_id = params["PeerId"]
         if peer_id not in self._net_ovls[olid]["KnownPeers"]:
-            self.logger.warn(f"Peer {peer_id} misssig from known list, adding")
+            self.logger.warning(f"Peer {peer_id} misssig from known list, adding")
             disc = DiscoveredPeer(peer_id)
             self._net_ovls[olid]["KnownPeers"][peer_id] = disc
             disc.presence()
@@ -238,6 +239,8 @@ class Topology(ControllerModule, CFX):
             self.complete_cbt(edge_cbt)
             return
         edge_resp = self._net_ovls[olid]["NetBuilder"].negotiate_incoming_edge(edge_req)
+        if not edge_resp:
+            return
         if edge_resp.is_accepted:
             peer_id = edge_req.initiator_id
             edge_id = edge_req.edge_id
@@ -347,6 +350,7 @@ class Topology(ControllerModule, CFX):
                 elif cbt.request.action == "LNK_AUTH_TUNNEL":
                     self.resp_handler_auth_tunnel(cbt)
                 else:
+                    self.logger.debug("No action matched for CBT response")
                     parent_cbt = cbt.parent
                     cbt_data = cbt.response.data
                     cbt_status = cbt.response.status
@@ -390,8 +394,9 @@ class Topology(ControllerModule, CFX):
     def top_send_negotiate_edge_req(self, edge_req):
         """Role Node A, Send a request to create an edge to the peer """
         olid = edge_req.overlay_id
-        edge_req.location_id = self.config["OverlayId"][olid].get("LocationId", None)
-        edge_req.encryption_required = self.config["OverlayId"][olid].get("EncryptionRequired", None)
+        location_id = self.config["Overlays"][olid].get("LocationId", None)
+        encryption_required = self.config["Overlays"][olid].get("EncryptionRequired", None)
+        edge_req = edge_req._replace(location_id=location_id, encryption_required=encryption_required)
         self.log("LOG_DEBUG", "Requesting edge auth edge_req=%s", edge_req)
         edge_params = edge_req._asdict()
         rem_act = RemoteAction(olid, recipient_id=edge_req.recipient_id,
@@ -404,7 +409,7 @@ class Topology(ControllerModule, CFX):
         adjl = self._net_ovls[overlay_id]["NetBuilder"].get_adj_list()
         topo = {}
         for peer_id in adjl.conn_edges:
-            if adjl.conn_edges[peer_id].edge_state == "CEStateConnected":
+            if adjl.conn_edges[peer_id].edge_state == EdgeState.Connected:
                 topo[peer_id] = dict(adjl.conn_edges[peer_id]) # create a dict from CE
         update = {"OverlayId": overlay_id, "Topology": topo}
         self._topo_changed_publisher.post_update(update)    
@@ -426,7 +431,7 @@ class Topology(ControllerModule, CFX):
         if nb.is_ready:
             net_ovl["NewPeerCount"] = 0
             ovl_cfg = self.config["Overlays"][olid]
-            enf_lnks = ovl_cfg.get("EnforcedEdges", [])
+            enf_lnks = ovl_cfg.get("StaticEdges", [])
             peer_list = [peer_id for peer_id in net_ovl["KnownPeers"] \
                 if net_ovl["KnownPeers"][peer_id].is_available]
             if not peer_list:
@@ -434,18 +439,19 @@ class Topology(ControllerModule, CFX):
             max_succ = int(ovl_cfg.get("MaxSuccessors", MaxSuccessors))
             max_ond = int(ovl_cfg.get("MaxOnDemandEdges", MaxOnDemandEdges))
             num_peers = len(peer_list) if len(peer_list) > 1 else 2
-            max_ldl = int(ovl_cfg.get("MaxLongDistEdges", math.ceil(math.log(num_peers+1, 2))))
+            max_ldl = int(ovl_cfg.get("MaxLongDistEdges", math.floor(math.log(num_peers+1, 2))))
             manual_topo = ovl_cfg.get("ManualTopology", False)
             if self.config["Overlays"][olid].get("Role", "Switch").casefold() == \
                 "leaf".casefold():
                 manual_topo = True
             params = {"OverlayId": olid, "NodeId": self.node_id, "ManualTopology": manual_topo,
-                      "EnforcedEdges": enf_lnks, "MaxSuccessors": max_succ,
+                      "StaticEdges": enf_lnks, "MaxSuccessors": max_succ,
                       "MaxLongDistEdges": max_ldl, "MaxOnDemandEdges": max_ond}
             gb = GraphBuilder(params, top=self)
             curr_adjl = nb.get_adj_list()
-            adjl = gb.build_adj_list(peer_list, curr_adjl, net_ovl["OndPeers"], relink=False)
-            nb.refresh(adjl)
+            # adjl = gb.build_adj_list(peer_list, curr_adjl, net_ovl["OndPeers"], relink=False)
+            nett = gb.get_network_transitions(peer_list, curr_adjl, net_ovl["OndPeers"])
+            nb.refresh(nett)
         else:
             nb.refresh()
 

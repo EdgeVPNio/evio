@@ -21,14 +21,16 @@
 
 import importlib
 import logging
+import time
+import uuid
 import unittest
 from unittest.mock import MagicMock, Mock, patch
 
 from framework.CBT import CBT
 from modules.Topology import DiscoveredPeer
-from modules.NetworkGraph import ConnectionEdge, ConnEdgeAdjacenctList
+from modules.NetworkGraph import ConnectionEdge, ConnEdgeAdjacenctList, EdgeState, EdgeTypes, EdgeTypesOut
 from modules.NetworkGraph import NetworkTransitions, UpdatePriority
-#from modules.NetworkGraph import EdgeState, EdgeTypes
+from modules.NetworkBuilder import EdgeRequest, EdgeNegotiate, NetworkBuilder
 
 
 class TopologyTest(unittest.TestCase):
@@ -37,15 +39,15 @@ class TopologyTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(self):
-        _logger = logging.getLogger()
-        _logger.setLevel(logging.DEBUG)
-        # Console Logger
-        console_handler = logging.StreamHandler()
-        console_log_formatter = logging.Formatter(
-            "[%(asctime)s.%(msecs)03d] %(levelname)s:%(name)s: %(message)s",
-            datefmt="%H:%M:%S")
-        console_handler.setFormatter(console_log_formatter)
-        _logger.addHandler(console_handler)
+        # _logger = logging.getLogger()
+        # _logger.setLevel(logging.DEBUG)
+        # # Console Logger
+        # console_handler = logging.StreamHandler()
+        # console_log_formatter = logging.Formatter(
+        #     "[%(asctime)s.%(msecs)03d] %(levelname)s:%(name)s: %(message)s",
+        #     datefmt="%H:%M:%S")
+        # console_handler.setFormatter(console_log_formatter)
+        # _logger.addHandler(console_handler)
         self.config = {
             "Topology": {
                 "Enabled": True,
@@ -134,15 +136,101 @@ class TopologyTest(unittest.TestCase):
 
     def test_req_handler_negotiate_edge(self):
         self.top.initialize()
-        params = {"overlay_id": 'A0FB389', "edge_id": 'a9e7dd3091a444da8b106e8299dd2ff2', "edge_type": 'CETypeStatic',
-                  "initiator_id": '987654321', "recipient_id": '1234434323', "location_id": 12345, "encryption_required": False}
+        params = {"overlay_id": "A0FB389", "edge_id": "a9e7dd3091a444da8b106e8299dd2ff2", "edge_type": "CETypeStatic",
+                  "initiator_id": "987654321", "recipient_id": "1234434323", "location_id": 12345, "encryption_required": False}
         edge_cbt = CBT("Signal", "Topology", "TOP_NEGOTIATE_EDGE", params)
         # with self.assertLogs(level=logging.WARNING):
         self.top.req_handler_negotiate_edge(edge_cbt)
         print("passed: test_req_handler_negotiate_edge")
 
+  
 ###################################################################################################
-# NetworkOperations
+# ConnEdgeAdjacenctList
+###################################################################################################      
+
+  
+###################################################################################################
+# NetworkBuilder
+###################################################################################################
+        
+    def test_initiate_create_edge(self):
+        self.top.initialize()
+        ce = ConnectionEdge("128", uuid.uuid4().hex, EdgeTypesOut.Successor)
+        netb = self.top._net_ovls["A0FB389"]["NetBuilder"]
+        netb._initiate_create_edge(ce)
+        self.assertTrue(netb._adj_list)
+        self.assertEqual(ce.edge_state, EdgeState.PreAuth)
+        print("passed: test_initiate_create_edge")
+      
+    def test_complete_edge_negotiation(self):
+        self.top.initialize()
+        ce = ConnectionEdge("256", uuid.uuid4().hex, EdgeTypesOut.OnDemand)
+        ce.edge_state = EdgeState.PreAuth
+        netb = self.top._net_ovls["A0FB389"]["NetBuilder"]
+        netb._adj_list.add_conn_edge(ce)
+        en = EdgeNegotiate(overlay_id="A0FB389", edge_id=ce.edge_id, edge_type=ce.edge_type,
+                         recipient_id=ce.peer_id, initiator_id=netb._adj_list.node_id, location_id=0,
+                         encryption_required=False, is_accepted=True, data="Edge Accepted")
+        netb.complete_edge_negotiation(en)
+        self.assertEqual(ce.edge_state, EdgeState.Authorized)
+        print("passed: test_complete_edge_negotiation")
+      
+    def test_complete_edge_negotiation_accept_collision(self):
+        self.top.initialize()
+        ce = ConnectionEdge("256", uuid.uuid4().hex, EdgeTypesOut.OnDemand)
+        ce.edge_state = EdgeState.PreAuth
+        netb = self.top._net_ovls["A0FB389"]["NetBuilder"]
+        netb._adj_list.add_conn_edge(ce)
+        msg = f"E1 - A valid edge already exists. TunnelId={ce.edge_id[:7]}"
+
+        en = EdgeNegotiate(overlay_id="A0FB389", edge_id=ce.edge_id, edge_type=ce.edge_type,
+                         recipient_id=ce.peer_id, initiator_id=netb._adj_list.node_id, location_id=0,
+                         encryption_required=False, is_accepted=True, data="Edge Accepted")
+        netb.complete_edge_negotiation(en)
+        self.assertEqual(ce.edge_state, EdgeState.Authorized)
+        print("passed: test_complete_edge_negotiation_accept_collision")        
+
+    def test_complete_edge_negotiation_reject_collision(self):
+        self.top.initialize()
+        ce = ConnectionEdge("256", uuid.uuid4().hex, EdgeTypesOut.OnDemand)
+        ce.edge_state = EdgeState.PreAuth
+        netb = self.top._net_ovls["A0FB389"]["NetBuilder"]
+        netb._adj_list.add_conn_edge(ce)
+        msg = f"E2 - Node {'256'} superceeds edge request due to collision, edge={ce.edge_id[:7]}"
+        en = EdgeNegotiate(overlay_id="A0FB389", edge_id=ce.edge_id, edge_type=ce.edge_type,
+                         recipient_id=ce.peer_id, initiator_id=netb._adj_list.node_id, location_id=0,
+                         encryption_required=False, is_accepted=False, data=msg)
+        netb.complete_edge_negotiation(en)
+        self.assertEqual(ce.edge_state, EdgeState.PreAuth)
+        print("passed: test_complete_edge_negotiation_reject_collision")
+              
+    def test_complete_edge_negotiation_reject(self):
+        self.top.initialize()
+        ce = ConnectionEdge("256", uuid.uuid4().hex, EdgeTypesOut.OnDemand)
+        ce.edge_state = EdgeState.PreAuth
+        netb = self.top._net_ovls["A0FB389"]["NetBuilder"]
+        netb._adj_list.add_conn_edge(ce)
+        en = EdgeNegotiate(overlay_id="A0FB389", edge_id=ce.edge_id, edge_type=ce.edge_type,
+                         recipient_id=ce.peer_id, initiator_id=netb._adj_list.node_id, location_id=0,
+                         encryption_required=False, is_accepted=False, data="E5 - Too many existing edges.")
+        netb.complete_edge_negotiation(en)
+        self.assertEqual(ce.edge_state, EdgeState.Deleting)
+        print("passed: test_complete_edge_negotiation_reject")
+                
+    def test_initiate_remove_edge(self):
+        self.top.initialize()
+        netb = self.top._net_ovls["A0FB389"]["NetBuilder"]
+        ce = ConnectionEdge("256", uuid.uuid4().hex, EdgeTypesOut.LongDistance)
+        ce.connected_time = time.time() - (NetworkBuilder._EDGE_PROTECTION_AGE + 1)
+        ce.edge_state = EdgeState.Connected
+        netb._adj_list.add_conn_edge(ce)
+        
+        netb._initiate_remove_edge(ce)
+        # self.assertEqual(len(netb._adj_list), 0)
+        # self.assertFalse(netb._adj_list)
+        print("passed: test_initiate_remove_edge")
+###################################################################################################
+# NetworkTransitions
 ###################################################################################################
 
     def test_network_transitions(self):
@@ -199,5 +287,14 @@ class TopologyTest(unittest.TestCase):
         print("passed: test_netop_diff\n")
 
 
-if __name__ == '__main__':
-    unittest.main()
+if __name__ == "__main__":
+    # unittest.main()
+    suite = unittest.TestSuite()
+    suite.addTest(TopologyTest("test_initiate_create_edge"))
+    suite.addTest(TopologyTest("test_complete_edge_negotiation"))
+    #suite.addTest(TopologyTest("test_complete_edge_negotiation_accept_collision"))
+    suite.addTest(TopologyTest("test_complete_edge_negotiation_reject_collision"))
+    suite.addTest(TopologyTest("test_complete_edge_negotiation_reject"))
+    suite.addTest(TopologyTest("test_initiate_remove_edge"))
+    runner = unittest.TextTestRunner()
+    runner.run(suite)    
