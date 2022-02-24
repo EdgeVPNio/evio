@@ -71,13 +71,13 @@ class BoundedFloodTestCase(unittest.TestCase):
                         "MaxOnDemandEdges": 0
                     }
         }
-                
+
     def tearDown(self):
         del self.logger
         self.logger = None
         del self.config
         self.config = None
-        
+
     def setup_vars_mocks(self):
         """
         Setup the variables and the mocks required by the unit tests.
