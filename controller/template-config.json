@@ -37,6 +37,18 @@
       }
     }
   },
+  "GeneveTunnel": {
+    "Overlays":{
+      "_OVERLAYNAME_": {
+        "TunnelType": "geneve",
+        "DeviceName": "gentunnel",
+        "UID": 123456,
+        "NodeA": "192.168.0.5",
+        "NodeB": "192.168.0.6",
+        "DestPort": ""
+      }
+    }
+  },
   "LinkManager": {
     "Stun": [
       "stun.l.google.com:19302",
