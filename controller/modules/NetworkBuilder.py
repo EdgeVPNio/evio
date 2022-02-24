@@ -143,7 +143,7 @@ class NetworkBuilder():
             self._top.logger.debug("%s event recvd peer_id: %s, edge_id: %s",
                                    EdgeState.Disconnected, peer_id, edge_id)
             self._adj_list[peer_id].edge_state = EdgeState.Disconnected
-            self._top.top_remove_edge(overlay_id, peer_id)
+            self._top.top_remove_edge(overlay_id, peer_id, edge_id)
         elif event["UpdateType"] == "LnkEvRemoved":
             self._adj_list[peer_id].edge_state = EdgeState.Deleting
             del self._adj_list[peer_id]
@@ -180,7 +180,7 @@ class NetworkBuilder():
         if conn_edge:
             if conn_edge.marked_for_delete and conn_edge.edge_state == EdgeState.Connected:
                 conn_edge.edge_state = EdgeState.Deleting
-                self._top.top_remove_edge(overlay_id, conn_edge.peer_id)
+                self._top.top_remove_edge(overlay_id, conn_edge.peer_id, conn_edge.edge_id)
                 
     # def _mark_edges_for_removal(self):
     #     """
@@ -212,7 +212,7 @@ class NetworkBuilder():
             ce = self._adj_list[peer_id]
             if (ce.marked_for_delete and ce.edge_state == EdgeState.Connected):
                 ce.edge_state = EdgeState.Deleting
-                self._top.top_remove_edge(overlay_id, peer_id)
+                self._top.top_remove_edge(overlay_id, peer_id, ce.edge_id)
                 return
 
     def _initiate_create_edge(self, ce):

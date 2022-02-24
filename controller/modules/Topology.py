@@ -383,10 +383,10 @@ class Topology(ControllerModule, CFX):
         params = {"OverlayId": overlay_id, "PeerId": peer_id, "TunnelId": edge_id}
         self.register_cbt("LinkManager", "LNK_CREATE_TUNNEL", params)
 
-    def top_remove_edge(self, overlay_id, peer_id):
+    def top_remove_edge(self, overlay_id, peer_id, edge_id):
         self.log("LOG_INFO", "Removing peer edge %s:%s->%s",
                  overlay_id, self.node_id[:7], peer_id[:7])
-        self._net_ovls[overlay_id]["TunnelSelector"].remove_tunnel(peer_id)
+        self._net_ovls[overlay_id]["TunnelSelector"].remove_tunnel(peer_id, edge_id)
         return
         params = {"OverlayId": overlay_id, "PeerId": peer_id}
         self.register_cbt("LinkManager", "LNK_REMOVE_TUNNEL", params)
