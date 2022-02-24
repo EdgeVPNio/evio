@@ -33,6 +33,9 @@ from .NetworkBuilder import EdgeRequest
 from .NetworkBuilder import EdgeResponse
 from .NetworkBuilder import EdgeNegotiate
 from .GraphBuilder import GraphBuilder
+from .TunnelSelector import authorize_tunnel
+from .TunnelSelector import create_tunnel
+from .TunnelSelector import remove_tunnel
 
 MaxSuccessors = 1
 MaxOnDemandEdges = 0
@@ -51,11 +54,11 @@ class DiscoveredPeer():
         self.max_successive_fails =  kwargs.get("MaxSuccessiveFails", 4)
         self.successive_fails_incr =  kwargs.get("SuccessiveFailsIncr", 1)
         self.successive_fails_decr =  kwargs.get("SuccessiveFailsDecr", 2)
-        
+
     def __repr__(self):
         items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
         return "{{{}}}".format(", ".join(items))
-      
+
     def exclude(self):
         self.successive_fails += self.successive_fails_incr
         self.available_time = (randint(1, 4) * self.exclusion_base_interval *
@@ -77,7 +80,7 @@ class DiscoveredPeer():
 
     def is_expired(self):
         return bool(time.time() - self.last_checkin >= self.expiry_interval)
-    
+
     @property
     def is_available(self):
         return bool((not self.is_banned) # successive_fails < max_successive_fails
@@ -93,7 +96,7 @@ class Topology(ControllerModule, CFX):
         self._topo_changed_publisher = None
         self._last_trim_time = time.time()
         self._trim_check_interval = self.config.get("TrimCheckInterval", TrimCheckInterval)
-      
+
     def initialize(self):
         self._topo_changed_publisher = self.publish_subscription("TOP_TOPOLOGY_CHANGE")
         self.start_subscription("Signal", "SIG_PEER_PRESENCE_NOTIFY")
@@ -117,7 +120,7 @@ class Topology(ControllerModule, CFX):
                          "OverlayVisualizer module not loaded. "
                          "Visualization data will not be sent.")
         self.logger.info("Module loaded")
-        
+
     def terminate(self):
         pass
 
@@ -212,7 +215,7 @@ class Topology(ControllerModule, CFX):
                 self._net_ovls[olid]["OndPeers"].append(op)
                 self.log("LOG_DEBUG", "Added on-demand tunnel request to queue %s", op)
             else:
-                self.log("LOG_WARNING", 
+                self.log("LOG_WARNING",
                         "Invalid on-demand tunnel request parameter, OverlayId=%s, PeerId=%s",
                         olid, peer_id)
 
@@ -221,7 +224,7 @@ class Topology(ControllerModule, CFX):
         edge_req = EdgeRequest(**edge_cbt.request.params)
         olid = edge_req.overlay_id
         if olid not in self.config["Overlays"]:
-            self.log("LOG_WARNING", 
+            self.log("LOG_WARNING",
                      "The requested overlay is not specified in "
                      "local config, the edge request is discarded")
             edge_cbt.set_response("Unknown overlay id specified in edge request", False)
@@ -258,7 +261,7 @@ class Topology(ControllerModule, CFX):
                     peer_list[olid].append(peer_id)
         cbt.set_response(peer_list, True)
         self.complete_cbt(cbt)
-        
+
     def resp_handler_auth_tunnel(self, cbt):
         """ Role B
             LNK auth completed, add the CE to Netbuilder and send response to initiator ie., Role A
@@ -398,7 +401,7 @@ class Topology(ControllerModule, CFX):
                                recipient_cm="Topology", action="TOP_NEGOTIATE_EDGE",
                                params=edge_params)
         rem_act.submit_remote_act(self)
-        
+
     def _do_topo_change_post(self, overlay_id):
         # create and post the dict of adjacent connection edges
         adjl = self._net_ovls[overlay_id]["NetBuilder"].get_adj_list()
@@ -407,7 +410,7 @@ class Topology(ControllerModule, CFX):
             if adjl.conn_edges[peer_id].edge_state == "CEStateConnected":
                 topo[peer_id] = dict(adjl.conn_edges[peer_id]) # create a dict from CE
         update = {"OverlayId": overlay_id, "Topology": topo}
-        self._topo_changed_publisher.post_update(update)    
+        self._topo_changed_publisher.post_update(update)
 
     def _trim_inactive_peers(self, olid):
         rmv = []
@@ -419,7 +422,7 @@ class Topology(ControllerModule, CFX):
             self.logger.debug(f"Removing expired peer {peer_id}")
             self._net_ovls[olid]["KnownPeers"].pop(peer_id)
         self._last_trim_time = time.time()
-        
+
     def _update_overlay(self, olid):
         net_ovl = self._net_ovls[olid]
         nb = net_ovl["NetBuilder"]
@@ -449,7 +452,7 @@ class Topology(ControllerModule, CFX):
         else:
             nb.refresh()
 
-    def _authorize_edge(self, overlay_id, peer_id, edge_id, parent_cbt):
+    def _authorize_edge(self, overlay_id, peer_id, edge_id, parent_cbt, peer_loc_id):
         self.log("LOG_INFO", "Authorizing peer edge from %s:%s->%s",
                  overlay_id, peer_id[:7], self.node_id[:7])
         params = {"OverlayId": overlay_id, "PeerId": peer_id, "TunnelId": edge_id}
