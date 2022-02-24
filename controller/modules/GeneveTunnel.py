@@ -23,6 +23,12 @@ from framework.ControllerModule import ControllerModule
 from pyroute2 import IPRoute
 from pyroute2 import NDB
 
+class TunnelDescriptor():
+    def __init__(self, tunnel_id, overlay_id, peer_id):
+        self.tunnel_id = None
+        self.overlay_id = None
+        self.peer_id = None
+        self.state = "Initialized"
 
 class GeneveTunnel(ControllerModule):
 
@@ -32,6 +38,12 @@ class GeneveTunnel(ControllerModule):
         print("Geneve Tunnel constructor")
         self.ipr = IPRoute()
         self.ndb = NDB()
+        self._tunnels = {}   # maps tunnel id to its descriptor
+        self._peers = {}     # maps overlay id to peers map, which maps peer id to tunnel id
+        self._auth_tunnels = {} # overlay id tunnel id,  
+        # self._links = {}     # maps link id to tunnel id
+        # self._lock = threading.Lock()  # serializes access to _overlays, _links
+        # self._link_updates_publisher = None
     
     def initialize(self):
         self.logger.info("Module loaded")
@@ -82,16 +94,36 @@ class GeneveTunnel(ControllerModule):
             return True
         return False
 
+    def _is_tunnel_authorised(self, tunnel_id):
+        print(self._auth_tunnels.get(tunnel_id))
+        print(self._auth_tunnels.get(tunnel_id).state)
+        tun = self._auth_tunnels.get(tunnel_id)
+        if tun is not None and tun.state == "Authorized":
+            return True
+        return False
+
+    def req_handler_auth_tunnel(self, cbt):
+        olid = cbt.request.params["OverlayId"]
+        peer_id = cbt.request.params["PeerId"]
+        tnlid = cbt.request.params["TunnelId"]
+
+        self._auth_tunnels[tnlid] = TunnelDescriptor(tnlid, olid, peer_id)
+        self._auth_tunnels[tnlid].state = "Authorized"
+
+        cbt.set_response(None, True)
+        self.complete_cbt(cbt)
+
     def req_handler_create_tunnel(self, cbt):
-        tnl_type = cbt.request.params["TunnelType"]
+        tunnel_id = cbt.request.params["TunnelId"]
         remote_addr = cbt.request.params["RemoteAddr"]
         dst_port = cbt.request.params["DstPort"]
         dev_name = cbt.request.params["DeviceName"]
-        uid = cbt.request.params["UID"]
+        if not self._is_tunnel_authorised(tunnel_id):
+            cbt.set_response(data=f"Tunnel {dev_name} not authorized", status=False)
         if not self._is_tunnel_exist(dev_name):
             self._create_geneve_tunnel(
-                dev_name, id, remote_addr, dst_port)
-            cbt.response.set_response(
+                dev_name, tunnel_id, remote_addr, dst_port)
+            cbt.set_response(
                 data=f"Tunnel {dev_name} created", status=True)
         else:
             cbt.set_response(
