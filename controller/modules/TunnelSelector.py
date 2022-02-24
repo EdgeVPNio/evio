@@ -36,7 +36,7 @@ class TunnelSelector():
         self._tunnels = {} # Maps tunnel_id to 'type', 'state', and 'time'
 
     def authorize_tunnel(self, peer_id, tunnel_id, peer_loc_id):
-        if self.loc_id is not None and self.loc_id == peer_loc_id:
+        if self._loc_id is not None and self._loc_id == peer_loc_id:
             params = {"OverlayId": self._overlay_id, "PeerId": peer_id, "TunnelId": tunnel_id, "LocationId": peer_loc_id}
             self.logger.info("Sending request for GENEVE tunnel authorization ...")
             self._tunnels[tunnel_id] = {'type': 'GENEVE', 'state': 'authorized', 'time': time.time()}
@@ -52,7 +52,7 @@ class TunnelSelector():
         del self._tunnels[tunnel_id]
 
     def create_tunnel(self, peer_id, tunnel_id):
-        params = {"OverlayId": self.overlay_id, "PeerId": peer_id, "TunnelId": tunnel_id}
+        params = {"OverlayId": self._overlay_id, "PeerId": peer_id, "TunnelId": tunnel_id}
         if self._tunnels[tunnel_id]['state'] == 'authorized':
             current_time = time.time()
             if current_time - self._tunnels[tunnel_id]['time'] < 180:
@@ -71,7 +71,7 @@ class TunnelSelector():
             self.logger.warning("Tunnel to create is not authorized")
 
     def remove_tunnel(self, peer_id, tunnel_id):
-        params = {"OverlayId": self.overlay_id, "PeerId": peer_id, "TunnelId": tunnel_id}
+        params = {"OverlayId": self._overlay_id, "PeerId": peer_id, "TunnelId": tunnel_id}
         if self._tunnels[tunnel_id]['state'] == 'created':
             if self._tunnels[tunnel_id]['type'] == "GENEVE":
                 self.logger.info("Sending request for GENEVE tunnel removal ...")
