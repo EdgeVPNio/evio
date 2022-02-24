@@ -87,9 +87,7 @@ class ControllerModule():
         return self._cfx_handle.query_param("Overlays")
 
     def req_handler_default(self, cbt):
-        log = "Unsupported CBT action {0}".format(cbt)
-        self.register_cbt("Logger", "LOG_WARNING", log)
-        cbt.set_response(log, False)
+        self.logger.warning(f"Unsupported CBT action {cbt}")
         self.complete_cbt(cbt)
 
     def resp_handler_default(self, cbt):

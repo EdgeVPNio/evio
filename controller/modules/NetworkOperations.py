@@ -20,11 +20,14 @@
 # THE SOFTWARE.
 
 import time
+import types
 from .NetworkGraph import EdgeTypesOut
 
-OpType = ["OpTypeAdd", "OpTypeRemove", "OpTypeUpdate"]
+OpType = types.SimpleNamespace(OpTypeAdd = "OpTypeAdd",
+                               OpTypeRemove = "OpTypeRemove",
+                               OpTypeUpdate = "OpTypeUpdate")
 
-class OperationsModel():
+class TransitionModel():
     def __init__(self, conn_edge, op_type, priority):
         self.conn_edge = conn_edge
         self.op_type = op_type
@@ -35,10 +38,11 @@ class OperationsModel():
         items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
         return "{{{}}}".format(", ".join(items))
 
-class NetworkOperations():
-    def __init__(self):
+class NetworkTransitions():
+    def __init__(self, curr_net_graph, tgt_net_graph):
         self.operations = {}
         self._remain = 0
+        self._diff(curr_net_graph, tgt_net_graph)
         
     def __iter__(self):
         sorted_list = sorted(
@@ -57,29 +61,32 @@ class NetworkOperations():
     def __bool__(self):
         return bool(self._remain != 0)
     
-    def diff(self, curr_net_graph, tgt_net_graph):
+    def __len__(self):
+        return self._remain
+    
+    def _diff(self, curr_net_graph, tgt_net_graph):
         for peer_id in tgt_net_graph.conn_edges:
             if peer_id not in curr_net_graph.conn_edges:
                 # Op Add
                 if tgt_net_graph.conn_edges[peer_id].edge_type == 'CETypeEnforced':
-                    op = OperationsModel(
+                    op = TransitionModel(
                         tgt_net_graph.conn_edges[peer_id], OpType[0], 1)
                     self.operations[peer_id] = op
                 elif tgt_net_graph.conn_edges[peer_id].edge_type == "CETypeSuccessor":
-                    op = OperationsModel(
+                    op = TransitionModel(
                         tgt_net_graph.conn_edges[peer_id], OpType[0], 2)
                     self.operations[peer_id] = op
                 elif tgt_net_graph.conn_edges[peer_id].edge_type == "CETypeOnDemand":
-                    op = OperationsModel(
+                    op = TransitionModel(
                         tgt_net_graph.conn_edges[peer_id], OpType[0], 4)
                     self.operations[peer_id] = op
                 elif tgt_net_graph.conn_edges[peer_id].edge_type == "CETypeLongDistance":
-                    op = OperationsModel(
+                    op = TransitionModel(
                         tgt_net_graph.conn_edges[peer_id], OpType[0], 7)
                     self.operations[peer_id] = op
             else:
                 # Op Update
-                op = OperationsModel(
+                op = TransitionModel(
                     tgt_net_graph.conn_edges[peer_id], OpType[2], 0)
                 self.operations[peer_id] = op
 
@@ -90,16 +97,16 @@ class NetworkOperations():
                     if curr_net_graph.conn_edges[peer_id].edge_state == "CEStateConnected" and\
                            time.time() - curr_net_graph[peer_id].connected_time > 30:
                         if curr_net_graph.conn_edges[peer_id].edge_type == "CETypeOnDemand":
-                            op = OperationsModel(
+                            op = TransitionModel(
                                 curr_net_graph.conn_edges[peer_id], OpType[1], 3)
                             self.operations[peer_id] = op
                         elif curr_net_graph.conn_edges[peer_id].edge_type == "CETypeSuccessor":
-                            op = OperationsModel(
+                            op = TransitionModel(
                                 curr_net_graph.conn_edges[peer_id], OpType[1], 5)
                             self.operations[peer_id] = op
                         elif curr_net_graph.conn_edges[peer_id].edge_type == \
                             "CETypeLongDistance":
-                            op = OperationsModel(
+                            op = TransitionModel(
                                 curr_net_graph.conn_edges[peer_id], OpType[1], 6)
                             self.operations[peer_id] = op
         self._remain = len(self.operations)
