@@ -61,23 +61,23 @@ class TunnelSelector():
         return SupportedTunnels
     
         
-    def authorize_tunnel(self, peer_id, tunnel_id, peer_loc_id):
-        if self._loc_id is not None and self._loc_id == peer_loc_id:
-            params = {"OverlayId": self._overlay_id, "PeerId": peer_id,
-                      "TunnelId": tunnel_id, "LocationId": peer_loc_id}
-            self.logger.info(
-                "Sending request for GENEVE tunnel authorization ...")
-            self._tunnels[tunnel_id] = {
-                'type': 'GENEVE', 'state': 'authorized', 'time': time.time()}
-            self._top.register_cbt("GeneveTunnel", "GNV_AUTH_TUNNEL", params)
-        else:
-            params = {"OverlayId": self._overlay_id,
-                      "PeerId": peer_id, "TunnelId": tunnel_id}
-            self.logger.info(
-                "Sending request for Tincan tunnel authorization ...")
-            self._tunnels[tunnel_id] = {
-                'type': 'Tincan', 'state': 'authorized', 'time': time.time()}
-            self._top.register_cbt("LinkManager", "LNK_AUTH_TUNNEL", params)
+    # def authorize_tunnel(self, peer_id, tunnel_id, peer_loc_id):
+    #     if self._loc_id is not None and self._loc_id == peer_loc_id:
+    #         params = {"OverlayId": self._overlay_id, "PeerId": peer_id,
+    #                   "TunnelId": tunnel_id, "LocationId": peer_loc_id}
+    #         self.logger.info(
+    #             "Sending request for GENEVE tunnel authorization ...")
+    #         self._tunnels[tunnel_id] = {
+    #             'type': 'GENEVE', 'state': 'authorized', 'time': time.time()}
+    #         self._top.register_cbt("GeneveTunnel", "GNV_AUTH_TUNNEL", params)
+    #     else:
+    #         params = {"OverlayId": self._overlay_id,
+    #                   "PeerId": peer_id, "TunnelId": tunnel_id}
+    #         self.logger.info(
+    #             "Sending request for Tincan tunnel authorization ...")
+    #         self._tunnels[tunnel_id] = {
+    #             'type': 'Tincan', 'state': 'authorized', 'time': time.time()}
+    #         self._top.register_cbt("LinkManager", "LNK_AUTH_TUNNEL", params)
 
     def expire_authorized_tunnel(self, peer_id, tunnel_id):
         self.logger.info("Expiring tunnel authorization ...")
@@ -86,28 +86,28 @@ class TunnelSelector():
     def create_tunnel(self, peer_id, tunnel_id):
         params = {"OverlayId": self._overlay_id,
                   "PeerId": peer_id, "TunnelId": tunnel_id}
-        if self._tunnels[tunnel_id]['state'] == 'authorized':
-            current_time = time.time()
-            if current_time - self._tunnels[tunnel_id]['time'] < 180:
-                if self._tunnels[tunnel_id]['type'] == "GENEVE":
-                    self.logger.info(
-                        "Sending request for GENEVE tunnel creation ...")
-                    self._tunnels[tunnel_id] = {
-                        'state': 'created', 'time': time.time()}
-                    self._top.register_cbt(
-                        "GeneveTunnel", "GNV_CREATE_TUNNEL", params)
-                else:
-                    self.logger.info(
-                        "Sending request for Tincan tunnel creation ...")
-                    self._tunnels[tunnel_id] = {
-                        'state': 'created', 'time': time.time()}
-                    self._top.register_cbt(
-                        "LinkManager", "LNK_CREATE_TUNNEL", params)
-            else:
-                self.logger.warning("Tunnel authorization already expired")
-                del self._tunnels[tunnel_id]
-        else:
-            self.logger.warning("Tunnel to create is not authorized")
+        # if self._tunnels[tunnel_id]['state'] == 'authorized':
+        #     current_time = time.time()
+        #     if current_time - self._tunnels[tunnel_id]['time'] < 180:
+        #         if self._tunnels[tunnel_id]['type'] == "GENEVE":
+        #             self.logger.info(
+        #                 "Sending request for GENEVE tunnel creation ...")
+        #             self._tunnels[tunnel_id] = {
+        #                 'state': 'created', 'time': time.time()}
+        #             self._top.register_cbt(
+        #                 "GeneveTunnel", "GNV_CREATE_TUNNEL", params)
+        #         else:
+        #             self.logger.info(
+        #                 "Sending request for Tincan tunnel creation ...")
+        #             self._tunnels[tunnel_id] = {
+        #                 'state': 'created', 'time': time.time()}
+        #             self._top.register_cbt(
+        #                 "LinkManager", "LNK_CREATE_TUNNEL", params)
+        #     else:
+        #         self.logger.warning("Tunnel authorization already expired")
+        #         del self._tunnels[tunnel_id]
+        # else:
+        #     self.logger.warning("Tunnel to create is not authorized")
 
     def remove_tunnel(self, peer_id, tunnel_id):
         params = {"OverlayId": self._overlay_id,
@@ -268,20 +268,6 @@ class TunnelSelector():
                 # self._negotiated_edges.pop(ce.peer_id)
                 self.create_tunnel(
                     self._adj_list.overlay_id, peer_id, edge_id)
-
-    def remove_edge(self, conn_edge=None):
-        overlay_id = self._adj_list.overlay_id
-        if not conn_edge:
-            for peer_id in self._adj_list:
-                ce = self._adj_list[peer_id]
-                if ce.marked_for_delete and ce.edge_state == EdgeState.Connected:
-                    conn_edge = ce
-        if conn_edge:
-            if conn_edge.marked_for_delete and conn_edge.edge_state == EdgeState.Connected:
-                conn_edge.edge_state = EdgeState.Deleting
-                self.log("LOG_INFO", "Removing peer edge %s:%s->%s",
-                        overlay_id, self.node_id[:7], peer_id[:7])
-                self.remove_tunnel(peer_id, conn_edge.edge_id)                
 
     def on_tunnel_event(self, event):
         pass
