@@ -25,10 +25,13 @@ from pyroute2 import NDB
 
 class TunnelDescriptor():
     def __init__(self, tunnel_id, overlay_id, peer_id):
-        self.tunnel_id = None
-        self.overlay_id = None
-        self.peer_id = None
+        self.tunnel_id = tunnel_id
+        self.overlay_id = overlay_id
+        self.peer_id = peer_id
         self.state = "Initialized"
+    
+    def __repr__(self): 
+        return "Test tunnel_id:% s state:% s" % (self.tunnel_id, self.state) 
 
 class GeneveTunnel(ControllerModule):
 
@@ -88,8 +91,11 @@ class GeneveTunnel(ControllerModule):
             return True
         return False
 
-    def _is_tunnel_authorised(self, tunnel_id):
-        tun = self._auth_tunnels.get(tunnel_id)
+    def _is_tunnel_authorized(self, tunnel_id):
+        print("Auth tunnel state inside")
+        print(self._auth_tunnels)
+        print(self._auth_tunnels.get(tunnel_id).state)
+        print(self._auth_tunnels[tunnel_id].state)
         if tun is not None and tun.state == "Authorized":
             return True
         return False
@@ -101,7 +107,10 @@ class GeneveTunnel(ControllerModule):
 
         self._auth_tunnels[tnlid] = TunnelDescriptor(tnlid, olid, peer_id)
         self._auth_tunnels[tnlid].state = "Authorized"
-
+        print("Auth tunnels")
+        print(self._auth_tunnels)
+        print("Auth tunnel state")
+        print(self._auth_tunnels.get(tnlid).state)
         cbt.set_response(None, True)
         self.complete_cbt(cbt)
 
@@ -110,7 +119,8 @@ class GeneveTunnel(ControllerModule):
         remote_addr = cbt.request.params["RemoteAddr"]
         dst_port = cbt.request.params["DstPort"]
         dev_name = cbt.request.params["DeviceName"]
-        if not self._is_tunnel_authorised(tunnel_id):
+        print(tunnel_id)
+        if not self._is_tunnel_authorized(tunnel_id):
             cbt.set_response(data=f"Tunnel {dev_name} not authorized", status=False)
         if not self._is_tunnel_exist(dev_name):
             self._create_geneve_tunnel(
