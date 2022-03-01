@@ -176,8 +176,8 @@ class ConnEdgeAdjacenctList(MutableMapping):
         self._node_id = node_id
         self._conn_edges = {}
         self.min_successors = min_succ
-        self.max_ldl = max_ldl
-        self.max_ond = max_ond
+        self.max_long_distance = max_ldl
+        self.max_ondemand = max_ond
         self.num_ldl = 0
         self.num_ldli = 0
         self.num_succ = 0
@@ -217,9 +217,9 @@ class ConnEdgeAdjacenctList(MutableMapping):
 
     def is_threshold(self, edge_type):
         if edge_type == EdgeTypesIn.ILongDistance:
-            return bool(self.num_ldli >= self.max_ldl)
+            return bool(self.num_ldli >= self.max_long_distance)
         if edge_type == EdgeTypesIn.IOnDemand:
-            return bool(self.num_ondi >= self.max_ond)
+            return bool(self.num_ondi >= self.max_ondemand)
         else:
             raise RuntimeWarning("EdgeType threshold not implemented")
         # return bool(self.num_ldli >= math.ceil(self.max_ldl * 1.5))
@@ -309,7 +309,7 @@ class NetworkTransitions():
         self._updates = deque()
         self._prev_priority = 0
         self.min_successors = tgt_net_graph.min_successors
-        self.max_ldl = tgt_net_graph.max_ldl
+        self.max_long_distance = tgt_net_graph.max_long_distance
         self.max_ondemand = tgt_net_graph.max_ondemand
         self._diff(curr_net_graph, tgt_net_graph)
 

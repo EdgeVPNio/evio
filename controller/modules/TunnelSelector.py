@@ -43,8 +43,7 @@ No need to track which tunnels are authorized. The NetworkBuilder already does.
 
 
 class TunnelSelector():
-    _REFLECT = set(["_overlay_id", "_node_id",
-                   "_loc_id", "_encr_req", "_tunnels"])
+    _REFLECT = set(["_loc_id", "_encr_req", "_tunnels"])
 
     def __init__(self, top_man, overlay_id, node_id, loc_id, encr_req):
         self._top = top_man
@@ -73,8 +72,7 @@ class TunnelSelector():
         if edge_state in (EdgeState.Authorized, EdgeState.Created, EdgeState.Connected):
             # Likely a duplicated Remote Action from Signal
             if conn_edge.edge_id == edge_req.edge_id:
-                msg = "E1 - A valid edge already exists. TunnelId={0}"\
-                    .format(self._adj_list[peer_id].edge_id[:7])
+                msg = f"E1 - A valid edge already exists. TunnelId={self._adj_list[peer_id].edge_id[:7]}"
                 edge_resp = EdgeResponse(is_accepted=False, data=msg)
                 self.logger.debug(msg)
             else:
@@ -92,8 +90,8 @@ class TunnelSelector():
         elif edge_state == EdgeState.PreAuth and self._node_id > edge_req.initiator_id:
             conn_edge.edge_type = transpose_edge_type(edge_req.edge_type)
             conn_edge.edge_id = edge_req.edge_id
-            msg = f"E0 - Node {self._node_id} accepts edge collision override. \
-                CE:{conn_edge.edge_id[:7]} remapped -> edge:{edge_req.edge_id[:7]}"
+            msg = f"E0 - Node {self._node_id} accepts edge collision override."
+            " CE:{conn_edge.edge_id[:7]} remapped -> edge:{edge_req.edge_id[:7]}"
 
             edge_resp = EdgeResponse(is_accepted=True, data=msg)
             self.logger.debug(msg)

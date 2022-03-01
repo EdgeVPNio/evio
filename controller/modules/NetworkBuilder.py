@@ -78,8 +78,8 @@ class NetworkBuilder():
         if net_transitions and self.is_ready:
             self._net_transitions = net_transitions
             self._adj_list.min_successors = net_transitions.min_successors
-            self._adj_list.max_ldl = net_transitions.max_ldl
-            self._adj_list.max_ond = net_transitions.max_ondemand
+            self._adj_list.max_long_distance = net_transitions.max_long_distance
+            self._adj_list.max_ondemand = net_transitions.max_ondemand
         self._process_net_transitions()
 
     def _process_net_transitions(self):
