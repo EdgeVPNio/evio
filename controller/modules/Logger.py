@@ -125,10 +125,10 @@ class Logger(ControllerModule):
             lvl = cbt.request.action
             mod = cbt.request.initiator
             if isinstance(cbt.request.params, tuple):
-                fmt = "LOGGER MODULE DEPRECATD: %s: " + cbt.request.params[0]
+                fmt = "LOGGER MODULE DEPRECATED:%s:" + cbt.request.params[0]
                 vals = cbt.request.params[1]
             else:
-                fmt = "LOGGER MODULE DEPRECATD: %s: %s"
+                fmt = "LOGGER MODULE DEPRECATED:%s:%s"
                 vals = [cbt.request.params]
 
             if lvl == "LOG_DEBUG":

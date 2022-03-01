@@ -29,7 +29,7 @@
     "PeerDiscoveryCoalesce": 1,
     "Overlays": {
       "_OVERLAYNAME_": {
-        "MaxSuccessors": 2,
+        "MinSuccessors": 2,
         "MaxOnDemandEdges": 3,
         "Role": "Switch",
         "LocationId": 12345,

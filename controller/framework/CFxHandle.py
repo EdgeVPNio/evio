@@ -115,12 +115,8 @@ class CFxHandle():
                         self._pending_cbts[cbt.tag] = cbt
                     self._cm_instance.process_cbt(cbt)
                 except Exception as err:
-                    log_cbt = self.create_cbt(
-                        initiator=self._cm_instance.__class__.__name__,
-                        recipient="Logger", action="LOG_WARNING",
-                        params="Process CBT exception:{0}\n{1}\n{2}"
-                        .format(err, cbt, traceback.format_exc()))
-                    self.submit_cbt(log_cbt)
+                    self._cm_instance.logger.warning(
+                        f"Process CBT exception:{err}\n{cbt}\n{traceback.format_exc()}")
                     if cbt.request.initiator == self._cm_instance.__class__.__name__:
                         self.free_cbt(cbt)
                     else:
@@ -136,13 +132,9 @@ class CFxHandle():
                 self._check_container_bounds()
                 self._cm_instance.timer_method()
             except Exception as err:
-                log_cbt = self.create_cbt(
-                    initiator=self._cm_instance.__class__.__name__,
-                    recipient="Logger", action="LOG_WARNING",
-                    params="Timer Method exception:{0}\n{1}"
-                    .format(err, traceback.format_exc()))
-                self.submit_cbt(log_cbt)
-
+                self._cm_instance.logger.warning(
+                    f"Timer Method exception:{err}\n{traceback.format_exc()}")
+                
     def query_param(self, param_name=""):
         pv = self.__cfx_object.query_param(param_name)
         return pv
