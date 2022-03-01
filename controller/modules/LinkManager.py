@@ -29,7 +29,7 @@ from framework.ControllerModule import ControllerModule
 LinkSetupTimeout = 120
 LinkEvent = ["LnkEvCreating", "LnkEvCreated", "LnkEvConnected",
              "LnkEvDisconnected", "LnkEvRemoved", "LnkEvAuthorized",
-             "LnkEvDeauthorized"]
+             "LnkEvAuthExpired"]
 
 TunnelStates = types.SimpleNamespace(TNL_AUTHORIZED="TNL_AUTHORIZED",
                                      TNL_CREATING="TNL_CREATING",
@@ -1018,7 +1018,7 @@ class LinkManager(ControllerModule):
     def _deauth_tnl(self, tnl):
         self.logger.info("Tunnel %s auth timed out", tnl.tnlid)
         param = {
-            "UpdateType": "LnkEvDeauthorized", "OverlayId": tnl.overlay_id,
+            "UpdateType": "LnkEvAuthExpired", "OverlayId": tnl.overlay_id,
             "PeerId": tnl.peer_id, "TunnelId": tnl.tnlid, "TapName": tnl.tap_name}
         self._link_updates_publisher.post_update(param)
         self._cleanup_tunnel(tnl)

@@ -30,25 +30,20 @@ import struct
 import uuid
 from collections.abc import MutableMapping
 
+EdgeTypesOut = types.SimpleNamespace(  # Unknown="CETypeUnknown",
+    Static="CETypeStatic",
+    Successor="CETypeSuccessor",
+    LongDistance="CETypeLongDistance",
+    OnDemand="CETypeOnDemand")
 
-# EdgeTypesOut = ["CETypeUnknown", "CETypeStatic", "CETypeSuccessor", "CETypeLongDistance",
-#                 "CETypeOnDemand"]
-# EdgeTypesIn = ["CETypeUnknown", "CETypeIStatic", "CETypePredecessor", "CETypeILongDistance",
-#                "CETypeIOnDemand"]
+EdgeTypesIn = types.SimpleNamespace(  # Unknown="CETypeUnknown",
+    IStatic="CETypeIStatic",
+    Predecessor="CETypePredecessor",
+    ILongDistance="CETypeILongDistance",
+    IOnDemand="CETypeIOnDemand")
 
-EdgeTypesOut = types.SimpleNamespace(#Unknown="CETypeUnknown",
-                                     Static="CETypeStatic",
-                                     Successor="CETypeSuccessor",
-                                     LongDistance="CETypeLongDistance",
-                                     OnDemand="CETypeOnDemand")
-
-EdgeTypesIn = types.SimpleNamespace(#Unknown="CETypeUnknown",
-                                    IStatic="CETypeIStatic",
-                                    Predecessor="CETypePredecessor",
-                                    ILongDistance="CETypeILongDistance",
-                                    IOnDemand="CETypeIOnDemand")
-
-EdgeTypes = [*EdgeTypesOut.__dict__.values()] + [*EdgeTypesIn.__dict__.values()]
+EdgeTypes = [*EdgeTypesOut.__dict__.values()] + \
+    [*EdgeTypesIn.__dict__.values()]
 
 EdgeState = types.SimpleNamespace(Initialized="CEStateInitialized",
                                   PreAuth="CEStatePreAuth",
@@ -70,6 +65,7 @@ UpdatePriority = types.SimpleNamespace(ModifyExisting=0,
                                        RmvSucc=5,
                                        RmvLongDst=6,
                                        AddLongDst=7)
+
 
 def transpose_edge_type(edge_type):
     et = None
@@ -147,24 +143,18 @@ class ConnectionEdge():
     def serialize(self):
         return struct.pack(ConnectionEdge._PACK_STR, self.peer_id, self.edge_id, self.created_time,
                            self.connected_time, self.edge_state, self.edge_type)
-                           # ,self.marked_for_delete)
+        # ,self.marked_for_delete)
 
     @classmethod
     def from_bytes(cls, data):
         ce = cls()
         (ce.peer_id, ce.edge_id, ce.created_time, ce.connected_time, ce.edge_state,
          ce.edge_type) = struct.unpack_from(cls._PACK_STR, data)
-        #  ce.edge_type, ce.marked_for_delete) = struct.unpack_from(cls._PACK_STR, data)
         return ce
 
     def to_json(self):
         return json.dumps(dict(self))
 
-    # def to_json(self):
-    #    return json.dumps(dict(peer_id=self.peer_id, edge_id=self.edge_id,
-    #                           created_time=self.created_time, connected_time=self.connected_time,
-    #                           state=self.edge_state, edge_type=self.edge_type,
-    #                           marked_for_delete=self.marked_for_delete))
     @classmethod
     def from_json_str(cls, json_str):
         ce = cls()
@@ -175,7 +165,6 @@ class ConnectionEdge():
         ce.connected_time = jce["connected_time"]
         ce.edge_state = jce["edge_state"]
         ce.edge_type = jce["edge_type"]
-        # ce.marked_for_delete = jce["marked_for_delete"]
         return ce
 
 
@@ -186,10 +175,9 @@ class ConnEdgeAdjacenctList(MutableMapping):
         self._overlay_id = overlay_id
         self._node_id = node_id
         self._conn_edges = {}
-        # self._successor_nid = node_id
         self.min_successors = min_succ
         self.max_ldl = max_ldl
-        self.max_ondemand = max_ond
+        self.max_ond = max_ond
         self.num_ldl = 0
         self.num_ldli = 0
         self.num_succ = 0
@@ -207,11 +195,6 @@ class ConnEdgeAdjacenctList(MutableMapping):
     def __bool__(self):
         return bool(self._conn_edges)
 
-    # def __contains__(self, peer_id):
-    #     if peer_id in self:
-    #         return True
-    #     return False
-
     def __setitem__(self, peer_id, ce):
         self.add_conn_edge(peer_id, ce)
 
@@ -224,23 +207,19 @@ class ConnEdgeAdjacenctList(MutableMapping):
     def __iter__(self):
         return iter(self._conn_edges)
 
-    # def is_successor(self, peer_id):
-    #     return bool(peer_id == self._successor_nid)
-
-    # def is_threshold_iond(self):
-    #     return bool(self.num_ondi >= self.max_ondemand)
-
     @property
     def node_id(self):
         return self._node_id
-    
+
     @property
     def overlay_id(self):
         return self._overlay_id
-    
+
     def is_threshold(self, edge_type):
         if edge_type == EdgeTypesIn.ILongDistance:
             return bool(self.num_ldli >= self.max_ldl)
+        if edge_type == EdgeTypesIn.IOnDemand:
+            return bool(self.num_ondi >= self.max_ond)
         else:
             raise RuntimeWarning("EdgeType threshold not implemented")
         # return bool(self.num_ldli >= math.ceil(self.max_ldl * 1.5))
@@ -266,8 +245,6 @@ class ConnEdgeAdjacenctList(MutableMapping):
         ce = self._conn_edges.pop(peer_id, None)
         if not ce:
             return
-        # if peer_id == self._successor_nid:
-        #     self.update_closest()
         if ce.edge_type == "CETypeLongDistance":
             self.num_ldl -= 1
         if ce.edge_type == "CETypeILongDistance":
@@ -314,23 +291,6 @@ class ConnEdgeAdjacenctList(MutableMapping):
                     conn_edges[peer_id] = self._conn_edges[peer_id]
         return conn_edges
 
-    # def update_closest(self):
-    #     """ track the closest successor and predecessor """
-    #     if not self:
-    #         self._successor_nid = self.node_id
-    #         return
-    #     nl = [*self.keys()]
-    #     nl.append(self.node_id)
-    #     nl = sorted(nl)
-    #     idx = nl.index(self.node_id)
-    #     nlen = len(nl)
-
-    #     succ_i = (idx+1) % nlen
-    #     self._successor_nid = nl[succ_i]
-
-        #pred_i = (idx + nlen - 1) % nlen
-        #self._predecessor_nid = nl[pred_i]
-
 
 class NetUpdate():
     def __init__(self, conn_edge, op_type, priority):
@@ -350,9 +310,9 @@ class NetworkTransitions():
         self._prev_priority = 0
         self.min_successors = tgt_net_graph.min_successors
         self.max_ldl = tgt_net_graph.max_ldl
-        self.max_ondemand = tgt_net_graph.max_ondemand        
+        self.max_ondemand = tgt_net_graph.max_ondemand
         self._diff(curr_net_graph, tgt_net_graph)
-        
+
     def __iter__(self):
         return iter(self._updates)
 
@@ -365,7 +325,7 @@ class NetworkTransitions():
 
     def __len__(self):
         return self._updates
-    
+
     def __getitem__(self, index):
         return self._updates[index]
 
@@ -398,19 +358,19 @@ class NetworkTransitions():
 
         for peer_id in current:
             if peer_id not in target:
-                    # Op Remove
-                    if current[peer_id].edge_type == EdgeTypesOut.OnDemand:
-                        op = NetUpdate(
-                            current[peer_id], OpType.Remove, UpdatePriority.RmvOnd)  # 3
-                        self._updates.append(op)
-                    elif current[peer_id].edge_type == EdgeTypesOut.Successor:
-                        op = NetUpdate(
-                            current[peer_id], OpType.Remove, UpdatePriority.RmvSucc)  # 5
-                        self._updates.append(op)
-                    elif current[peer_id].edge_type == EdgeTypesOut.LongDistance:
-                        op = NetUpdate(
-                            current[peer_id], OpType.Remove, UpdatePriority.RmvLongDst)  # 6
-                        self._updates.append(op)
+                # Op Remove
+                if current[peer_id].edge_type == EdgeTypesOut.OnDemand:
+                    op = NetUpdate(
+                        current[peer_id], OpType.Remove, UpdatePriority.RmvOnd)  # 3
+                    self._updates.append(op)
+                elif current[peer_id].edge_type == EdgeTypesOut.Successor:
+                    op = NetUpdate(
+                        current[peer_id], OpType.Remove, UpdatePriority.RmvSucc)  # 5
+                    self._updates.append(op)
+                elif current[peer_id].edge_type == EdgeTypesOut.LongDistance:
+                    op = NetUpdate(
+                        current[peer_id], OpType.Remove, UpdatePriority.RmvLongDst)  # 6
+                    self._updates.append(op)
         if self._updates:
             self._updates = sorted(self._updates, key=lambda x: x.priority)
             self._prev_priority = self._updates[0].priority
@@ -419,14 +379,11 @@ class NetworkTransitions():
         if self._updates:
             return self._updates[0]
         return None
-    
+
     def pop(self):
         if self._updates:
             self._prev_priority = self._updates[0].priority
             del self._updates[0]
-    
+
     def push_back(self, update):
         self._updates.append(update)
-    # @property
-    # def is_priority_change(self):
-    #     return bool(self._prev_priority == self._updates[0].priority)
