@@ -65,9 +65,6 @@ class GeneveTunnelTest(unittest.TestCase):
         self.geneveTunnel = module_class(cfx_handle, self.config["GeneveTunnel"], "GeneveTunnel")
         cfx_handle._cm_instance = self.geneveTunnel
         cfx_handle._cm_config = self.config["GeneveTunnel"]
-
-        # self.logger = logging.getLogger("GeneveTunnelTest console logger")
-        # return self.config["GeneveTunnel"], self.geneveTunnel
     
     def tearDown(self):
         self.genevetunnel = None
@@ -76,10 +73,10 @@ class GeneveTunnelTest(unittest.TestCase):
         """
         Test to check the creation of geneve tunnel.
         """
-        # self.config["GeneveTunnel"], geneveTunnel = self.setUp()
         cbt = CBT()
         cbt.request.params = {"DeviceName": self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["DeviceName"], 
         "TunnelId": uuid.uuid4().hex, 
+        "LocationId": 1234,
         "RemoteAddr": self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["NodeA"], 
         "DstPort": self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["DestPort"], 
         "OverlayId": self.config["GeneveTunnel"]["Overlays"], 
@@ -97,7 +94,6 @@ class GeneveTunnelTest(unittest.TestCase):
         """
         Test to check the deletion of geneve tunnel.
         """
-        # self.config["GeneveTunnel"], geneveTunnel = self.setUp()
         cbt = CBT()
         cbt.request.params = {"DeviceName": self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["DeviceName"]}
         self.geneveTunnel.req_handler_remove_tunnel(cbt)
@@ -111,13 +107,13 @@ class GeneveTunnelTest(unittest.TestCase):
         """
         Test to check the authorization of geneve tunnel.
         """
-        # self.config["GeneveTunnel"], geneveTunnel = self.setUp()
         cbt = CBT()
+        tun_id = uuid.uuid4().hex
         cbt.request.params = {"OverlayId": "A0FB389", 
                             "PeerId": self.config["GeneveTunnel"]["NodeId"], 
-                            "TunnelId": uuid.uuid4().hex}
+                            "TunnelId": tun_id}
         self.geneveTunnel.req_handler_auth_tunnel(cbt)
-        self.assertTrue(self.geneveTunnel._is_tunnel_authorized(uuid.uuid4().hex))
+        self.assertTrue(self.geneveTunnel._is_tunnel_authorized(tun_id))
         print("Passed: test_req_handler_auth_tunnel")
        
 if __name__ == '__main__':

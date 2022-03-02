@@ -92,10 +92,7 @@ class GeneveTunnel(ControllerModule):
         return False
 
     def _is_tunnel_authorized(self, tunnel_id):
-        print("Auth tunnel state inside")
-        print(self._auth_tunnels)
-        print(self._auth_tunnels.get(tunnel_id).state)
-        print(self._auth_tunnels[tunnel_id].state)
+        tun = self._auth_tunnels.get(tunnel_id)
         if tun is not None and tun.state == "Authorized":
             return True
         return False
@@ -107,10 +104,6 @@ class GeneveTunnel(ControllerModule):
 
         self._auth_tunnels[tnlid] = TunnelDescriptor(tnlid, olid, peer_id)
         self._auth_tunnels[tnlid].state = "Authorized"
-        print("Auth tunnels")
-        print(self._auth_tunnels)
-        print("Auth tunnel state")
-        print(self._auth_tunnels.get(tnlid).state)
         cbt.set_response(None, True)
         self.complete_cbt(cbt)
 
@@ -119,12 +112,12 @@ class GeneveTunnel(ControllerModule):
         remote_addr = cbt.request.params["RemoteAddr"]
         dst_port = cbt.request.params["DstPort"]
         dev_name = cbt.request.params["DeviceName"]
-        print(tunnel_id)
+        location_id = cbt.request.params["LocationId"]
         if not self._is_tunnel_authorized(tunnel_id):
             cbt.set_response(data=f"Tunnel {dev_name} not authorized", status=False)
         if not self._is_tunnel_exist(dev_name):
             self._create_geneve_tunnel(
-                dev_name, tunnel_id, remote_addr, dst_port)
+                dev_name, location_id, remote_addr, dst_port)
             cbt.set_response(
                 data=f"Tunnel {dev_name} created", status=True)
         else:
