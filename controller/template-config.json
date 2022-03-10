@@ -41,7 +41,7 @@
     "Overlays":{
       "_OVERLAYNAME_": {
         "TunnelType": "geneve",
-        "DeviceName": "gentunnel",
+        "DevNamePrefix": "gentun",
         "UID": 123456,
         "NodeA": "192.168.0.5",
         "NodeB": "192.168.0.6",

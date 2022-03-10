@@ -31,15 +31,20 @@ GnvTunnelStates = types.SimpleNamespace(GNV_AUTHORIZED="GNV_AUTHORIZED",
                                      GNV_OFFLINE="GNV_OFFLINE")
 
 class TunnelDescriptor():
+    _REFLECT = set(
+        ["tunnel_id", "overlay_id", "peer_id", "state"])
+
     def __init__(self, tunnel_id, overlay_id, peer_id):
         self.tunnel_id = tunnel_id
         self.overlay_id = overlay_id
         self.peer_id = peer_id
         self.state = GnvTunnelStates.GNV_CREATING
     
-    def __repr__(self): 
-        return "TunnelDescriptor<:tunnel_id=% s, overlay_id=% s, peer_id=% s state=% s>" % (
-            self.tunnel_id, self.overlay_id, self.peer_id, self.state) 
+    def __repr__(self):
+        items = set()
+        for k in TunnelDescriptor._REFLECT:
+            items.add(f"\"{k}\": {self.__dict__[k]!r}")
+        return "{{{}}}".format(", ".join(items))
 
 class GeneveTunnel(ControllerModule):
 
@@ -48,7 +53,6 @@ class GeneveTunnel(ControllerModule):
             cfx_handle, module_config, module_name)
         self.ipr = IPRoute()
         self.ndb = NDB()
-        self._tunnels = {}   # maps tunnel id to its descriptor
         self._auth_tunnels = {} # overlay id tunnel id  
     
     def initialize(self):
@@ -66,7 +70,6 @@ class GeneveTunnel(ControllerModule):
             parent_cbt = cbt.parent
             cbt_data = cbt.response.data
             cbt_status = cbt.response.status
-            self.free_cbt(cbt)
             if (parent_cbt is not None and parent_cbt.child_count == 1):
                 parent_cbt.set_response(cbt_data, cbt_status)
                 self.complete_cbt(parent_cbt)
@@ -101,7 +104,8 @@ class GeneveTunnel(ControllerModule):
 
     def _is_tunnel_authorized(self, tunnel_id):
         tun = self._auth_tunnels.get(tunnel_id)
-        if tun is not None and tun.state == GnvTunnelStates.GNV_AUTHORIZED:
+        if tun is not None and tun.state in [GnvTunnelStates.GNV_AUTHORIZED, GnvTunnelStates.GNV_QUERYING, 
+                    GnvTunnelStates.GNV_ONLINE]:
             return True
         return False
 
@@ -112,19 +116,25 @@ class GeneveTunnel(ControllerModule):
         if not self._is_tunnel_authorized(tnlid):
             self._auth_tunnels[tnlid] = TunnelDescriptor(tnlid, olid, peer_id)
             self._auth_tunnels[tnlid].state = GnvTunnelStates.GNV_AUTHORIZED
-            cbt.set_response(None, True)
+            cbt.set_response("Geneve tunnel auth success, tunnel authorized", True)
         else:
             cbt.set_response("Geneve tunnel auth failed, resource already exist for peer:tunnel {0}:{1}"
                              .format(peer_id, tnlid[:7]), False)
-            self.free_cbt(cbt)
         self.complete_cbt(cbt)
 
     def req_handler_create_tunnel(self, cbt):
         tunnel_id = cbt.request.params["TunnelId"]
         remote_addr = cbt.request.params["RemoteAddr"]
         dst_port = cbt.request.params["DstPort"]
-        dev_name = cbt.request.params["DeviceName"]
         location_id = cbt.request.params["LocationId"]
+        peer_id = cbt.request.params["PeerId"]
+        overlay_id = cbt.request.params["OverlayId"]
+        
+        dev_name_prefix = self.config["Overlays"][overlay_id].get(
+            "DevNamePrefix", "")
+        end_i = self.DEVNAME_MAXLEN - len(dev_name_prefix)
+        dev_name = dev_name_prefix + str(peer_id[:end_i])
+        
         if not self._is_tunnel_authorized(tunnel_id):
             cbt.set_response(data=f"Tunnel {dev_name} not authorized", status=False)
         if not self._is_tunnel_exist(dev_name):
@@ -138,12 +148,18 @@ class GeneveTunnel(ControllerModule):
         self.complete_cbt(cbt)
 
     def req_handler_remove_tunnel(self, cbt):
-        dev_name = cbt.request.params["DeviceName"]
+        peer_id = cbt.request.params["PeerId"]
+        overlay_id = cbt.request.params["OverlayId"]
+        dev_name_prefix = self.config["Overlays"][overlay_id].get(
+            "DevNamePrefix", "")
+        end_i = self.DEVNAME_MAXLEN - len(dev_name_prefix)
+        dev_name = dev_name_prefix + str(peer_id[:end_i])
+ 
         if self._is_tunnel_exist(dev_name):
             self._remove_geneve_tunnel(dev_name)
             cbt.set_response(
                 data=f"Tunnel {dev_name} deleted", status=True)
+            self.complete_cbt(cbt)
         else:
             cbt.set_response(
                 data=f"Tunnel {dev_name} does not exists", status=False)
-        self.free_cbt(cbt)

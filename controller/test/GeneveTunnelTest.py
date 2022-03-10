@@ -41,7 +41,7 @@ class GeneveTunnelTest(unittest.TestCase):
             "GeneveTunnel" : {
                 "Overlays": {
                     "A0FB389": {
-                        "DeviceName": "gentun", 
+                        "DevNamePrefix": "gentun", 
                         "NodeA": "192.168.0.5", 
                         "NodeB": "192.168.0.6",
                         "DestPort": None
