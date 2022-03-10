@@ -19,19 +19,27 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+import types
 from framework.ControllerModule import ControllerModule
 from pyroute2 import IPRoute
 from pyroute2 import NDB
+
+GnvTunnelStates = types.SimpleNamespace(GNV_AUTHORIZED="GNV_AUTHORIZED",
+                                     GNV_CREATING="GNV_CREATING",
+                                     GNV_QUERYING="GNV_QUERYING",
+                                     GNV_ONLINE="GNV_ONLINE",
+                                     GNV_OFFLINE="GNV_OFFLINE")
 
 class TunnelDescriptor():
     def __init__(self, tunnel_id, overlay_id, peer_id):
         self.tunnel_id = tunnel_id
         self.overlay_id = overlay_id
         self.peer_id = peer_id
-        self.state = "Initialized"
+        self.state = GnvTunnelStates.GNV_CREATING
     
     def __repr__(self): 
-        return "Test tunnel_id:% s state:% s" % (self.tunnel_id, self.state) 
+        return "TunnelDescriptor<:tunnel_id=% s, overlay_id=% s, peer_id=% s state=% s>" % (
+            self.tunnel_id, self.overlay_id, self.peer_id, self.state) 
 
 class GeneveTunnel(ControllerModule):
 
@@ -93,7 +101,7 @@ class GeneveTunnel(ControllerModule):
 
     def _is_tunnel_authorized(self, tunnel_id):
         tun = self._auth_tunnels.get(tunnel_id)
-        if tun is not None and tun.state == "Authorized":
+        if tun is not None and tun.state == GnvTunnelStates.GNV_AUTHORIZED:
             return True
         return False
 
@@ -101,10 +109,14 @@ class GeneveTunnel(ControllerModule):
         olid = cbt.request.params["OverlayId"]
         peer_id = cbt.request.params["PeerId"]
         tnlid = cbt.request.params["TunnelId"]
-
-        self._auth_tunnels[tnlid] = TunnelDescriptor(tnlid, olid, peer_id)
-        self._auth_tunnels[tnlid].state = "Authorized"
-        cbt.set_response(None, True)
+        if not self._is_tunnel_authorized(tnlid):
+            self._auth_tunnels[tnlid] = TunnelDescriptor(tnlid, olid, peer_id)
+            self._auth_tunnels[tnlid].state = GnvTunnelStates.GNV_AUTHORIZED
+            cbt.set_response(None, True)
+        else:
+            cbt.set_response("Geneve tunnel auth failed, resource already exist for peer:tunnel {0}:{1}"
+                             .format(peer_id, tnlid[:7]), False)
+            self.free_cbt(cbt)
         self.complete_cbt(cbt)
 
     def req_handler_create_tunnel(self, cbt):
@@ -123,6 +135,7 @@ class GeneveTunnel(ControllerModule):
         else:
             cbt.set_response(
                 data=f"Tunnel {dev_name} already exists", status=False)
+        self.complete_cbt(cbt)
 
     def req_handler_remove_tunnel(self, cbt):
         dev_name = cbt.request.params["DeviceName"]
@@ -133,3 +146,4 @@ class GeneveTunnel(ControllerModule):
         else:
             cbt.set_response(
                 data=f"Tunnel {dev_name} does not exists", status=False)
+        self.free_cbt(cbt)

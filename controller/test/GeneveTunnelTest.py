@@ -20,13 +20,12 @@
 # THE SOFTWARE.
 
 import unittest
-import logging
 import importlib
 import warnings
 import uuid
 
 from framework.CBT import CBT
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock
 from pyroute2 import IPRoute
 
 warnings.filterwarnings(action="ignore", message="unclosed", category=ResourceWarning)
