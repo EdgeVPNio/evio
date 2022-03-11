@@ -73,7 +73,7 @@ class GeneveTunnelTest(unittest.TestCase):
         Test to check the creation of geneve tunnel.
         """
         cbt = CBT()
-        cbt.request.params = {"DeviceName": self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["DeviceName"], 
+        cbt.request.params = {"DevNamePrefix": self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["DevNamePrefix"], 
         "TunnelId": uuid.uuid4().hex, 
         "LocationId": 1234,
         "RemoteAddr": self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["NodeA"], 
@@ -83,9 +83,15 @@ class GeneveTunnelTest(unittest.TestCase):
         }
         self.geneveTunnel.req_handler_auth_tunnel(cbt)
         self.geneveTunnel.req_handler_create_tunnel(cbt)
-        self.assertTrue(self.geneveTunnel._is_tunnel_exist(self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["DeviceName"]))
+
+        peer_id = self.config["GeneveTunnel"]["NodeId"]
+        tap_name_prefix = self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["DevNamePrefix"]
+        end_i = 15 - len(tap_name_prefix)
+        tap_name = tap_name_prefix + str(peer_id[:end_i])
+
+        self.assertTrue(self.geneveTunnel._is_tunnel_exist(tap_name))
         ipr = IPRoute() 
-        idx = ipr.link_lookup(ifname=self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["DeviceName"])
+        idx = ipr.link_lookup(ifname=tap_name)
         self.assertEqual(len(idx),1)
         print("Passed : test_req_handler_create_tunnel")
 
@@ -94,11 +100,19 @@ class GeneveTunnelTest(unittest.TestCase):
         Test to check the deletion of geneve tunnel.
         """
         cbt = CBT()
-        cbt.request.params = {"DeviceName": self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["DeviceName"]}
+        cbt.request.params = {"DevNamePrefix": self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["DevNamePrefix"], 
+        "OverlayId": self.config["GeneveTunnel"]["Overlays"], 
+        "PeerId": self.config["GeneveTunnel"]["NodeId"]
+        }
         self.geneveTunnel.req_handler_remove_tunnel(cbt)
-        self.assertFalse(self.geneveTunnel._is_tunnel_exist(self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["DeviceName"]))
+        tap_name_prefix = self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["DevNamePrefix"]
+        peer_id = self.config["GeneveTunnel"]["NodeId"]
+        end_i = 15 - len(tap_name_prefix)
+        tap_name = tap_name_prefix + str(peer_id[:end_i])
+
+        self.assertFalse(self.geneveTunnel._is_tunnel_exist(tap_name))
         ipr = IPRoute() 
-        idx = ipr.link_lookup(ifname=self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["DeviceName"])
+        idx = ipr.link_lookup(ifname=tap_name)
         self.assertEqual(len(idx),0)
         print("Passed : test_req_handler_remove_tunnel")
 

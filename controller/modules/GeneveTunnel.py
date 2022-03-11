@@ -47,6 +47,8 @@ class TunnelDescriptor():
         return "{{{}}}".format(", ".join(items))
 
 class GeneveTunnel(ControllerModule):
+    TAPNAME_MAXLEN = 15
+    _REFLECT = set(["_peers", "_tunnels"])
 
     def __init__(self, cfx_handle, module_config, module_name):
         super(GeneveTunnel, self).__init__(
@@ -55,6 +57,12 @@ class GeneveTunnel(ControllerModule):
         self.ndb = NDB()
         self._auth_tunnels = {} # overlay id tunnel id  
     
+    def __repr__(self):
+        items = set()
+        for k in GeneveTunnel._REFLECT:
+            items.add(f"\"{k}\": {self.__dict__[k]!r}")
+        return "{{{}}}".format(", ".join(items))
+
     def initialize(self):
         self.logger.info("Module loaded")
 
@@ -80,24 +88,24 @@ class GeneveTunnel(ControllerModule):
     def terminate(self):
         pass
 
-    def _create_geneve_tunnel(self, dev_name, id, remote_addr, dst_port=None):
+    def _create_geneve_tunnel(self, tap_name, id, remote_addr, dst_port=None):
         try:            
             self.ipr.link("add",
-                        ifname=dev_name,
+                        ifname=tap_name,
                         kind="geneve",
                         geneve_id=id,
                         geneve_remote=remote_addr)
         except Exception as e:
             self.log("LOG_INFO", "Error creating tunnel. Reported error: %s", str(e))
 
-    def _remove_geneve_tunnel(self, dev_name):
+    def _remove_geneve_tunnel(self, tap_name):
         try:        
-            self.ipr.link("del", index=self.ipr.link_lookup(ifname=dev_name)[0])
+            self.ipr.link("del", index=self.ipr.link_lookup(ifname=tap_name)[0])
         except Exception as e:
             self.log("LOG_INFO", "Error deleting tunnel. Reported error: %s", str(e))
       
-    def _is_tunnel_exist(self, dev_name):
-        idx = self.ipr.link_lookup(ifname=dev_name)
+    def _is_tunnel_exist(self, tap_name):
+        idx = self.ipr.link_lookup(ifname=tap_name)
         if len(idx)==1:
             return True
         return False
@@ -130,36 +138,34 @@ class GeneveTunnel(ControllerModule):
         peer_id = cbt.request.params["PeerId"]
         overlay_id = cbt.request.params["OverlayId"]
         
-        dev_name_prefix = self.config["Overlays"][overlay_id].get(
-            "DevNamePrefix", "")
-        end_i = self.DEVNAME_MAXLEN - len(dev_name_prefix)
-        dev_name = dev_name_prefix + str(peer_id[:end_i])
+        tap_name_prefix = cbt.request.params["DevNamePrefix"]
+        end_i = self.TAPNAME_MAXLEN - len(tap_name_prefix)
+        tap_name = tap_name_prefix + str(peer_id[:end_i])
         
         if not self._is_tunnel_authorized(tunnel_id):
-            cbt.set_response(data=f"Tunnel {dev_name} not authorized", status=False)
-        if not self._is_tunnel_exist(dev_name):
+            cbt.set_response(data=f"Tunnel {tap_name} not authorized", status=False)
+        if not self._is_tunnel_exist(tap_name):
             self._create_geneve_tunnel(
-                dev_name, location_id, remote_addr, dst_port)
+                tap_name, location_id, remote_addr, dst_port)
             cbt.set_response(
-                data=f"Tunnel {dev_name} created", status=True)
+                data=f"Tunnel {tap_name} created", status=True)
         else:
             cbt.set_response(
-                data=f"Tunnel {dev_name} already exists", status=False)
+                data=f"Tunnel {tap_name} already exists", status=False)
         self.complete_cbt(cbt)
 
     def req_handler_remove_tunnel(self, cbt):
         peer_id = cbt.request.params["PeerId"]
         overlay_id = cbt.request.params["OverlayId"]
-        dev_name_prefix = self.config["Overlays"][overlay_id].get(
-            "DevNamePrefix", "")
-        end_i = self.DEVNAME_MAXLEN - len(dev_name_prefix)
-        dev_name = dev_name_prefix + str(peer_id[:end_i])
+        tap_name_prefix = cbt.request.params["DevNamePrefix"]
+        end_i = self.TAPNAME_MAXLEN - len(tap_name_prefix)
+        tap_name = tap_name_prefix + str(peer_id[:end_i])
  
-        if self._is_tunnel_exist(dev_name):
-            self._remove_geneve_tunnel(dev_name)
+        if self._is_tunnel_exist(tap_name):
+            self._remove_geneve_tunnel(tap_name)
             cbt.set_response(
-                data=f"Tunnel {dev_name} deleted", status=True)
+                data=f"Tunnel {tap_name} deleted", status=True)
             self.complete_cbt(cbt)
         else:
             cbt.set_response(
-                data=f"Tunnel {dev_name} does not exists", status=False)
+                data=f"Tunnel {tap_name} does not exists", status=False)
