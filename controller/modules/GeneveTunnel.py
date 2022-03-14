@@ -19,27 +19,50 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+import types
 from framework.ControllerModule import ControllerModule
 from pyroute2 import IPRoute
 from pyroute2 import NDB
 
+GnvTunnelStates = types.SimpleNamespace(GNV_AUTHORIZED="GNV_AUTHORIZED",
+                                     GNV_CREATING="GNV_CREATING",
+                                     GNV_QUERYING="GNV_QUERYING",
+                                     GNV_ONLINE="GNV_ONLINE",
+                                     GNV_OFFLINE="GNV_OFFLINE")
+
 class TunnelDescriptor():
+    _REFLECT = set(
+        ["tunnel_id", "overlay_id", "peer_id", "state"])
+
     def __init__(self, tunnel_id, overlay_id, peer_id):
-        self.tunnel_id = None
-        self.overlay_id = None
-        self.peer_id = None
-        self.state = "Initialized"
+        self.tunnel_id = tunnel_id
+        self.overlay_id = overlay_id
+        self.peer_id = peer_id
+        self.state = GnvTunnelStates.GNV_CREATING
+    
+    def __repr__(self):
+        items = set()
+        for k in TunnelDescriptor._REFLECT:
+            items.add(f"\"{k}\": {self.__dict__[k]!r}")
+        return "{{{}}}".format(", ".join(items))
 
 class GeneveTunnel(ControllerModule):
+    TAPNAME_MAXLEN = 15
+    _REFLECT = set(["_peers", "_tunnels"])
 
     def __init__(self, cfx_handle, module_config, module_name):
         super(GeneveTunnel, self).__init__(
             cfx_handle, module_config, module_name)
         self.ipr = IPRoute()
         self.ndb = NDB()
-        self._tunnels = {}   # maps tunnel id to its descriptor
         self._auth_tunnels = {} # overlay id tunnel id  
     
+    def __repr__(self):
+        items = set()
+        for k in GeneveTunnel._REFLECT:
+            items.add(f"\"{k}\": {self.__dict__[k]!r}")
+        return "{{{}}}".format(", ".join(items))
+
     def initialize(self):
         self.logger.info("Module loaded")
 
@@ -55,7 +78,6 @@ class GeneveTunnel(ControllerModule):
             parent_cbt = cbt.parent
             cbt_data = cbt.response.data
             cbt_status = cbt.response.status
-            self.free_cbt(cbt)
             if (parent_cbt is not None and parent_cbt.child_count == 1):
                 parent_cbt.set_response(cbt_data, cbt_status)
                 self.complete_cbt(parent_cbt)
@@ -66,31 +88,32 @@ class GeneveTunnel(ControllerModule):
     def terminate(self):
         pass
 
-    def _create_geneve_tunnel(self, dev_name, id, remote_addr, dst_port=None):
+    def _create_geneve_tunnel(self, tap_name, id, remote_addr, dst_port=None):
         try:            
             self.ipr.link("add",
-                        ifname=dev_name,
+                        ifname=tap_name,
                         kind="geneve",
                         geneve_id=id,
                         geneve_remote=remote_addr)
         except Exception as e:
             self.log("LOG_INFO", "Error creating tunnel. Reported error: %s", str(e))
 
-    def _remove_geneve_tunnel(self, dev_name):
+    def _remove_geneve_tunnel(self, tap_name):
         try:        
-            self.ipr.link("del", index=self.ipr.link_lookup(ifname=dev_name)[0])
+            self.ipr.link("del", index=self.ipr.link_lookup(ifname=tap_name)[0])
         except Exception as e:
             self.log("LOG_INFO", "Error deleting tunnel. Reported error: %s", str(e))
       
-    def _is_tunnel_exist(self, dev_name):
-        idx = self.ipr.link_lookup(ifname=dev_name)
+    def _is_tunnel_exist(self, tap_name):
+        idx = self.ipr.link_lookup(ifname=tap_name)
         if len(idx)==1:
             return True
         return False
 
-    def _is_tunnel_authorised(self, tunnel_id):
+    def _is_tunnel_authorized(self, tunnel_id):
         tun = self._auth_tunnels.get(tunnel_id)
-        if tun is not None and tun.state == "Authorized":
+        if tun is not None and tun.state in [GnvTunnelStates.GNV_AUTHORIZED, GnvTunnelStates.GNV_QUERYING, 
+                    GnvTunnelStates.GNV_ONLINE]:
             return True
         return False
 
@@ -98,35 +121,51 @@ class GeneveTunnel(ControllerModule):
         olid = cbt.request.params["OverlayId"]
         peer_id = cbt.request.params["PeerId"]
         tnlid = cbt.request.params["TunnelId"]
-
-        self._auth_tunnels[tnlid] = TunnelDescriptor(tnlid, olid, peer_id)
-        self._auth_tunnels[tnlid].state = "Authorized"
-
-        cbt.set_response(None, True)
+        if not self._is_tunnel_authorized(tnlid):
+            self._auth_tunnels[tnlid] = TunnelDescriptor(tnlid, olid, peer_id)
+            self._auth_tunnels[tnlid].state = GnvTunnelStates.GNV_AUTHORIZED
+            cbt.set_response("Geneve tunnel auth success, tunnel authorized", True)
+        else:
+            cbt.set_response("Geneve tunnel auth failed, resource already exist for peer:tunnel {0}:{1}"
+                             .format(peer_id, tnlid[:7]), False)
         self.complete_cbt(cbt)
 
     def req_handler_create_tunnel(self, cbt):
         tunnel_id = cbt.request.params["TunnelId"]
         remote_addr = cbt.request.params["RemoteAddr"]
         dst_port = cbt.request.params["DstPort"]
-        dev_name = cbt.request.params["DeviceName"]
-        if not self._is_tunnel_authorised(tunnel_id):
-            cbt.set_response(data=f"Tunnel {dev_name} not authorized", status=False)
-        if not self._is_tunnel_exist(dev_name):
+        location_id = cbt.request.params["LocationId"]
+        peer_id = cbt.request.params["PeerId"]
+        overlay_id = cbt.request.params["OverlayId"]
+        
+        tap_name_prefix = cbt.request.params["DevNamePrefix"]
+        end_i = self.TAPNAME_MAXLEN - len(tap_name_prefix)
+        tap_name = tap_name_prefix + str(peer_id[:end_i])
+        
+        if not self._is_tunnel_authorized(tunnel_id):
+            cbt.set_response(data=f"Tunnel {tap_name} not authorized", status=False)
+        if not self._is_tunnel_exist(tap_name):
             self._create_geneve_tunnel(
-                dev_name, tunnel_id, remote_addr, dst_port)
+                tap_name, location_id, remote_addr, dst_port)
             cbt.set_response(
-                data=f"Tunnel {dev_name} created", status=True)
+                data=f"Tunnel {tap_name} created", status=True)
         else:
             cbt.set_response(
-                data=f"Tunnel {dev_name} already exists", status=False)
+                data=f"Tunnel {tap_name} already exists", status=False)
+        self.complete_cbt(cbt)
 
     def req_handler_remove_tunnel(self, cbt):
-        dev_name = cbt.request.params["DeviceName"]
-        if self._is_tunnel_exist(dev_name):
-            self._remove_geneve_tunnel(dev_name)
+        peer_id = cbt.request.params["PeerId"]
+        overlay_id = cbt.request.params["OverlayId"]
+        tap_name_prefix = cbt.request.params["DevNamePrefix"]
+        end_i = self.TAPNAME_MAXLEN - len(tap_name_prefix)
+        tap_name = tap_name_prefix + str(peer_id[:end_i])
+ 
+        if self._is_tunnel_exist(tap_name):
+            self._remove_geneve_tunnel(tap_name)
             cbt.set_response(
-                data=f"Tunnel {dev_name} deleted", status=True)
+                data=f"Tunnel {tap_name} deleted", status=True)
+            self.complete_cbt(cbt)
         else:
             cbt.set_response(
-                data=f"Tunnel {dev_name} does not exists", status=False)
+                data=f"Tunnel {tap_name} does not exists", status=False)
