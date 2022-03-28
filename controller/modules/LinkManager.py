@@ -453,9 +453,9 @@ class LinkManager(ControllerModule):
 
     def _rollback_link_creation_changes(self, tnlid):
         """
-        Removes links that failed the setup handshake. Does not currently complete pending CBTs.
-        This needs to be handled or these CBTs will remain in the pending queue.
+        Removes links that failed the setup handshake.
         """
+        # TODO: Does not currently complete pending CBTs. This needs to be handled or these CBTs will remain in the pending queue.
         if tnlid not in self._tunnels:
             return
         creation_state = self._tunnels[tnlid].link.creation_state

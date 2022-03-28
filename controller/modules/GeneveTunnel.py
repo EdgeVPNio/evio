@@ -20,7 +20,7 @@
 # THE SOFTWARE.
 
 import types
-from controller.framework.Modlib import RemoteAction
+from framework.Modlib import RemoteAction
 from framework.ControllerModule import ControllerModule
 from pyroute2 import IPRoute
 from pyroute2 import NDB
@@ -54,13 +54,11 @@ class GeneveTunnel(ControllerModule):
     def __init__(self, cfx_handle, module_config, module_name):
         super(GeneveTunnel, self).__init__(
             cfx_handle, module_config, module_name)
-        self.cfx_handle = None
-        self.module_config = None
-        self.module_name = None
         self.ipr = IPRoute()
         self.ndb = NDB()
-        self._tunnels = {} # overlay id tunnel id  
-    
+        self._tunnels = None
+        self._peers = None
+        
     def __repr__(self):
         items = set()
         for k in GeneveTunnel._REFLECT:
@@ -68,6 +66,8 @@ class GeneveTunnel(ControllerModule):
         return "{{{}}}".format(", ".join(items))
 
     def initialize(self):
+        self._peers = {}
+        self._tunnels = {} # overlay id tunnel id  
         self.logger.info("Module loaded")
 
     def process_cbt(self, cbt):

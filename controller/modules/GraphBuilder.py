@@ -22,7 +22,6 @@
 import math
 import random
 
-from modules.NetworkOperations import NetworkTransitions
 from .NetworkGraph import ConnectionEdge, EdgeTypesOut
 from .NetworkGraph import ConnEdgeAdjacenctList
 from .NetworkGraph import NetworkTransitions
