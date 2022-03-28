@@ -19,7 +19,20 @@
   },
   "Topology": {
     "Overlays": {
-      "_OVERLAYNAME_": {}
+      "_OVERLAYNAME_": {
+        "MinSuccessors": 2,
+        "MaxOnDemandEdges": 3,
+        "Role": "Switch",
+        "LocationId": 12345,
+        "EncryptionRequired": false
+      }
+    }
+  },
+  "GeneveTunnel": {
+    "Overlays":{
+      "_OVERLAYNAME_": {
+        "EndPointAddress": "10.100.10.1"
+      }
     }
   },
   "LinkManager": {

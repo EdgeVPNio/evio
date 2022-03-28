@@ -30,6 +30,7 @@ from unittest.mock import Mock
 from pyroute2 import IPRoute
 
 warnings.filterwarnings(action="ignore", message="unclosed", category=ResourceWarning)
+from modules.Tunnel import TunnelStates
 from modules.GeneveTunnel import GeneveTunnel
 
 class GeneveTunnelTest(unittest.TestCase):
@@ -52,10 +53,8 @@ class GeneveTunnelTest(unittest.TestCase):
             "GeneveTunnel" : {
                 "Overlays": {
                     "A0FB389": {
-                        "TapNamePrefix": "gentun", 
-                        "NodeA": "192.168.0.5", 
-                        "NodeB": "192.168.0.6",
-                        "DestPort": None
+                        "TapNamePrefix": "gentun",
+                        "EndPointAddress": "192.168.0.5"
                     }
                 },
                 "NodeId": "1234434323"
@@ -82,27 +81,18 @@ class GeneveTunnelTest(unittest.TestCase):
     def test_req_handler_create_tunnel(self):
         self.gen.initialize()
         overlay_id = "A0FB389"
+        tnlid = uuid.uuid4().hex
+        tns = self.gen._tunnels
         cbt = CBT()
         cbt.request.params = {
             "TapNamePrefix": self.config["GeneveTunnel"]["Overlays"][overlay_id]["TapNamePrefix"], 
-            "TunnelId": uuid.uuid4().hex, 
-            "LocationId": 1234,
-            "RemoteAddr": self.config["GeneveTunnel"]["Overlays"][overlay_id]["NodeA"], 
-            "DstPort": self.config["GeneveTunnel"]["Overlays"][overlay_id]["DestPort"], 
+            "TunnelId": tnlid, 
+            "VNId": 1234,
+            "EndPointAddress": self.config["GeneveTunnel"]["Overlays"][overlay_id]["EndPointAddress"],
             "OverlayId": overlay_id, 
             "PeerId": self.config["GeneveTunnel"]["NodeId"]}
-        self.gen.req_handler_auth_tunnel(cbt)
         self.gen.req_handler_create_tunnel(cbt)
-
-        peer_id = self.config["GeneveTunnel"]["NodeId"]
-        tap_name_prefix = self.config["GeneveTunnel"]["Overlays"][overlay_id]["TapNamePrefix"]
-        end_i = 15 - len(tap_name_prefix)
-        tap_name = tap_name_prefix + str(peer_id[:end_i])
-
-        self.assertTrue(self.gen._is_tunnel_exist(tap_name))
-        ipr = IPRoute() 
-        idx = ipr.link_lookup(ifname=tap_name)
-        self.assertEqual(len(idx),1)
+        self.assertEqual(tns[tnlid].state, TunnelStates.AUTHORIZED)
         print("Passed : test_req_handler_create_tunnel")
 
     def test_req_handler_remove_tunnel(self):
@@ -111,6 +101,7 @@ class GeneveTunnelTest(unittest.TestCase):
         cbt = CBT()
         cbt.request.params = {"TapNamePrefix": self.config["GeneveTunnel"]["Overlays"][overlay_id]["TapNamePrefix"], 
         "OverlayId": overlay_id, 
+        "TunnelId": uuid.uuid4().hex,
         "PeerId": self.config["GeneveTunnel"]["NodeId"]
         }
         self.gen.req_handler_remove_tunnel(cbt)
@@ -128,15 +119,49 @@ class GeneveTunnelTest(unittest.TestCase):
     def test_req_handler_auth_tunnel(self):
         self.gen.initialize()
         overlay_id = "A0FB389"
+        node_id = self.config["GeneveTunnel"]["NodeId"]
         cbt = CBT()
         tun_id = uuid.uuid4().hex
         cbt.request.params = {"OverlayId": overlay_id, 
-                            "PeerId": self.config["GeneveTunnel"]["NodeId"], 
+                            "PeerId": node_id, 
                             "TunnelId": tun_id}
         self.gen.req_handler_auth_tunnel(cbt)
+        peers = self.gen._peers
+        self.assertTrue(node_id, peers[overlay_id])
         self.assertTrue(self.gen._is_tunnel_authorized(tun_id))
         print("Passed: test_req_handler_auth_tunnel")
-       
+
+    def test_create_geneve_tunnel(self):
+        overlay_id = "A0FB389"
+        tap_name_prefix = self.config["GeneveTunnel"]["Overlays"][overlay_id]["TapNamePrefix"]
+        peer_id = self.config["GeneveTunnel"]["NodeId"]
+        end_i = 15 - len(tap_name_prefix)
+        tap_name = tap_name_prefix + str(peer_id[:end_i])
+        vnid = 1234
+        endpntAddr = self.config["GeneveTunnel"]["Overlays"][overlay_id]["EndPointAddress"]
+        self.gen._create_geneve_tunnel(tap_name, vnid, endpntAddr)
+        self.assertTrue(self.gen._is_tunnel_exist(tap_name))
+        ipr = IPRoute()
+        idx = ipr.link_lookup(ifname=tap_name)
+        self.assertEqual(len(idx),1)
+        print("Passed: test_create_geneve_tunnel")
+
+    def test_remove_geneve_tunnel(self):
+        overlay_id = "A0FB389"
+        tap_name_prefix = self.config["GeneveTunnel"]["Overlays"][overlay_id]["TapNamePrefix"]
+        peer_id = self.config["GeneveTunnel"]["NodeId"]
+        end_i = 15 - len(tap_name_prefix)
+        tap_name = tap_name_prefix + str(peer_id[:end_i])
+        self.gen._remove_geneve_tunnel(tap_name)
+        self.assertFalse(self.gen._is_tunnel_exist(tap_name))
+        ipr = IPRoute()
+        idx = ipr.link_lookup(ifname=tap_name)
+        self.assertEqual(len(idx),0)
+        print("Passed : test_remove_geneve_tunnel")
+
+    def test_req_handler_exchnge_endpt(self):
+        pass
+
 if __name__ == '__main__':
     # unittest.main()
     suite = unittest.TestSuite()
