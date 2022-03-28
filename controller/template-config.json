@@ -40,12 +40,7 @@
   "GeneveTunnel": {
     "Overlays":{
       "_OVERLAYNAME_": {
-        "TunnelType": "geneve",
-        "DevNamePrefix": "gentun",
-        "UID": 123456,
-        "NodeA": "192.168.0.5",
-        "NodeB": "192.168.0.6",
-        "DestPort": ""
+        "TapNamePrefix": "gentun"
       }
     }
   },

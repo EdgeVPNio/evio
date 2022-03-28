@@ -41,7 +41,7 @@ class GeneveTunnelTest(unittest.TestCase):
             "GeneveTunnel" : {
                 "Overlays": {
                     "A0FB389": {
-                        "DevNamePrefix": "gentun", 
+                        "TapNamePrefix": "gentun", 
                         "NodeA": "192.168.0.5", 
                         "NodeB": "192.168.0.6",
                         "DestPort": None
@@ -73,7 +73,7 @@ class GeneveTunnelTest(unittest.TestCase):
         Test to check the creation of geneve tunnel.
         """
         cbt = CBT()
-        cbt.request.params = {"DevNamePrefix": self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["DevNamePrefix"], 
+        cbt.request.params = {"TapNamePrefix": self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["TapNamePrefix"], 
         "TunnelId": uuid.uuid4().hex, 
         "LocationId": 1234,
         "RemoteAddr": self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["NodeA"], 
@@ -85,7 +85,7 @@ class GeneveTunnelTest(unittest.TestCase):
         self.geneveTunnel.req_handler_create_tunnel(cbt)
 
         peer_id = self.config["GeneveTunnel"]["NodeId"]
-        tap_name_prefix = self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["DevNamePrefix"]
+        tap_name_prefix = self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["TapNamePrefix"]
         end_i = 15 - len(tap_name_prefix)
         tap_name = tap_name_prefix + str(peer_id[:end_i])
 
@@ -100,12 +100,12 @@ class GeneveTunnelTest(unittest.TestCase):
         Test to check the deletion of geneve tunnel.
         """
         cbt = CBT()
-        cbt.request.params = {"DevNamePrefix": self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["DevNamePrefix"], 
+        cbt.request.params = {"TapNamePrefix": self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["TapNamePrefix"], 
         "OverlayId": self.config["GeneveTunnel"]["Overlays"], 
         "PeerId": self.config["GeneveTunnel"]["NodeId"]
         }
         self.geneveTunnel.req_handler_remove_tunnel(cbt)
-        tap_name_prefix = self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["DevNamePrefix"]
+        tap_name_prefix = self.config["GeneveTunnel"]["Overlays"]["A0FB389"]["TapNamePrefix"]
         peer_id = self.config["GeneveTunnel"]["NodeId"]
         end_i = 15 - len(tap_name_prefix)
         tap_name = tap_name_prefix + str(peer_id[:end_i])
