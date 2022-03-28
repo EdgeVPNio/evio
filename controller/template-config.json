@@ -40,7 +40,7 @@
   "GeneveTunnel": {
     "Overlays":{
       "_OVERLAYNAME_": {
-        "TapNamePrefix": "gentun"
+        "EndPointAddress": "10.100.10.1"
       }
     }
   },

@@ -56,9 +56,10 @@ class GeneveTunnel(ControllerModule):
             cfx_handle, module_config, module_name)
         self.ipr = IPRoute()
         self.ndb = NDB()
-        self._tunnels = None
-        self._peers = None
-        
+        self._peers = None        
+        self._tunnels = None# overlay id tunnel id  
+        self._gnv_updates_publisher = None
+    
     def __repr__(self):
         items = set()
         for k in GeneveTunnel._REFLECT:
@@ -68,6 +69,8 @@ class GeneveTunnel(ControllerModule):
     def initialize(self):
         self._peers = {}
         self._tunnels = {} # overlay id tunnel id  
+        self._link_updates_publisher = \
+            self.publish_subscription("GNV_TUNNEL_EVENTS")
         self.logger.info("Module loaded")
 
     def process_cbt(self, cbt):
@@ -79,9 +82,9 @@ class GeneveTunnel(ControllerModule):
                 self.req_handler_create_tunnel(cbt)
             elif cbt.request.action == "GNV_REMOVE_TUNNEL":
                 self.req_handler_remove_tunnel(cbt)
-            elif cbt.request.action == "GNV_REQ_LINK_ENDPT":
+            elif cbt.request.action == "GNV_EXCHANGE_ENDPT":
                 # node B accepts data from node A, complete cbt with endpoint data, create tunnel on node B
-                self.req_handler_req_link_endpt(cbt)
+                self.req_handler_exchnge_endpt(cbt)
             else:
                 self.req_handler_default(cbt)
         elif cbt.op_type == "Response":
@@ -102,15 +105,13 @@ class GeneveTunnel(ControllerModule):
     def terminate(self):
         pass
 
-    def _create_geneve_tunnel(self, remote_action, cbt):
-        tap_name = remote_action.data["TapName"]
-        gid = remote_action.data["LocationId"]
-        remote_addr = remote_action.data["RemoteAddress"]
+    def _create_geneve_tunnel(self, tap_name, vnid, remote_addr):
         try:            
+            # TODO: check option for port
             self.ipr.link("add",
                         ifname=tap_name,
                         kind="geneve",
-                        geneve_id=gid,
+                        geneve_id=vnid,
                         geneve_remote=remote_addr)
         except Exception as e:
             self.log("LOG_INFO", "Error creating tunnel. Reported error: %s", str(e))
@@ -157,14 +158,7 @@ class GeneveTunnel(ControllerModule):
         location_id = cbt.request.params["LocationId"]
         peer_id = cbt.request.params["PeerId"]
         
-        tap_name_prefix = cbt.request.params["TapNamePrefix"]
-        end_i = self.TAPNAME_MAXLEN - len(tap_name_prefix)
-        tap_name = tap_name_prefix + str(peer_id[:end_i])
-
-        tap_name_prefix = self.config["Overlays"][olid].get(
-            "TapNamePrefix", "")
-        end_i = self.TAPNAME_MAXLEN - len(tap_name_prefix)
-        tap_name = tap_name_prefix + str(peer_id[:end_i])
+        tap_name = self.getTapName(peer_id, olid)
 
         if not self._is_tunnel_authorized(tunnel_id):
             cbt.set_response(data=f"Tunnel {tap_name} not authorized", status=False)
@@ -173,12 +167,14 @@ class GeneveTunnel(ControllerModule):
                 "OverlayId": olid, 
                 "PeerId": peer_id,
                 "TunnelId": tunnel_id, 
-                "LocationId": location_id
+                "LocationId": location_id,
+                "EndPointAddress": self.config["Overlays"][olid]["EndPointAddress"],
+                "TapNamePrefix": tap_name_prefix
             }
             remote_act = dict(OverlayId=olid,
                                   RecipientId=peer_id,
                                   RecipientCM="GeneveTunnel",
-                                  Action="GNV_REQ_LINK_ENDPT",
+                                  Action="GNV_EXCHANGE_ENDPT",
                                   Params=params)
             # Send the message via SIG server to peer
             endp_cbt = self.create_linked_cbt(cbt)
@@ -190,12 +186,13 @@ class GeneveTunnel(ControllerModule):
                 data=f"Tunnel {tap_name} already exists", status=False)
         self.complete_cbt(cbt)
 
-    def req_handler_req_link_endpt(self, cbt):
+    def req_handler_exchnge_endpt(self, cbt):
         params = cbt.request.params
         olid = params["OverlayId"]
         tnlid = params["TunnelId"]
         locid = params["LocationId"]
         peerid = params["PeerId"]
+        endpnt_address = params["EndPointAddress"]
         if olid not in self.config["Overlays"]:
             self.logger.warning("The requested overlay is not specified in "
                              "local config, it will not be created")
@@ -210,21 +207,20 @@ class GeneveTunnel(ControllerModule):
             cbt.set_response(msg, False)
             self.complete_cbt(cbt)
             return
+        # TODO: query pyroute for tunnel states, read docs
         self._tunnels[tnlid].state = GnvTunnelStates.GNV_CREATING
         # publish notification of link creation initiated Node B
         gnv_param = {
             "UpdateType": "GnvTnlCreating", "OverlayId": olid, "PeerId": peerid,
             "TunnelId": tnlid, "LocationId": locid}
-        self._link_updates_publisher.post_update(gnv_param)
+        self._gnv_updates_publisher.post_update(gnv_param) 
         # Send request to create tunnel
-        tap_name_prefix = self.config["Overlays"][olid].get("TapNamePrefix", "")[
-            :3]
-        end_i = self.TAPNAME_MAXLEN - len(tap_name_prefix)
-        tap_name = tap_name_prefix + str(peerid[:end_i])
         try:
-            # how to get remote address and destination port of a node?
-            rem_act = cbt.response.data
-            self._create_geneve_tunnel(rem_act, cbt)
+            tap_name = self.getTapName(peerid, olid)
+            vnid = locid
+            self._create_geneve_tunnel(tap_name, vnid, endpnt_address)
+            msg = self.config["Overlays"][olid]["EndPointAddress"]
+            cbt.set_response(msg, True)
             self.complete_cbt(cbt)
         except Exception as e:
             msg = str("Creation of geneve tunnel failed. Error={0}".format(e))
@@ -234,54 +230,10 @@ class GeneveTunnel(ControllerModule):
             return
         self.submit_cbt(cbt)
 
-    # def resp_handler_create_tunnel(self, cbt):
-    #     parent_cbt = cbt.parent
-    #     tnlid = cbt.request.params["TunnelId"]
-    #     peer_id = parent_cbt.request.params["PeerId"]
-    #     resp_data = cbt.response.data
-    #     if not cbt.response.status:
-    #         self.free_cbt(cbt)
-    #         parent_cbt.set_response(resp_data, False)
-    #         self.complete_cbt(parent_cbt)
-    #         self.logger.warning("The create tunnel operation failed:%s",
-    #                          parent_cbt.response.data)
-    #         return
-    #     overlay_id = cbt.request.params["OverlayId"] 
-    #     params = {"OverlayId": overlay_id, "TunnelId": tnlid, "PeerId": peer_id}
-    #     self._request_peer_endpoint(params, parent_cbt)
-    #     self.free_cbt(cbt)
-
-    # def _create_link_endpoint(self, rem_act, parent_cbt):
-    #     peerid = parent_cbt.request.params["PeerId"]
-    #     tnlid = parent_cbt.request.params["TunnelId"]
-    #     if tnlid not in self._tunnels:
-    #         # abort the handshake as the process timed out
-    #         parent_cbt.set_response("Tunnel creation timeout failure", False)
-    #         self.complete_cbt(parent_cbt)
-    #         return
-    #     olid = rem_act["OverlayId"]
-    #     cbt_params = {"OverlayId": olid, "TunnelId": tnlid, "PeerId": peerid}
-    #     lcbt = self.create_linked_cbt(parent_cbt)
-    #     lcbt.set_request(self.module_name, "GeneveTunnel",
-    #                      "GNV_CREATE_LINK", cbt_params)
-    #     self.submit_cbt(lcbt)
-
-    # def resp_handler_create_link_endpt(self, cbt):
-    #     parent_cbt = cbt.parent
-    #     resp_data = cbt.response.data
-    #     if not cbt.response.status:
-    #         self.logger.warning("Create link endpoint failed :%s", cbt)
-    #         self.free_cbt(cbt)
-    #         parent_cbt.set_response(resp_data, False)
-    #         self.complete_cbt(parent_cbt)
-    #         return
-
     def req_handler_remove_tunnel(self, cbt):
         peer_id = cbt.request.params["PeerId"]
-        overlay_id = cbt.request.params["OverlayId"]
-        tap_name_prefix = cbt.request.params["TapNamePrefix"]
-        end_i = self.TAPNAME_MAXLEN - len(tap_name_prefix)
-        tap_name = tap_name_prefix + str(peer_id[:end_i])
+        olid = cbt.request.params["OverlayId"]
+        tap_name = self.getTapName(peer_id, olid)
  
         if self._is_tunnel_exist(tap_name):
             self._remove_geneve_tunnel(tap_name)
@@ -301,5 +253,23 @@ class GeneveTunnel(ControllerModule):
             self.complete_cbt(parent_cbt)
         else:
             rem_act = cbt.response.data
-            if rem_act["Action"] == "GNV_REQ_LINK_ENDPT":
-                self._create_geneve_tunnel(rem_act, parent_cbt)
+            peer_id = cbt.request.params["PeerId"]
+            olid = cbt.request.params["OverlayId"]
+            endpnt_address = rem_act["Data"]["EndPointAddress"]
+            vnid = cbt.request.params["LocationId"]
+
+            tap_name = self.getTapName(peer_id, olid)
+            
+            if rem_act["Action"] == "GNV_EXCHANGE_ENDPT":
+                self._create_geneve_tunnel(tap_name, vnid, endpnt_address)
+                self.free_cbt(cbt)
+                msg = "Geneve tunnel created"
+                parent_cbt.set_response(msg, True)
+                self.complete_cbt(parent_cbt)
+
+    def getTapName(self, peer_id, olid):
+        tap_name_prefix = self.config["Overlays"][olid].get(
+            "TapNamePrefix", "")
+        end_i = self.TAPNAME_MAXLEN - len(tap_name_prefix)
+        tap_name = tap_name_prefix + str(peer_id[:end_i])
+        return tap_name
