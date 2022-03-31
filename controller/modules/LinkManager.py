@@ -436,11 +436,11 @@ class LinkManager(ControllerModule):
                 "UID": self.node_id}}
         endp_param.update(params)
 
-        remote_act = dict(OverlayId=overlay_id,
-                          RecipientId=parent_cbt.request.params["PeerId"],
-                          RecipientCM="LinkManager",
-                          Action="LNK_REQ_LINK_ENDPT",
-                          Params=endp_param)
+        remote_act = dict(overlay_id=overlay_id,
+                          recipient_id=parent_cbt.request.params["PeerId"],
+                          recipient_cm="LinkManager",
+                          action="LNK_REQ_LINK_ENDPT",
+                          params=endp_param)
         if parent_cbt:
             endp_cbt = self.create_linked_cbt(parent_cbt)
             endp_cbt.set_request(self.module_name, "Signal",
@@ -539,11 +539,11 @@ class LinkManager(ControllerModule):
                         "UID": self.node_id
                     }
                 }
-                remote_act = dict(OverlayId=olid,
-                                  RecipientId=peer_id,
-                                  RecipientCM="LinkManager",
-                                  Action="LNK_REQ_LINK_ENDPT",
-                                  Params=params)
+                remote_act = dict(overlay_id=olid,
+                                  recipient_id=peer_id,
+                                  recipient_cm="LinkManager",
+                                  action="LNK_REQ_LINK_ENDPT",
+                                  params=params)
 
                 endp_cbt = self.create_linked_cbt(cbt)
                 endp_cbt.set_request(
@@ -719,15 +719,15 @@ class LinkManager(ControllerModule):
         self.complete_cbt(parent_cbt)
 
     def _complete_link_creation(self, cbt, parent_cbt):
-        rem_act = parent_cbt.request.params
-        lnkid = rem_act["LinkId"]
+        params = parent_cbt.request.params
+        lnkid = params["LinkId"]
         tnlid = self.tunnel_id(lnkid)
-        peer_id = rem_act["NodeData"]["UID"]
+        peer_id = params["NodeData"]["UID"]
         self._tunnels[tnlid].link.creation_state = 0xC0
         self.logger.debug(
             "Create Link:%s Phase 4/4 Node B - Peer: %s", lnkid[:7], peer_id[:7])
-        peer_id = rem_act["NodeData"]["UID"]
-        olid = rem_act["OverlayId"]
+        peer_id = params["NodeData"]["UID"]
+        olid = params["OverlayId"]
         resp_data = cbt.response.data
         node_data = {
             "MAC": resp_data["MAC"],
@@ -753,9 +753,9 @@ class LinkManager(ControllerModule):
         Send the Createlink control to local Tincan
         """
         # Create Link: Phase 5 Node A
-        lnkid = rem_act["Data"]["LinkId"]
+        lnkid = rem_act["data"]["LinkId"]
         tnlid = self.tunnel_id(lnkid)
-        peer_id = rem_act["RecipientId"]
+        peer_id = rem_act["recipient_id"]
         if tnlid not in self._tunnels:
             # abort the handshake as the process timed out
             parent_cbt.set_response("Tunnel creation timeout failure", False)
@@ -764,8 +764,8 @@ class LinkManager(ControllerModule):
         self._tunnels[tnlid].link.creation_state = 0xA3
         self.logger.debug("Create Link:%s Phase 3/5 Node A - Peer: %s",
                           lnkid[:7], peer_id[:7])
-        node_data = rem_act["Data"]["NodeData"]
-        olid = rem_act["OverlayId"]
+        node_data = rem_act["data"]["NodeData"]
+        olid = rem_act["overlay_id"]
         # add the peer MAC to the tunnel descr
         self._tunnels[tnlid].peer_mac = node_data["MAC"]
         cbt_params = {"OverlayId": olid, "TunnelId": tnlid, "LinkId": lnkid,
@@ -798,8 +798,8 @@ class LinkManager(ControllerModule):
             "NodeData": {
                 "UID": self.node_id, "MAC": cbt.response.data["MAC"],
                 "CAS": local_cas, "FPR": cbt.response.data["FPR"]}}
-        remote_act = dict(OverlayId=olid, RecipientId=peerid, RecipientCM="LinkManager",
-                          Action="LNK_ADD_PEER_CAS", Params=params)
+        remote_act = dict(overlay_id=olid, recipient_id=peerid, recipient_cm="LinkManager",
+                          action="LNK_ADD_PEER_CAS", params=params)
         lcbt = self.create_linked_cbt(parent_cbt)
         lcbt.set_request(self.module_name, "Signal",
                          "SIG_REMOTE_ACTION", remote_act)
@@ -894,9 +894,9 @@ class LinkManager(ControllerModule):
         else:
             rem_act = cbt.response.data
             self.free_cbt(cbt)
-            if rem_act["Action"] == "LNK_REQ_LINK_ENDPT":
+            if rem_act["action"] == "LNK_REQ_LINK_ENDPT":
                 self._create_link_endpoint(rem_act, parent_cbt)
-            elif rem_act["Action"] == "LNK_ADD_PEER_CAS":
+            elif rem_act["action"] == "LNK_ADD_PEER_CAS":
                 self._complete_create_link_request(parent_cbt)
 
     def req_handler_tincan_msg(self, cbt):

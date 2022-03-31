@@ -55,8 +55,8 @@ class GeneveTunnel(ControllerModule):
             cfx_handle, module_config, module_name)
         self.ipr = IPRoute()
         self.ndb = NDB()
-        self._peers = None        
-        self._tunnels = None# overlay id tunnel id  
+        self._peers = {}        
+        self._tunnels = {} # overlay id tunnel id  
         self._gnv_updates_publisher = None
     
     def __repr__(self):
@@ -66,8 +66,9 @@ class GeneveTunnel(ControllerModule):
         return "{{{}}}".format(", ".join(items))
 
     def initialize(self):
-        self._peers = {}
-        self._tunnels = {} # overlay id tunnel id  
+        for olid in self.config["Overlays"]:
+            self._peers[olid] = dict()
+
         self._link_updates_publisher = \
             self.publish_subscription("GNV_TUNNEL_EVENTS")
         self.logger.info("Module loaded")

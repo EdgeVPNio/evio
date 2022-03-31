@@ -391,7 +391,7 @@ class Signal(ControllerModule):
         self.complete_cbt(cbt)
 
     def handle_remote_action(self, overlay_id, rem_act, act_type):
-        if not overlay_id == rem_act["OverlayId"]:
+        if not overlay_id == rem_act["overlay_id"]:
             self.log("LOG_WARNING", "The Overlay ID in the rcvd remote action conflicts "
                      "with the local configuration. It was discarded: %s", rem_act)
             return
@@ -404,12 +404,12 @@ class Signal(ControllerModule):
         """ Convert the received remote action into a CBT and invoke it locally """
         # if the intended recipient is offline the XMPP server broadcasts the msg to all
         # matching ejabber ids. Verify recipient using Node ID and discard if mismatch
-        if rem_act["RecipientId"] != self.node_id:
+        if rem_act["recipient_id"] != self.node_id:
             self.log("LOG_WARNING", "A mis-delivered remote action was discarded: %s",
                          rem_act)
             return
-        n_cbt = self.create_cbt(self._module_name, rem_act["RecipientCM"],
-                                rem_act["Action"], rem_act["Params"])
+        n_cbt = self.create_cbt(self._module_name, rem_act["recipient_cm"],
+                                rem_act["action"], rem_act["params"])
         # store the remote action for completion
         self._remote_acts[n_cbt.tag] = rem_act
         self.submit_cbt(n_cbt)
@@ -419,12 +419,12 @@ class Signal(ControllerModule):
         """ Convert the received remote action into a CBT and complete it locally """
         # if the intended recipient is offline the XMPP server broadcasts the msg to all
         # matching ejabber ids. Verify recipient using Node ID and discard if mismatch
-        if rem_act["InitiatorId"] != self.node_id:
+        if rem_act["initiator_id"] != self.node_id:
             self.log("LOG_WARNING", "A mis-delivered remote action was discarded: %s",
                          rem_act)
             return
-        tag = rem_act["ActionTag"]
-        cbt_status = rem_act["Status"]
+        tag = rem_act["action_tag"]
+        cbt_status = rem_act["status"]
         pending_cbt = self._cfx_handle._pending_cbts.get(tag, None)
         if pending_cbt:
             pending_cbt.set_response(data=rem_act, status=cbt_status)
@@ -433,36 +433,36 @@ class Signal(ControllerModule):
     def req_handler_initiate_remote_action(self, cbt):
         """
         Create a new remote action from the received CBT and transmit it to the recepient
-        remote_act = dict(OverlayId="",
-                          RecipientId="",
-                          RecipientCM="",
-                          Action="",
-                          Params=json.dumps(opaque_msg),
+        remote_act = dict(overlay_id="",
+                          recipient_id="",
+                          recipient_cm="",
+                          action="",
+                          params=json.dumps(opaque_msg),
                           # added by Signal
-                          InitiatorId="",
-                          InitiatorCM="",
-                          ActionTag="",
-                          Data="",
-                          Status="")
+                          initiator_id="",
+                          initiator_cm="",
+                          action_tag="",
+                          data="",
+                          status="")
         """
         rem_act = cbt.request.params
-        peer_id = rem_act["RecipientId"]
-        overlay_id = rem_act["OverlayId"]
+        peer_id = rem_act["recipient_id"]
+        overlay_id = rem_act["overlay_id"]
         if overlay_id not in self._circles:
             cbt.set_response("Overlay ID not found", False)
             self.complete_cbt(cbt)
             return
-        rem_act["InitiatorId"] = self.node_id
-        rem_act["InitiatorCM"] = cbt.request.initiator
-        rem_act["ActionTag"] = cbt.tag
+        rem_act["initiator_id"] = self.node_id
+        rem_act["initiator_cm"] = cbt.request.initiator
+        rem_act["action_tag"] = cbt.tag
         self.transmit_remote_act(rem_act, peer_id, "invk")
 
     def resp_handler_remote_action(self, cbt):
         """ Convert the response CBT to a remote action and return to the initiator """
         rem_act = self._remote_acts.pop(cbt.tag)
-        peer_id = rem_act["InitiatorId"]
-        rem_act["Data"] = cbt.response.data
-        rem_act["Status"] = cbt.response.status
+        peer_id = rem_act["initiator_id"]
+        rem_act["data"] = cbt.response.data
+        rem_act["status"] = cbt.response.status
         self.transmit_remote_act(rem_act, peer_id, "cmpt")
         self.free_cbt(cbt)
 
@@ -471,7 +471,7 @@ class Signal(ControllerModule):
         Transmit rem act to peer, if Peer JID is not cached queue the rem act and attempt to
         resolve the peer's JID
         """
-        olid = rem_act["OverlayId"]
+        olid = rem_act["overlay_id"]
         target_jid = self._circles[olid]["JidCache"].lookup(peer_id)
         transport = self._circles[olid]["Transport"]
         if target_jid is None:
@@ -562,7 +562,7 @@ class Signal(ControllerModule):
             while not rem_act_que.empty():
                 entry = rem_act_que.get()
                 if entry[0] == "invk":
-                    tag = entry[1]["ActionTag"]
+                    tag = entry[1]["action_tag"]
                     pending_cbt = self._cfx_handle._pending_cbts.get(tag, None)
                     if pending_cbt:
                         pending_cbt.set_response("The specified recipient was not found", False)

@@ -266,44 +266,42 @@ def create_process(cmdlist):
     return subprocess.Popen(cmdlist)
 
 class RemoteAction():
-    def __init__(self, overlay_id, recipient_id, recipient_cm, action, params,
-                 parent_cbt=None, frm_cbt=None, status=None, data=None):
-        self.overlay_id = overlay_id
-        self.recipient_id = recipient_id
-        self.recipient_cm = recipient_cm
-        self.action = action
-        self.params = params
-        self._parent_cbt = parent_cbt
-        self.cbt = frm_cbt
-        self.initiator_id = None
-        self.initiator_cm = None
-        self.action_tag = None
-        self.status = status
-        self.data = data
+    def __init__(self, overlay_id=None, recipient_id=None, recipient_cm=None,
+                 action=None, params=None, **kwargs):
+        self.overlay_id = kwargs.get("overlay_id", overlay_id)
+        self.recipient_id = kwargs.get("recipient_id", recipient_id)
+        self.recipient_cm = kwargs.get("recipient_cm", recipient_cm)
+        self.action = kwargs.get("action", action)
+        self.params = kwargs.get("params", params)
+        self.initiator_id = kwargs.get("initiator_id")
+        self.initiator_cm = kwargs.get("initiator_cm")
+        self.action_tag = kwargs.get("action_tag")
+        self.status = kwargs.get("status")
+        self.data = kwargs.get("data")
 
     def __iter__(self):
-        yield("OverlayId", self.overlay_id)
-        yield("RecipientId", self.recipient_id)
-        yield("RecipientCM", self.recipient_cm)
-        yield("Action", self.action)
-        yield("Params", self.params)
+        yield("overlay_id", self.overlay_id)
+        yield("recipient_id", self.recipient_id)
+        yield("recipient_cm", self.recipient_cm)
+        yield("action", self.action)
+        yield("params", self.params)
         if self.initiator_id:
-            yield("InitiatorId", self.initiator_id)
+            yield("initiator_id", self.initiator_id)
         if self.initiator_cm:
-            yield("InitiatorCM", self.initiator_cm)
+            yield("initiator_cm", self.initiator_cm)
         if self.action_tag:
-            yield("ActionTag", self.action_tag)
+            yield("action_tag", self.action_tag)
         if self.status:
-            yield("Status", self.status)
+            yield("status", self.status)
         if self.data:
-            yield("Data", self.data)
+            yield("data", self.data)
 
-    def submit_remote_act(self, cm):
+    def submit_remote_act(self, cm, parent_cbt=None):
         self.initiator_id = cm.node_id
         self.initiator_cm = cm.module_name
         ra_desc = dict(self)
-        if self._parent_cbt is not None:
-            cbt = cm.create_linked_cbt(self._parent_cbt)
+        if parent_cbt is not None:
+            cbt = cm.create_linked_cbt(parent_cbt)
             cbt.set_request(cm.module_name, "Signal", "SIG_REMOTE_ACTION", ra_desc)
         else:
             cbt = cm.create_cbt(cm.module_name, "Signal", "SIG_REMOTE_ACTION", ra_desc)
@@ -311,24 +309,11 @@ class RemoteAction():
         cm.submit_cbt(cbt)
 
     @classmethod
-    def from_cbt(cls, cbt):
-        reqp = cbt.request.params
-        rem_act = cls(reqp["OverlayId"], reqp["RecipientId"], reqp["RecipientCM"],
-                      reqp["Action"], reqp["Params"], frm_cbt=cbt)
-        rem_act.initiator_id = reqp["InitiatorId"]
-        rem_act.initiator_cm = reqp["InitiatorCM"]
-        rem_act.action_tag = cbt.tag
-        if cbt.op_type == "Response":
-            rem_act.status = cbt.response.status
-            rem_act.data = cbt.response.data
-            if isinstance(rem_act.data, dict):
-                rem_act.data = rem_act.data["Data"]
-        return rem_act
+    def request(cls, cbt):
+        return cls(**cbt.request.params)
+    
+    @classmethod
+    def response(cls, cbt):
+        return cls(**cbt.response.data)
 
-    def tx_remote_act(self, sig):
-        if self.overlay_id not in sig.overlays:
-            self.cbt.set_response("Overlay ID not found", False)
-            sig.complete_cbt(self.cbt)
-            return
-        rem_act = dict(self)
-        sig.transmit_remote_act(rem_act, self.recipient_id, "invk")
+

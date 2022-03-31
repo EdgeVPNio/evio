@@ -30,60 +30,56 @@ import struct
 import uuid
 from collections.abc import MutableMapping
 
-EdgeTypesOut = types.SimpleNamespace(  # Unknown="CETypeUnknown",
-    Static="CETypeStatic",
-    Successor="CETypeSuccessor",
-    LongDistance="CETypeLongDistance",
-    OnDemand="CETypeOnDemand")
+EDGE_TYPE_OUT = namedtuple(
+    "EDGE_TYPE_OUT",
+    ["Static", "Successor", "LongDistance", "OnDemand"],
+    defaults=["CETypeStatic", "CETypeSuccessor", "CETypeLongDistance", "CETypeOnDemand"])
+EdgeTypesOut = EDGE_TYPE_OUT()
 
-EdgeTypesIn = types.SimpleNamespace(  # Unknown="CETypeUnknown",
-    IStatic="CETypeIStatic",
-    Predecessor="CETypePredecessor",
-    ILongDistance="CETypeILongDistance",
-    IOnDemand="CETypeIOnDemand")
+EDGE_TYPE_IN = namedtuple(
+    "EDGE_TYPE_IN",
+    ["IStatic", "Predecessor", "ILongDistance", "IOnDemand"],
+    defaults=["CETypeIStatic", "CETypePredecessor", "CETypeILongDistance", "CETypeIOnDemand"])
+EdgeTypesIn=EDGE_TYPE_IN()
 
-EdgeTypes = [*EdgeTypesOut.__dict__.values()] + \
-    [*EdgeTypesIn.__dict__.values()]
+EDGE_STATES = namedtuple(
+    "EDGE_STATES",
+    ["Initialized", "PreAuth", "Authorized", "Created",
+    "Connected", "Disconnected", "Deleting"],
+    defaults=["CEStateInitialized", "CEStatePreAuth", "CEStateAuthorized", "CEStateCreated",
+              "CEStateConnected", "CEStateDisconnected", "CEStateDeleting"])
+EdgeStates = EDGE_STATES()
 
-EdgeState = types.SimpleNamespace(Initialized="CEStateInitialized",
-                                  PreAuth="CEStatePreAuth",
-                                  Authorized="CEStateAuthorized",
-                                  Created="CEStateCreated",
-                                  Connected="CEStateConnected",
-                                  Disconnected="CEStateDisconnected",
-                                  Deleting="CEStateDeleting")
+OP_TYPE = namedtuple(
+    "OP_TYPE",
+    ["Add", "Remove", "Update"],
+    defaults=["OpTypeAdd", "OpTypeRemove", "OpTypeUpdate"])
 
-OpType = types.SimpleNamespace(Add="OpTypeAdd",
-                               Remove="OpTypeRemove",
-                               Update="OpTypeUpdate")
-
-UpdatePriority = types.SimpleNamespace(ModifyExisting=0,
-                                       AddStatic=1,
-                                       AddSucc=2,
-                                       RmvOnd=3,
-                                       AddOnd=4,
-                                       RmvSucc=5,
-                                       RmvLongDst=6,
-                                       AddLongDst=7)
-
+OpType = OP_TYPE()
+UPDATE_PRIORITY = namedtuple(
+    "UPDATE_PRIORITY",
+    ["ModifyExisting", "AddStatic", "AddSucc", "RmvOnd",
+     "AddOnd", "RmvSucc", "RmvLongDst", "AddLongDst"],
+    defaults=[0, 1, 2, 3, 4, 5, 6, 7])
+UpdatePriority = UPDATE_PRIORITY()
 
 def transpose_edge_type(edge_type):
     et = None
-    if edge_type == "CETypeStatic":
+    if edge_type == EdgeTypesOut.Static :
         et = EdgeTypesIn.IStatic
-    elif edge_type == "CETypeSuccessor":
+    elif edge_type == EdgeTypesOut.Successor:
         et = EdgeTypesIn.Predecessor
-    elif edge_type == "CETypeLongDistance":
+    elif edge_type == EdgeTypesOut.LongDistance:
         et = EdgeTypesIn.ILongDistance
-    elif edge_type == "CETypeOnDemand":
+    elif edge_type == EdgeTypesOut.OnDemand:
         et = EdgeTypesIn.IOnDemand
-    elif edge_type == "CETypeIStatic":
+    elif edge_type == EdgeTypesIn.IStatic:
         et = EdgeTypesOut.Static
-    elif edge_type == "CETypePredecessor":
+    elif edge_type == EdgeTypesIn.Predecessor:
         et = EdgeTypesOut.Successor
-    elif edge_type == "CETypeILongDistance":
+    elif edge_type == EdgeTypesIn.ILongDistance:
         et = EdgeTypesOut.LongDistance
-    elif edge_type == "CETypeIOnDemand":
+    elif edge_type == EdgeTypesIn.IOnDemand:
         et = EdgeTypesOut.OnDemand
     return et
 
@@ -99,7 +95,7 @@ class ConnectionEdge():
             self.edge_id = uuid.uuid4().hex
         self.created_time = time.time()
         self.connected_time = None
-        self.edge_state = EdgeState.Initialized
+        self.edge_state = EdgeStates.Initialized
         self.edge_type = edge_type
         self.tunnel_type = tunnel_type
         # self.marked_for_delete = False
@@ -144,7 +140,6 @@ class ConnectionEdge():
     def serialize(self):
         return struct.pack(ConnectionEdge._PACK_STR, self.peer_id, self.edge_id, self.created_time,
                            self.connected_time, self.edge_state, self.edge_type)
-        # ,self.marked_for_delete)
 
     @classmethod
     def from_bytes(cls, data):
@@ -229,34 +224,34 @@ class ConnEdgeAdjacenctList(MutableMapping):
         self.remove_conn_edge(peer_id)
         self._conn_edges[peer_id] = ce
         # self.update_closest()
-        if ce.edge_type == "CETypeLongDistance":
+        if ce.edge_type == EdgeTypesOut.LongDistance:
             self.num_ldl += 1
-        if ce.edge_type == "CETypeILongDistance":
+        if ce.edge_type == "EdgeTypesIn.ILongDistance":
             self.num_ldli += 1
-        elif ce.edge_type == "CETypeSuccessor":
+        elif ce.edge_type == EdgeTypesOut.Successor:
             self.num_succ += 1
-        elif ce.edge_type == "CETypePredecessor":
+        elif ce.edge_type == "EdgeTypesIn.Predecessor":
             self.num_succi += 1
-        elif ce.edge_type == "CETypeOnDemand":
+        elif ce.edge_type == EdgeTypesOut.OnDemand:
             self.num_ond += 1
-        elif ce.edge_type == "CETypeIOnDemand":
+        elif ce.edge_type == "EdgeTypesIn.IOnDemand":
             self.num_ondi += 1
 
     def remove_conn_edge(self, peer_id):
         ce = self._conn_edges.pop(peer_id, None)
         if not ce:
             return
-        if ce.edge_type == "CETypeLongDistance":
+        if ce.edge_type == EdgeTypesOut.LongDistance:
             self.num_ldl -= 1
-        if ce.edge_type == "CETypeILongDistance":
+        if ce.edge_type == "EdgeTypesIn.ILongDistance":
             self.num_ldli -= 1
-        elif ce.edge_type == "CETypeSuccessor":
+        elif ce.edge_type == EdgeTypesOut.Successor:
             self.num_succ -= 1
-        elif ce.edge_type == "CETypePredecessor":
+        elif ce.edge_type == "EdgeTypesIn.Predecessor":
             self.num_succi -= 1
-        elif ce.edge_type == "CETypeOnDemand":
+        elif ce.edge_type == EdgeTypesOut.OnDemand:
             self.num_ond -= 1
-        elif ce.edge_type == "CETypeIOnDemand":
+        elif ce.edge_type == "EdgeTypesIn.IOnDemand":
             self.num_ondi -= 1
         # return ce
 

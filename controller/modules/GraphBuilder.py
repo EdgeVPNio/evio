@@ -25,7 +25,7 @@ import random
 from .NetworkGraph import ConnectionEdge, EdgeTypesOut
 from .NetworkGraph import ConnEdgeAdjacenctList
 from .NetworkGraph import NetworkTransitions
-from .NetworkGraph import EdgeState
+from .NetworkGraph import EdgeStates
 
 
 class GraphBuilder():
@@ -75,7 +75,7 @@ class GraphBuilder():
     def _build_successors(self, adj_list, transition_adj_list):
         num_ideal_conn_succ = 0
         successors = self._get_successors()
-        suc_ces = transition_adj_list.select_edges([("CETypeSuccessor", EdgeState.Connected)])
+        suc_ces = transition_adj_list.select_edges([("CETypeSuccessor", EdgeStates.Connected)])
         # add the ideal successors to the new adj list
         for peer_id in successors:
             if peer_id not in adj_list:
@@ -121,7 +121,7 @@ class GraphBuilder():
         # handled in net builder
         #ldlnks = transition_adj_list.select_edges_by_type(["CETypeILongDistance"])
         #for peer_id, ce in ldlnks.items():
-        #    if ce.edge_state in (EdgeState.Initialized", EdgeState.Created", EdgeState.Connected") and \
+        #    if ce.edge_state in (EdgeStates.Initialized", EdgeStates.Created", EdgeStates.Connected") and \
         #        peer_id not in adj_list:
         #        adj_list[peer_id] = ConnectionEdge(peer_id, ce.edge_id, ce.edge_type)
         # evaluate existing ldl
@@ -130,7 +130,7 @@ class GraphBuilder():
             ldlnks = transition_adj_list.select_edges_by_type(["CETypeLongDistance"])
         num_existing_ldl = 0
         for ce in ldlnks:
-            if ce.edge_state in [EdgeState.Connected] and \
+            if ce.edge_state in [EdgeStates.Connected] and \
                 ce.peer_id not in adj_list and not self.is_too_close(ce.peer_id):
                 adj_list[ce.peer_id] = ConnectionEdge(peer_id, ce.edge_id, ce.edge_type)
                 num_existing_ldl += 1
@@ -148,8 +148,8 @@ class GraphBuilder():
         # add existing on demand links
         existing = transition_adj_list.select_edges_by_type(EdgeTypesOut.OnDemand)
         for ce in existing:
-            if ce.edge_state in (EdgeState.Initialized, EdgeState.PreAuth, EdgeState.Authorized,
-                                 EdgeState.Created, EdgeState.Connected) and ce.peer_id not in adj_list:
+            if ce.edge_state in (EdgeStates.Initialized, EdgeStates.PreAuth, EdgeStates.Authorized,
+                                 EdgeStates.Created, EdgeStates.Connected) and ce.peer_id not in adj_list:
                 ond[ce.peer_id] = ConnectionEdge(ce.peer_id, ce.edge_id, ce.edge_type)
         task_rmv = []
         for task in request_list:
@@ -186,7 +186,7 @@ class GraphBuilder():
             self._build_long_dist_links(adj_list, transition_adj_list)
             self._build_ondemand_links(adj_list, transition_adj_list, request_list)
         for _, ce in adj_list._conn_edges.items():
-            assert ce.edge_state == EdgeState.Initialized, "Invalid CE edge state, CE={}".format(ce)
+            assert ce.edge_state == EdgeStates.Initialized, "Invalid CE edge state, CE={}".format(ce)
         return adj_list
 
     def get_network_transitions(self, peers, initial_adj_list, request_list=None, relink=False):

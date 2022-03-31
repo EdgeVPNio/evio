@@ -28,7 +28,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 from framework.CBT import CBT
 from modules.Topology import DiscoveredPeer, SupportedTunnels, Topology, EdgeRequest, EdgeNegotiate
-from modules.NetworkGraph import ConnectionEdge, ConnEdgeAdjacenctList, EdgeState, EdgeTypes, EdgeTypesOut
+from modules.NetworkGraph import ConnectionEdge, ConnEdgeAdjacenctList, EdgeStates, EdgeTypesOut
 from modules.NetworkGraph import NetworkTransitions, UpdatePriority
 
 TunnelCapabilities=["Geneve", "WireGuard", "Tincan"]
@@ -38,15 +38,15 @@ class TopologyTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(self):
-        _logger = logging.getLogger()
-        _logger.setLevel(logging.DEBUG)
-        # Console Logger
-        console_handler = logging.StreamHandler()
-        console_log_formatter = logging.Formatter(
-            "[%(asctime)s.%(msecs)03d] %(levelname)s:%(name)s: %(message)s",
-            datefmt="%H:%M:%S")
-        console_handler.setFormatter(console_log_formatter)
-        _logger.addHandler(console_handler)
+        # _logger = logging.getLogger()
+        # _logger.setLevel(logging.DEBUG)
+        # # Console Logger
+        # console_handler = logging.StreamHandler()
+        # console_log_formatter = logging.Formatter(
+        #     "[%(asctime)s.%(msecs)03d] %(levelname)s:%(name)s: %(message)s",
+        #     datefmt="%H:%M:%S")
+        # console_handler.setFormatter(console_log_formatter)
+        # _logger.addHandler(console_handler)
         self.config = {
             "Topology": {
                 "Enabled": True,
@@ -167,7 +167,7 @@ class TopologyTest(unittest.TestCase):
         cbt =  CBT("Geneve", "Topology", "GNV_TUNNEL_EVENTS", params)
         self.top.process_cbt(cbt)
         self.assertTrue(peer_id in ovl.adjacency_list)
-        self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeState.Authorized)
+        self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeStates.Authorized)
         
         params = {
             "UpdateType": "LnkEvAuthExpired", "OverlayId": overlay_id,
@@ -175,7 +175,7 @@ class TopologyTest(unittest.TestCase):
         cbt =  CBT("Geneve", "Topology", "GNV_TUNNEL_EVENTS", params)
         self.top.process_cbt(cbt)
         self.assertFalse(ovl.adjacency_list)
-        self.assertEqual(ce.edge_state, EdgeState.Deleting)
+        self.assertEqual(ce.edge_state, EdgeStates.Deleting)
 
 
         ce = ConnectionEdge(peer_id, tnlid, EdgeTypesOut.Successor, "Geneve")
@@ -185,21 +185,21 @@ class TopologyTest(unittest.TestCase):
         cbt =  CBT("Geneve", "Topology", "GNV_TUNNEL_EVENTS", params)
         self.top.process_cbt(cbt)
         self.assertTrue(peer_id in ovl.adjacency_list)
-        self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeState.Authorized)
+        self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeStates.Authorized)
                 
         params = {"UpdateType": "LnkEvCreating", "OverlayId": overlay_id, "PeerId": peer_id,
                     "TunnelId": tnlid}
         cbt =  CBT("Geneve", "Topology", "GNV_TUNNEL_EVENTS", params)
         self.top.process_cbt(cbt)
         self.assertTrue(peer_id in ovl.adjacency_list)
-        self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeState.Created)
+        self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeStates.Created)
                 
         params = {"UpdateType": "LnkEvCreated", "OverlayId": overlay_id, "PeerId": peer_id,
                         "TunnelId": tnlid, "TapName": tap_name}
         cbt =  CBT("Geneve", "Topology", "GNV_TUNNEL_EVENTS", params)
         self.top.process_cbt(cbt)
         self.assertTrue(peer_id in ovl.adjacency_list)
-        self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeState.Created)
+        self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeStates.Created)
                 
         params = {"UpdateType": "LnkEvConnected", "OverlayId": overlay_id, "PeerId": peer_id,
                  "TunnelId": tnlid, "ConnectedTimestamp": lts,
@@ -208,14 +208,14 @@ class TopologyTest(unittest.TestCase):
         ovl.acquire()
         self.top.process_cbt(cbt)
         self.assertTrue(peer_id in ovl.adjacency_list)
-        self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeState.Connected)
+        self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeStates.Connected)
         
         params = {"UpdateType": "LnkEvDisconnected", "OverlayId": overlay_id,
                   "PeerId": peer_id, "TunnelId": tnlid,"TapName": tap_name}
         cbt =  CBT("Geneve", "Topology", "GNV_TUNNEL_EVENTS", params)
         self.top.process_cbt(cbt)
         self.assertTrue(peer_id in ovl.adjacency_list)
-        self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeState.Disconnected)
+        self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeStates.Disconnected)
         
         params = {
             "UpdateType": "LnkEvRemoved", "OverlayId": overlay_id, "TunnelId": tnlid,
@@ -224,7 +224,7 @@ class TopologyTest(unittest.TestCase):
         ovl.acquire()
         self.top.process_cbt(cbt)
         self.assertFalse(ovl.adjacency_list)
-        self.assertEqual(ce.edge_state, EdgeState.Deleting)
+        self.assertEqual(ce.edge_state, EdgeStates.Deleting)
      
         print("passed: test_req_handler_tunnl_update")
         
@@ -250,7 +250,7 @@ class TopologyTest(unittest.TestCase):
         ovl = self.top._net_ovls["A0FB389"]
         self.top._initiate_negotiate_edge(ovl, ce)
         self.assertTrue("128" in ovl.adjacency_list)
-        self.assertEqual(ovl.adjacency_list["128"].edge_state, EdgeState.PreAuth)
+        self.assertEqual(ovl.adjacency_list["128"].edge_state, EdgeStates.PreAuth)
         print("passed: test_initiate_negotiate_edge")
 
     def test_select_tunnel_type(self):
@@ -325,17 +325,20 @@ class TopologyTest(unittest.TestCase):
             
     def test_negotiate_incoming_edge_request(self):
         overlay_id = "A0FB389"
+        peer_id = "2"
         self.top.initialize()
-        cbt = CBT("Signal", "Topology", "TOP_NEGOTIATE_EDGE", {})
+        self._create_peers(overlay_id, int(peer_id)+1)
         er = EdgeRequest(overlay_id=overlay_id, edge_id=uuid.uuid4().hex, edge_type=EdgeTypesOut.Static,
-                         recipient_id=self.top.node_id, initiator_id="256",
+                         recipient_id=self.top.node_id, initiator_id=peer_id,
                          location_id=self.top.config["Overlays"][overlay_id]["LocationId"],
                          capability=TunnelCapabilities)
+        cbt = CBT("Signal", "Topology", "TOP_NEGOTIATE_EDGE", er._asdict())
         ovl = self.top._net_ovls[overlay_id]
-        edge_resp = self.top._negotiate_incoming_edge_request(ovl, er, cbt)
+        self.top.req_handler_negotiate_edge(cbt)
+        _, edge_resp = ovl.pending_auth_conn_edges[peer_id]
         self.assertIsNotNone(edge_resp)
         self.assertTrue(edge_resp.is_accepted)
-        self.assertEqual(ovl.adjacency_list[er.initiator_id].edge_state, EdgeState.PreAuth)
+        self.assertEqual(ovl.adjacency_list[er.initiator_id].edge_state, EdgeStates.PreAuth)
 
         print("passed: test_negotiate_incoming_edge_request")
     
@@ -347,30 +350,29 @@ class TopologyTest(unittest.TestCase):
         ovl = self.top._net_ovls[overlay_id]
         existing_edge_id = uuid.uuid4().hex
         ce = ConnectionEdge(peer_id, existing_edge_id, EdgeTypesOut.LongDistance)
-        ce.edge_state = EdgeState.Connected
+        ce.edge_state = EdgeStates.Connected
         ovl.adjacency_list[peer_id] = ce
-        cbt = CBT("Signal", "Topology", "TOP_NEGOTIATE_EDGE", {})
         er = EdgeRequest(overlay_id=overlay_id, edge_id=uuid.uuid4().hex, edge_type=EdgeTypesOut.Static,
                          recipient_id=self.top.node_id, initiator_id=peer_id,
                          location_id=self.top.config["Overlays"][overlay_id]["LocationId"],
                          capability=TunnelCapabilities)
-        ovl = self.top._net_ovls[overlay_id]
-        edge_resp = self.top._negotiate_incoming_edge_request(ovl, er, cbt)
-        self.assertIsNotNone(edge_resp)
-        self.assertFalse(edge_resp.is_accepted)
-        self.assertEqual(ce.edge_state, EdgeState.Connected)
+        cbt = CBT("Signal", "Topology", "TOP_NEGOTIATE_EDGE", er._asdict())
+        self.top.req_handler_negotiate_edge(cbt)
+        self.assertIsNone(ovl.pending_auth_conn_edges.get(peer_id))
+        self.assertFalse(cbt.response.status)
+        self.assertEqual(ce.edge_state, EdgeStates.Connected)
         
-        cbt = CBT("Signal", "Topology", "TOP_NEGOTIATE_EDGE", {})
         er = EdgeRequest(overlay_id=overlay_id, edge_id=existing_edge_id, edge_type=EdgeTypesOut.Static,
                          recipient_id=self.top.node_id, initiator_id=peer_id,
                          location_id=self.top.config["Overlays"][overlay_id]["LocationId"],
                          capability=TunnelCapabilities)
+        cbt = CBT("Signal", "Topology", "TOP_NEGOTIATE_EDGE", er._asdict())
         ovl = self.top._net_ovls[overlay_id]
-        ce.edge_state = EdgeState.Authorized
-        edge_resp = self.top._negotiate_incoming_edge_request(ovl, er, cbt)
-        self.assertIsNotNone(edge_resp)
-        self.assertFalse(edge_resp.is_accepted)
-        self.assertEqual(ce.edge_state, EdgeState.Authorized)
+        ce.edge_state = EdgeStates.Authorized
+        self.top.req_handler_negotiate_edge(cbt)
+        self.assertIsNone(ovl.pending_auth_conn_edges.get(peer_id))
+        self.assertFalse(cbt.response.status)
+        self.assertEqual(ce.edge_state, EdgeStates.Authorized)
         
         print("passed: test_negotiate_incoming_edge_request_collision_fail")                            
         
@@ -380,16 +382,16 @@ class TopologyTest(unittest.TestCase):
         self.top.initialize()
         self._create_peers(overlay_id, int(peer_id)+1)
         ce = ConnectionEdge(peer_id, uuid.uuid4().hex, EdgeTypesOut.OnDemand)
-        ce.edge_state = EdgeState.PreAuth
+        ce.edge_state = EdgeStates.PreAuth
         ovl = self.top._net_ovls[overlay_id]
         ovl.adjacency_list[ce.peer_id]= ce
         en = EdgeNegotiate(overlay_id=overlay_id, edge_id=ce.edge_id, edge_type=ce.edge_type,
                           recipient_id=ce.peer_id, initiator_id=self.top.node_id,
                           location_id=self.top.config["Overlays"][overlay_id]["LocationId"],
-                          capability=TunnelCapabilities, is_accepted=True, data="Edge Accepted",
+                          capability=TunnelCapabilities, is_accepted=True, message="Edge Accepted",
                           tunnel_type=SupportedTunnels.Tincan)
         self.top._complete_negotiate_edge(ovl, en)
-        self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeState.Authorized)
+        self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeStates.Authorized)
         print("passed: test_complete_negotiate_edge")
       
     def test_complete_negotiate_edge_accept_collision(self):
@@ -398,7 +400,7 @@ class TopologyTest(unittest.TestCase):
         self.top.initialize()
         self._create_peers(overlay_id, int(peer_id)+1)
         ce = ConnectionEdge(peer_id, uuid.uuid4().hex, EdgeTypesOut.OnDemand)
-        ce.edge_state = EdgeState.PreAuth
+        ce.edge_state = EdgeStates.PreAuth
         ovl = self.top._net_ovls[overlay_id]
         ovl.adjacency_list[ce.peer_id]= ce
         msg = f"E1 - A valid edge already exists. TunnelId={ce.edge_id[:7]}"
@@ -406,10 +408,10 @@ class TopologyTest(unittest.TestCase):
         en = EdgeNegotiate(overlay_id=overlay_id, edge_id=ce.edge_id, edge_type=ce.edge_type,
                            recipient_id=ce.peer_id, initiator_id=ovl.adjacency_list.node_id,
                            location_id=self.top.config["Overlays"][overlay_id]["LocationId"],
-                           capability=TunnelCapabilities, is_accepted=True, data="Edge Accepted",
+                           capability=TunnelCapabilities, is_accepted=True, message="Edge Accepted",
                            tunnel_type=SupportedTunnels.Geneve)
         self.top._complete_negotiate_edge(ovl, en)
-        self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeState.Authorized)
+        self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeStates.Authorized)
         print("passed: test_complete_negotiate_edge_accept_collision")        
 
     def test_complete_negotiate_edge_reject_collision(self):
@@ -418,7 +420,7 @@ class TopologyTest(unittest.TestCase):
         self.top.initialize()
         self._create_peers(overlay_id, int(peer_id)+1)
         ce = ConnectionEdge(peer_id, uuid.uuid4().hex, EdgeTypesOut.OnDemand)
-        ce.edge_state = EdgeState.PreAuth
+        ce.edge_state = EdgeStates.PreAuth
         ovl = self.top._net_ovls[overlay_id]
         ovl.adjacency_list[ce.peer_id]= ce
         msg = f"E2 - Node {peer_id} superceeds edge request due to collision, edge={ce.edge_id[:7]}"
@@ -426,10 +428,10 @@ class TopologyTest(unittest.TestCase):
                          recipient_id=ce.peer_id, initiator_id=ovl.adjacency_list.node_id,
                          location_id=self.top.config["Overlays"][overlay_id]["LocationId"],
                          capability=TunnelCapabilities,
-                         is_accepted=False, data=msg, tunnel_type=SupportedTunnels.Tincan)
+                         is_accepted=False, message=msg, tunnel_type=SupportedTunnels.Tincan)
         ovl.acquire()
         self.top._complete_negotiate_edge(ovl, en)
-        self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeState.PreAuth)
+        self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeStates.PreAuth)
         print("passed: test_complete_negotiate_edge_reject_collision")
               
     def test_complete_negotiate_edge_reject(self):
@@ -438,18 +440,18 @@ class TopologyTest(unittest.TestCase):
         self.top.initialize()
         self._create_peers(overlay_id, int(peer_id)+1)
         ce = ConnectionEdge(peer_id, uuid.uuid4().hex, EdgeTypesOut.OnDemand)
-        ce.edge_state = EdgeState.PreAuth
+        ce.edge_state = EdgeStates.PreAuth
         ovl = self.top._net_ovls[overlay_id]
         ovl.adjacency_list[ce.peer_id]= ce
         en = EdgeNegotiate(overlay_id=overlay_id, edge_id=ce.edge_id, edge_type=ce.edge_type,
                          recipient_id=ce.peer_id, initiator_id=ovl.adjacency_list.node_id,
                          location_id=self.top.config["Overlays"][overlay_id]["LocationId"],
                          capability=TunnelCapabilities,
-                         is_accepted=False, data="E5 - Too many existing edges.",
+                         is_accepted=False, message="E5 - Too many existing edges.",
                          tunnel_type=SupportedTunnels.Tincan)
         ovl.acquire() # increase the ref count to indicate an operation has been started
         self.top._complete_negotiate_edge(ovl, en)
-        self.assertEqual(ce.edge_state, EdgeState.Deleting)
+        self.assertEqual(ce.edge_state, EdgeStates.Deleting)
         self.assertNotIn(peer_id, ovl.adjacency_list)
         print("passed: test_complete_negotiate_edge_reject")
                 
@@ -458,12 +460,12 @@ class TopologyTest(unittest.TestCase):
         ovl = self.top._net_ovls["A0FB389"]
         ce = ConnectionEdge("256", uuid.uuid4().hex, EdgeTypesOut.LongDistance)
         ce.connected_time = time.time() - (Topology._EDGE_PROTECTION_AGE + 1)
-        ce.edge_state = EdgeState.Connected
+        ce.edge_state = EdgeStates.Connected
         ovl.adjacency_list[ce.peer_id]= ce
         
         is_rem = self.top._initiate_remove_edge(ovl, ce)
         self.assertTrue(is_rem)
-        self.assertEqual(ovl.adjacency_list["256"].edge_state, EdgeState.Deleting)
+        self.assertEqual(ovl.adjacency_list["256"].edge_state, EdgeStates.Deleting)
         print("passed: test_initiate_remove_edge")
             
 ###################################################################################################
