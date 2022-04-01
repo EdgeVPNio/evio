@@ -33,6 +33,7 @@ from collections.abc import MutableMapping
 from distutils import spawn
 from framework.ControllerModule import ControllerModule
 import framework.Modlib as Modlib
+from .Tunnel import TunnelEvents
 
 NamePrefix = ""
 MTU = 1410
@@ -516,6 +517,7 @@ class BridgeController(ControllerModule):
         #                          " Visualization data will not be sent.")
 
         self.start_subscription("LinkManager", "LNK_TUNNEL_EVENTS")
+        self.start_subscription("GeneveTunnel", "GNV_TUNNEL_EVENTS")
         self.logger.info("Module Loaded")
 
     def req_handler_manage_bridge(self, cbt):
@@ -524,13 +526,13 @@ class BridgeController(ControllerModule):
             br = self._ovl_net[olid]
             port_name = cbt.request.params.get("TapName")
             tnlid = cbt.request.params["TunnelId"]
-            if cbt.request.params["UpdateType"] == "LnkEvCreated":
+            if cbt.request.params["UpdateType"] in ("LnkEvCreated", TunnelEvents.Created):
                 # block external system components from attempting to configure our
                 # tunnel as a source of traffic
                 Modlib.runshell(
                     ["sysctl", "net.ipv6.conf.{}.disable_ipv6=1".format(port_name)])
                 Modlib.runshell([OvsBridge.iptool, "addr", "flush", port_name])
-            elif cbt.request.params["UpdateType"] == "LnkEvConnected":
+            elif cbt.request.params["UpdateType"] in ("LnkEvConnected", TunnelEvents.Connected):
                 self._tunnels[olid][port_name] = {
                     "PeerId": cbt.request.params["PeerId"],
                     "TunnelId": tnlid,
@@ -542,7 +544,7 @@ class BridgeController(ControllerModule):
                 br.add_port(port_name)
                 self.log("LOG_INFO", "Port %s added to bridge %s",
                          port_name, str(br))
-            elif cbt.request.params["UpdateType"] == "LnkEvRemoved":
+            elif cbt.request.params["UpdateType"] in ("LnkEvRemoved", TunnelEvents.Removed):
                 self._tunnels[olid].pop(port_name, None)
                 if br.bridge_type == OvsBridge.bridge_type:
                     br.del_port(port_name)
@@ -560,7 +562,7 @@ class BridgeController(ControllerModule):
 
     def process_cbt(self, cbt):
         if cbt.op_type == "Request":
-            if cbt.request.action == "LNK_TUNNEL_EVENTS":
+            if cbt.request.action in ("LNK_TUNNEL_EVENTS", "GNV_TUNNEL_EVENTS"):
                 self.req_handler_manage_bridge(cbt)
             elif cbt.request.action == "VIS_DATA_REQ":
                 self.req_handler_vis_data(cbt)
