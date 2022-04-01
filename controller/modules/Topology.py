@@ -732,10 +732,10 @@ class Topology(ControllerModule, CFX):
         params = {"OverlayId": net_ovl.overlay_id,
                   "PeerId": peer_id, "TunnelId": tunnel_id}
         if tunnel_type == SupportedTunnels.Geneve:
-            params["LocationId"] = self.config["Overlays"][net_ovl.overlay_id].get("LocatioId")
+            params["VNId"] = self.config["Overlays"][net_ovl.overlay_id].get("LocationId")
             self.register_cbt("GeneveTunnel", "GNV_CREATE_TUNNEL", params)
         elif tunnel_type == SupportedTunnels.WireGuard:
-            params["LocationId"] = self.config["Overlays"][net_ovl.overlay_id].get("LocatioId")
+            params["LocationId"] = self.config["Overlays"][net_ovl.overlay_id].get("LocationId")
             self.register_cbt("WireGuard", "WGD_CREATE_TUNNEL", params)
         elif tunnel_type == SupportedTunnels.Tincan:
             self.register_cbt("LinkManager", "LNK_CREATE_TUNNEL", params)

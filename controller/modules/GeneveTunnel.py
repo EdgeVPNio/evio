@@ -144,7 +144,7 @@ class GeneveTunnel(ControllerModule):
             self._tunnels[tnlid] = TunnelDescriptor(tnlid, olid, peer_id,
                                                     TunnelStates.AUTHORIZED)
             self._peers[olid][peer_id] = tnlid
-            self.logger.debug("TunnelId:%s auth for Peer:%s completed",
+            self.logger.debug("TunnelId:%s authorization for Peer:%s completed",
                               tnlid[:7], peer_id[:7])
             cbt.set_response(
                 f"Geneve tunnel authorization completed, TunnelId:{tnlid[:7]}", True)
@@ -154,9 +154,8 @@ class GeneveTunnel(ControllerModule):
         """Role A"""
         olid = cbt.request.params["OverlayId"]
         tnlid = cbt.request.params["TunnelId"]
-        loc_id = cbt.request.params["LocationId"]
+        loc_id = cbt.request.params["VNId"]
         peer_id = cbt.request.params["PeerId"]
-        
         tap_name = self.get_tap_name(peer_id, olid)
 
         # if not self._is_tunnel_authorized(tunnel_id):
@@ -173,7 +172,7 @@ class GeneveTunnel(ControllerModule):
                     "OverlayId": olid, 
                     "PeerId": peer_id,
                     "TunnelId": tnlid, 
-                    "LocationId": loc_id,
+                    "VNId": loc_id,
                     "EndPointAddress": self.config["Overlays"][olid]["EndPointAddress"]
                 }
             remote_act = RemoteAction(overlay_id=olid,
@@ -189,7 +188,7 @@ class GeneveTunnel(ControllerModule):
         params = cbt.request.params
         olid = params["OverlayId"]
         tnlid = params["TunnelId"]
-        vnid = params["LocationId"]
+        vnid = params["VNId"]
         peer_id = params["PeerId"]
         endpnt_address = params["EndPointAddress"]
         if olid not in self.config["Overlays"]:
@@ -252,7 +251,7 @@ class GeneveTunnel(ControllerModule):
             if rem_act.action == "GNV_EXCHANGE_ENDPT":
                 peer_id = parent_cbt.request.params["PeerId"]
                 olid = parent_cbt.request.params["OverlayId"]
-                vnid = parent_cbt.request.params["LocationId"]
+                vnid = parent_cbt.request.params["VNId"]
                 endpnt_address = rem_act.data["EndPointAddress"]
                 tap_name = self.get_tap_name(peer_id, olid)
 
