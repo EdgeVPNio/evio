@@ -32,7 +32,7 @@ from framework.Modlib import RemoteAction
 from .NetworkGraph import ConnectionEdge, ConnEdgeAdjacenctList, NetworkTransitions
 from .NetworkGraph import EdgeStates, EdgeTypesOut, EdgeTypesIn, OpType, transpose_edge_type
 from .GraphBuilder import GraphBuilder
-from .Tunnel import TunnelEvent
+from .Tunnel import TunnelEvents
 
 MinSuccessors = 1
 MaxOnDemandEdges = 0
@@ -199,6 +199,7 @@ class Topology(ControllerModule, CFX):
     def initialize(self):
         self.start_subscription("Signal", "SIG_PEER_PRESENCE_NOTIFY")
         self.start_subscription("LinkManager", "LNK_TUNNEL_EVENTS")
+        self.start_subscription("GeneveTunnel", "GNV_TUNNEL_EVENTS")
         for olid in self.overlays:
             self._net_ovls[olid] = NetworkOverlay(self.node_id, olid,
                                                   Logger=self.logger,
@@ -316,10 +317,10 @@ class Topology(ControllerModule, CFX):
         edge_id = event["TunnelId"]
         overlay_id = event["OverlayId"]
         ovl = self._net_ovls[overlay_id]
-        if event["UpdateType"] in ("LnkEvAuthorized", TunnelEvent.Authorized):
+        if event["UpdateType"] in ("LnkEvAuthorized", TunnelEvents.Authorized):
             """ Role B """
             ovl.adjacency_list[peer_id].edge_state = EdgeStates.Authorized
-        elif event["UpdateType"] in ("LnkEvAuthExpired", TunnelEvent.AuthExpired):
+        elif event["UpdateType"] in ("LnkEvAuthExpired", TunnelEvents.AuthExpired):
             """ Role B """
             ce = ovl.adjacency_list[peer_id]
             assert ce.edge_state == EdgeStates.Authorized, "Deauth CE={0}".format(
@@ -330,12 +331,12 @@ class Topology(ControllerModule, CFX):
             self.logger.debug("Excluding peer %s until %s", peer_id,
                               str(datetime.fromtimestamp(
                                   ovl.known_peers[peer_id].available_time)))
-        elif event["UpdateType"] in ("LnkEvCreating", TunnelEvent.Creating):
+        elif event["UpdateType"] in ("LnkEvCreating", TunnelEvents.Creating):
             conn_edge = ovl.adjacency_list[peer_id]
             conn_edge.edge_state = EdgeStates.Created
-        elif event["UpdateType"] in ("LnkEvCreated", TunnelEvent.Created):
+        elif event["UpdateType"] in ("LnkEvCreated", TunnelEvents.Created):
             pass
-        elif event["UpdateType"] in ("LnkEvConnected", TunnelEvent.Connected):
+        elif event["UpdateType"] in ("LnkEvConnected", TunnelEvents.Connected):
             """Roles A & B"""
             ce = ovl.adjacency_list[peer_id]
             ce.edge_state = EdgeStates.Connected
@@ -344,12 +345,12 @@ class Topology(ControllerModule, CFX):
             if ce.edge_type in EdgeTypesOut:
                 ovl.release()
                 self._process_next_transition(ovl)
-        elif event["UpdateType"] in ("LnkEvDisconnected", TunnelEvent.Disconnected):
+        elif event["UpdateType"] in ("LnkEvDisconnected", TunnelEvents.Disconnected):
             # the local topology did not request removal of the connection
             ce = ovl.adjacency_list[peer_id]
             ce.edge_state = EdgeStates.Disconnected
             self._remove_tunnel(ovl, ce.tunnel_type, peer_id, edge_id)
-        elif event["UpdateType"] in ("LnkEvRemoved", TunnelEvent.Removed):
+        elif event["UpdateType"] in ("LnkEvRemoved", TunnelEvents.Removed):
             """Roles A & B"""
             ce = ovl.adjacency_list[peer_id]
             ce.edge_state = EdgeStates.Deleting
@@ -592,9 +593,8 @@ class Topology(ControllerModule, CFX):
                              initiator_id=self.node_id,
                              location_id=net_ovl.location_id,
                              capability=tunnel_types)
-
-            self.logger.debug("Requesting edge auth edge_req=%s", er)
             edge_params = er._asdict()
+            self.logger.debug("Negotiating %s", er)
             rem_act = RemoteAction(net_ovl.overlay_id, er.recipient_id,
                                    "Topology", "TOP_NEGOTIATE_EDGE", edge_params)
             net_ovl.acquire()
@@ -622,7 +622,7 @@ class Topology(ControllerModule, CFX):
 
     def _complete_negotiate_edge(self, net_ovl, edge_nego):
         """ Role A2 """
-        self.logger.debug("Completing Edge Negotiation=%s", str(edge_nego))
+        self.logger.debug("Completing %s", str(edge_nego))
         if edge_nego.recipient_id not in net_ovl.adjacency_list:
             self.logger.warning("The peer specified in edge negotiation %s is not in current "
                                 "adjacency  list. The request has been discarded.")
@@ -634,12 +634,7 @@ class Topology(ControllerModule, CFX):
             # if E2 (request superceeded) do nothing here. The corresponding CE instance will
             # be converted in resolve_collision_request(). If E1, the request is outdate, just
             # discard.
-            self.logger.debug(f"edge_nego.message={edge_nego.message}")
-            ermsg = str(edge_nego.message)
-            self.logger.debug(f"ermsg={ermsg}")
-            erc = ermsg[:2]
-            self.logger.debug(f"erc={erc}")
-            if not erc in ("E1", "E2"):
+            if not edge_nego.message[:2] in ("E1", "E2"):
                 ce.edge_state = EdgeStates.Deleting
                 del net_ovl.adjacency_list[ce.peer_id]
             net_ovl.known_peers[peer_id].exclude()

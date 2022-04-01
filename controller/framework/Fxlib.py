@@ -53,7 +53,7 @@ CONFIG = {
     },
     "Topology": {
         "Enabled": True,
-        "Dependencies": ["Logger", "TincanInterface", "LinkManager"],
+        "Dependencies": ["Logger", "TincanInterface", "LinkManager", "GeneveTunnel"],
         "TimerInterval": 30
     },
     "BridgeController": {

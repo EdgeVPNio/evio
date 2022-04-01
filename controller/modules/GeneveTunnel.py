@@ -19,26 +19,22 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-import types
-from framework.Modlib import RemoteAction
-from framework.ControllerModule import ControllerModule
+from collections import namedtuple
 from pyroute2 import IPRoute
 from pyroute2 import NDB
-
-GnvTunnelStates = types.SimpleNamespace(GNV_AUTHORIZED="GNV_AUTHORIZED",
-                                     GNV_CREATING="GNV_CREATING",
-                                     GNV_ONLINE="GNV_ONLINE",
-                                     GNV_OFFLINE="GNV_OFFLINE")
+from framework.Modlib import RemoteAction
+from framework.ControllerModule import ControllerModule
+from .Tunnel import TunnelEvents, TunnelStates
 
 class TunnelDescriptor():
     _REFLECT = set(
         ["tunnel_id", "overlay_id", "peer_id", "state"])
 
-    def __init__(self, tunnel_id, overlay_id, peer_id):
+    def __init__(self, tunnel_id, overlay_id, peer_id, tunnel_state):
         self.tunnel_id = tunnel_id
         self.overlay_id = overlay_id
         self.peer_id = peer_id
-        self.state = GnvTunnelStates.GNV_CREATING
+        self.state = tunnel_state
     
     def __repr__(self):
         items = set()
@@ -69,7 +65,7 @@ class GeneveTunnel(ControllerModule):
         for olid in self.config["Overlays"]:
             self._peers[olid] = dict()
 
-        self._link_updates_publisher = \
+        self._gnv_updates_publisher = \
             self.publish_subscription("GNV_TUNNEL_EVENTS")
         self.logger.info("Module loaded")
 
@@ -106,20 +102,24 @@ class GeneveTunnel(ControllerModule):
         pass
 
     def _create_geneve_tunnel(self, tap_name, vnid, remote_addr):
-        try:            
+        try:
+            self.logger.info(f"Creating Geneve tunnel {tap_name} vnid={vnid}, remote addr={remote_addr}")
             self.ipr.link("add",
                         ifname=tap_name,
                         kind="geneve",
                         geneve_id=vnid,
                         geneve_remote=remote_addr)
         except Exception as e:
-            self.log("LOG_INFO", "Error creating tunnel. Reported error: %s", str(e))
+            self.logger.warning("Failed to create Geneve tunnel %s, error code: %s",
+                                tap_name, str(e))
 
     def _remove_geneve_tunnel(self, tap_name):
         try:        
+            self.logger.info(f"Removing Geneve tunnel {tap_name}")
             self.ipr.link("del", index=self.ipr.link_lookup(ifname=tap_name)[0])
         except Exception as e:
-            self.log("LOG_INFO", "Error deleting tunnel. Reported error: %s", str(e))
+            self.logger.warning("Failed to remove geneve tunnel %s, error code: %s",
+                                tap_name, str(e))
       
     def _is_tunnel_exist(self, tap_name):
         idx = self.ipr.link_lookup(ifname=tap_name)
@@ -129,7 +129,7 @@ class GeneveTunnel(ControllerModule):
 
     def _is_tunnel_authorized(self, tunnel_id):
         tun = self._tunnels.get(tunnel_id)
-        if tun is not None and tun.state in [GnvTunnelStates.GNV_AUTHORIZED, GnvTunnelStates.GNV_ONLINE]:
+        if tun is not None and tun.state in (TunnelStates.AUTHORIZED, TunnelStates.ONLINE):
             return True
         return False
 
@@ -138,57 +138,59 @@ class GeneveTunnel(ControllerModule):
         peer_id = cbt.request.params["PeerId"]
         tnlid = cbt.request.params["TunnelId"]
         if peer_id in self._peers[olid] or self._is_tunnel_authorized(tnlid):
-            cbt.set_response("Geneve tunnel auth failed, resource already exist for peer:tunnel {0}:{1}"
+            cbt.set_response("Geneve tunnel authorization failed, resource already exist for peer:tunnel {0}:{1}"
                              .format(peer_id, tnlid[:7]), False)
         else:
-            self._tunnels[tnlid] = TunnelDescriptor(tnlid, olid, peer_id)
-            self._tunnels[tnlid].state = GnvTunnelStates.GNV_AUTHORIZED
+            self._tunnels[tnlid] = TunnelDescriptor(tnlid, olid, peer_id,
+                                                    TunnelStates.AUTHORIZED)
             self._peers[olid][peer_id] = tnlid
-            self.log("LOG_DEBUG", "TunnelId:%s auth for Peer:%s completed",
-                     tnlid[:7], peer_id[:7])
+            self.logger.debug("TunnelId:%s auth for Peer:%s completed",
+                              tnlid[:7], peer_id[:7])
             cbt.set_response(
-                "Geneve tunnel auth completed, TunnelId:{0}".format(tnlid[:7]), True)
+                f"Geneve tunnel authorization completed, TunnelId:{tnlid[:7]}", True)
         self.complete_cbt(cbt)
 
     def req_handler_create_tunnel(self, cbt):
+        """Role A"""
         olid = cbt.request.params["OverlayId"]
-        tunnel_id = cbt.request.params["TunnelId"]
-        location_id = cbt.request.params["LocationId"]
+        tnlid = cbt.request.params["TunnelId"]
+        loc_id = cbt.request.params["LocationId"]
         peer_id = cbt.request.params["PeerId"]
         
         tap_name = self.get_tap_name(peer_id, olid)
 
-        if not self._is_tunnel_authorized(tunnel_id):
-            cbt.set_response(data=f"Tunnel {tunnel_id} not authorized", status=False)
-            self.complete_cbt(cbt)
-        if self._is_tunnel_exist(tap_name):
+        # if not self._is_tunnel_authorized(tunnel_id):
+        #     cbt.set_response(data=f"Tunnel {tunnel_id} not authorized", status=False)
+        #     self.complete_cbt(cbt)
+        if tnlid in self._tunnels or self._is_tunnel_exist(tap_name):
             cbt.set_response(
-                data=f"Tunnel {tap_name} already exists", status=False)
+                data=f"Tunnel {tnlid} already exists", status=False)
             self.complete_cbt(cbt)
-        params = {
-                "OverlayId": olid, 
-                "PeerId": peer_id,
-                "TunnelId": tunnel_id, 
-                "LocationId": location_id,
-                "EndPointAddress": self.config["Overlays"][olid]["EndPointAddress"]
-            }
-        remote_act = dict(OverlayId=olid,
-                                  RecipientId=peer_id,
-                                  RecipientCM="GeneveTunnel",
-                                  Action="GNV_EXCHANGE_ENDPT",
-                                  Params=params)
-        # Send the message via SIG server to peer
-        endp_cbt = self.create_linked_cbt(cbt)
-        endp_cbt.set_request(self.module_name, "Signal",
-                            "SIG_REMOTE_ACTION", remote_act)
-        self.submit_cbt(endp_cbt)
+        else:
+            self._tunnels[tnlid] = TunnelDescriptor(tnlid, olid, peer_id,
+                                                    TunnelStates.AUTHORIZED)
+            params = {
+                    "OverlayId": olid, 
+                    "PeerId": peer_id,
+                    "TunnelId": tnlid, 
+                    "LocationId": loc_id,
+                    "EndPointAddress": self.config["Overlays"][olid]["EndPointAddress"]
+                }
+            remote_act = RemoteAction(overlay_id=olid,
+                                    recipient_id=peer_id,
+                                    recipient_cm="GeneveTunnel",
+                                    action="GNV_EXCHANGE_ENDPT",
+                                    params=params)
+            # Send the message via SIG server to peer
+            remote_act.submit_remote_act(self, cbt)
 
     def req_handler_exchnge_endpt(self, cbt):
+        """Role B"""
         params = cbt.request.params
         olid = params["OverlayId"]
         tnlid = params["TunnelId"]
         vnid = params["LocationId"]
-        peerid = params["PeerId"]
+        peer_id = params["PeerId"]
         endpnt_address = params["EndPointAddress"]
         if olid not in self.config["Overlays"]:
             self.logger.warning("The requested overlay is not specified in "
@@ -199,22 +201,22 @@ class GeneveTunnel(ControllerModule):
             return
         if not self._is_tunnel_authorized(tnlid):
             msg = str("The requested link endpoint was not authorized. It will not be created. "
-            "TunnelId={0}, PeerId={1}, VNID={2}".format(tnlid, peerid, vnid))
+            "TunnelId={0}, PeerId={1}, VNID={2}".format(tnlid, peer_id, vnid))
             self.logger.warning(msg)
             cbt.set_response(msg, False)
             self.complete_cbt(cbt)
             return
       
-        # publish notification of link creation initiated Node B
+        # publish notification of link creation initiated
         gnv_param = {
-            "UpdateType": "GnvTnlCreating", "OverlayId": olid, "PeerId": peerid,
-            "TunnelId": tnlid, "VNId": vnid}
-        self._gnv_updates_publisher.post_update(gnv_param) 
+            "UpdateType": TunnelEvents.Created, "OverlayId": olid, "PeerId": peer_id,
+            "TunnelId": tnlid}
+        self._gnv_updates_publisher.post_update(gnv_param)
         # Send request to create tunnel
         try:
-            tap_name = self.get_tap_name(peerid, olid)
+            tap_name = self.get_tap_name(peer_id, olid)
             self._create_geneve_tunnel(tap_name, vnid, endpnt_address)
-            msg = self.config["Overlays"][olid]["EndPointAddress"]
+            msg = {"EndPointAddress": self.config["Overlays"][olid]["EndPointAddress"]}
             cbt.set_response(msg, True)
             self.complete_cbt(cbt)
         except Exception as e:
@@ -245,19 +247,18 @@ class GeneveTunnel(ControllerModule):
             parent_cbt.set_response(resp_data, False)
             self.complete_cbt(parent_cbt)
         else:
-            rem_act = cbt.response.data
+            rem_act = RemoteAction.response(cbt)
             
-            if rem_act["Action"] == "GNV_EXCHANGE_ENDPT":
-                peer_id = cbt.request.params["PeerId"]
-                olid = cbt.request.params["OverlayId"]
-                endpnt_address = rem_act["Data"]["EndPointAddress"]
-                vnid = cbt.request.params["LocationId"]
+            if rem_act.action == "GNV_EXCHANGE_ENDPT":
+                peer_id = parent_cbt.request.params["PeerId"]
+                olid = parent_cbt.request.params["OverlayId"]
+                vnid = parent_cbt.request.params["LocationId"]
+                endpnt_address = rem_act.data["EndPointAddress"]
                 tap_name = self.get_tap_name(peer_id, olid)
 
                 self._create_geneve_tunnel(tap_name, vnid, endpnt_address)
                 self.free_cbt(cbt)
-                msg = "Geneve tunnel created"
-                parent_cbt.set_response(msg, True)
+                parent_cbt.set_response("Geneve tunnel created", True)
                 self.complete_cbt(parent_cbt)
 
     def get_tap_name(self, peer_id, olid):

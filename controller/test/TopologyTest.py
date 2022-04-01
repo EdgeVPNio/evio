@@ -35,6 +35,7 @@ TunnelCapabilities=["Geneve", "WireGuard", "Tincan"]
 class TopologyTest(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super(TopologyTest, self).__init__(*args, **kwargs)
+        self.top: Topology = None
 
     @classmethod
     def setUpClass(self):

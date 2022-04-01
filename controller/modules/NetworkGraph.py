@@ -20,15 +20,14 @@
 # THE SOFTWARE.
 
 from collections import deque, namedtuple
+from collections.abc import MutableMapping
 import time
-import types
 try:
     import simplejson as json
 except ImportError:
     import json
 import struct
 import uuid
-from collections.abc import MutableMapping
 
 EDGE_TYPE_OUT = namedtuple(
     "EDGE_TYPE_OUT",

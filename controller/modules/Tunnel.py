@@ -19,26 +19,23 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-import os
-import threading
-import types
+
 from collections import namedtuple
 import time
-from framework.ControllerModule import ControllerModule
 
-TunnelEvent = types.SimpleNamespace(Creating="LnkEvCreating",
-                                    Created="LnkEvCreated",
-                                    Connected="LnkEvConnected",
-                                    Disconnected="LnkEvDisconnected",
-                                    Removed="LnkEvRemoved",
-                                    Authorized="LnkEvAuthorized",
-                                    AuthExpired="LnkEvAuthExpired")
+TUNNEL_EVENTS = namedtuple(
+    "TUNNEL_EVENTS",
+    ["Creating", "Created", "Connected", "Disconnected", "Removed",
+    "Authorized", "AuthExpired"],
+    defaults=["LnkEvCreating", "LnkEvCreated", "LnkEvConnected", "LnkEvDisconnected",
+              "LnkEvRemoved", "LnkEvAuthorized", "LnkEvAuthExpired"])
+TunnelEvents = TUNNEL_EVENTS()
 
-TunnelStates = types.SimpleNamespace(TNL_AUTHORIZED="TNL_AUTHORIZED",
-                                     TNL_CREATING="TNL_CREATING",
-                                     TNL_QUERYING="TNL_QUERYING",
-                                     TNL_ONLINE="TNL_ONLINE",
-                                     TNL_OFFLINE="TNL_OFFLINE")
+TUNNEL_STATES = namedtuple(
+    "TUNNEL_STATES",
+    ["AUTHORIZED", "CREATING", "QUERYING", "ONLINE", "OFFLINE"],
+    defaults=["TNL_AUTHORIZED", "TNL_CREATING", "TNL_QUERYING", "TNL_ONLINE", "TNL_OFFLINE"])
+TunnelStates = TUNNEL_STATES()
 
 class Tunnel():
     def __init__(self, tnlid, overlay_id, peer_id, tnl_state, state_timeout):
