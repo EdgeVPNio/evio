@@ -1,1 +1,8 @@
-
+@inproceedings{figueiredo2020edgevpn,
+  title={EdgeVPN. io: Open-source Virtual Private Network for Seamless Edge Computing with Kubernetes},
+  author={Figueiredo, Renato and Subratie, Kensworth},
+  booktitle={2020 IEEE/ACM Symposium on Edge Computing (SEC)},
+  pages={190--192},
+  year={2020},
+  organization={IEEE}
+}
