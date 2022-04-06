@@ -26,7 +26,7 @@ import uuid
 import logging
 
 from framework.CBT import CBT
-from unittest.mock import Mock
+from unittest.mock import Mock, MagicMock
 from pyroute2 import IPRoute
 
 warnings.filterwarnings(action="ignore", message="unclosed", category=ResourceWarning)
@@ -146,21 +146,19 @@ class GeneveTunnelTest(unittest.TestCase):
         self.assertEqual(len(idx),1)
         print("Passed: test_create_geneve_tunnel")
 
-    def test_remove_geneve_tunnel(self):
-        overlay_id = "A0FB389"
-        tap_name_prefix = self.config["GeneveTunnel"]["Overlays"][overlay_id]["TapNamePrefix"]
-        peer_id = self.config["GeneveTunnel"]["NodeId"]
-        end_i = 15 - len(tap_name_prefix)
-        tap_name = tap_name_prefix + str(peer_id[:end_i])
-        self.gen._remove_geneve_tunnel(tap_name)
-        self.assertFalse(self.gen._is_tunnel_exist(tap_name))
-        ipr = IPRoute()
-        idx = ipr.link_lookup(ifname=tap_name)
-        self.assertEqual(len(idx),0)
-        print("Passed : test_remove_geneve_tunnel")
-
     def test_req_handler_exchnge_endpt(self):
         pass
+
+    def test_resp_handler_remote_action(self):
+        self.gen.initialize()
+        # sig_dict, signal = self.setup_vars_mocks()
+        cbt = CBT()
+        cbt.op_type = "Response"
+        cbt.request.action = "SIG_REMOTE_ACTION"
+        self.gen.resp_handler_remote_action = MagicMock()
+        self.gen.process_cbt(cbt)
+        self.gen.resp_handler_remote_action.assert_called_once()
+        print("Passed : test_resp_handler_remote_action")
 
 if __name__ == '__main__':
     # unittest.main()
@@ -168,7 +166,8 @@ if __name__ == '__main__':
     suite.addTest(GeneveTunnelTest("test_req_handler_auth_tunnel"))
     suite.addTest(GeneveTunnelTest("test_req_handler_create_tunnel"))
     suite.addTest(GeneveTunnelTest("test_req_handler_remove_tunnel"))
-    # suite.addTest(GeneveTunnelTest("test_"))
+    suite.addTest(GeneveTunnelTest("test_resp_handler_remote_action"))
+    suite.addTest(GeneveTunnelTest("test_create_geneve_tunnel"))
     
     runner = unittest.TextTestRunner()
     runner.run(suite)        
