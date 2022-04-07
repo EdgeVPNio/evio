@@ -287,7 +287,7 @@ class ConnEdgeAdjacenctList(MutableMapping):
         return conn_edges
 
 
-class NetUpdate():
+class GraphEdit():
     def __init__(self, conn_edge, op_type, priority):
         self.conn_edge = conn_edge
         self.operation = op_type
@@ -299,7 +299,7 @@ class NetUpdate():
         return "{{{}}}".format(", ".join(items))
 
 
-class NetworkTransitions():
+class GraphTransformation():
     def __init__(self, curr_net_graph, tgt_net_graph):
         self._updates = deque()
         self._prev_priority = 0
@@ -329,25 +329,25 @@ class NetworkTransitions():
             if peer_id not in current:
                 # Op Add
                 if target[peer_id].edge_type == EdgeTypesOut.Static:
-                    op = NetUpdate(
+                    op = GraphEdit(
                         target[peer_id], OpType.Add, UpdatePriority.AddStatic)  # 1
                     self._updates.append(op)
                 elif target[peer_id].edge_type == EdgeTypesOut.Successor:
-                    op = NetUpdate(
+                    op = GraphEdit(
                         target[peer_id], OpType.Add, UpdatePriority.AddSucc)  # 2
                     self._updates.append(op)
                 elif target[peer_id].edge_type == EdgeTypesOut.OnDemand:
-                    op = NetUpdate(
+                    op = GraphEdit(
                         target[peer_id], OpType.Add, UpdatePriority.AddOnd)  # 4
                     self._updates.append(op)
                 elif target[peer_id].edge_type == EdgeTypesOut.LongDistance:
-                    op = NetUpdate(
+                    op = GraphEdit(
                         target[peer_id], OpType.Add, UpdatePriority.AddLongDst)  # 7
                     self._updates.append(op)
             else:
                 # Op Update
                 if current[peer_id].edge_type != target[peer_id].edge_type:
-                    op = NetUpdate(
+                    op = GraphEdit(
                         target[peer_id], OpType.Update, UpdatePriority.ModifyExisting)  # 0
                     self._updates.append(op)
 
@@ -355,15 +355,15 @@ class NetworkTransitions():
             if peer_id not in target:
                 # Op Remove
                 if current[peer_id].edge_type == EdgeTypesOut.OnDemand:
-                    op = NetUpdate(
+                    op = GraphEdit(
                         current[peer_id], OpType.Remove, UpdatePriority.RmvOnd)  # 3
                     self._updates.append(op)
                 elif current[peer_id].edge_type == EdgeTypesOut.Successor:
-                    op = NetUpdate(
+                    op = GraphEdit(
                         current[peer_id], OpType.Remove, UpdatePriority.RmvSucc)  # 5
                     self._updates.append(op)
                 elif current[peer_id].edge_type == EdgeTypesOut.LongDistance:
-                    op = NetUpdate(
+                    op = GraphEdit(
                         current[peer_id], OpType.Remove, UpdatePriority.RmvLongDst)  # 6
                     self._updates.append(op)
         if self._updates:

@@ -29,7 +29,7 @@ from datetime import datetime
 from framework.CFx import CFX
 from framework.ControllerModule import ControllerModule
 from framework.Modlib import RemoteAction
-from .NetworkGraph import ConnectionEdge, ConnEdgeAdjacenctList, NetworkTransitions
+from .NetworkGraph import ConnectionEdge, ConnEdgeAdjacenctList, GraphTransformation
 from .NetworkGraph import EdgeStates, EdgeTypesOut, EdgeTypesIn, OpType, transpose_edge_type
 from .GraphBuilder import GraphBuilder
 from .Tunnel import TunnelEvents
@@ -109,13 +109,14 @@ class NetworkOverlay():
     def __init__(self, node_id, overlay_id, **kwargs):
         self._lck = threading.Lock()
         # used to limit number of concurrent operations initiated
-        self._refc = kwargs.get("MaxConcurrentOps", MaxConcurrentOps)
+        self._max_concurrent_transitions = kwargs.get("MaxConcurrentOps", MaxConcurrentOps)
+        self._refc = self._max_concurrent_transitions
         self.node_id = node_id
         self.overlay_id = overlay_id
         self.logger = kwargs["Logger"]
         self.new_peer_count = 0
-        self._net_transition = None
-        self.transition: NetworkTransitions = None
+        self._graph_transformation = None
+        self.transformation: GraphTransformation = None
         self.known_peers: dict[str, DiscoveredPeer] = {}
         self.pending_auth_conn_edges: dict[str, tuple] = {}
         self.ond_peers = []
@@ -136,32 +137,23 @@ class NetworkOverlay():
         return self._encr_req
 
     @property
-    def transition(self):
-        return self._net_transition
+    def transformation(self):
+        return self._graph_transformation
 
-    @transition.setter
-    def transition(self, transitions):
+    @transformation.setter
+    def transformation(self, new_transformation):
         """
         Transitions the overlay network overlay to the desired state specified by network transition ops.
         """
-        self.logger.debug("New network transitions: %s", str(transitions))
-        assert ((self.is_ready and self.is_transition_completed()) or
-                (not self.is_ready and not self.is_transition_completed())),\
-            "Netbuilder is not ready for a new net graph"
+        self.logger.debug("New transformation: %s", str(new_transformation))
+        assert not self.transformation, "Graph transformation is not empty"
 
-        if transitions and self.is_ready:
-            self._net_transition = transitions
-            self.adjacency_list.min_successors = transitions.min_successors
-            self.adjacency_list.max_long_distance = transitions.max_long_distance
-            self.adjacency_list.max_ondemand = transitions.max_ondemand
-
-    def is_transition_completed(self):
-        """
-        Is the overlay ready for a new NetGraph? This means all the network 
-        transition operations have been completed.
-        """
-        return not bool(self._net_transition)
-
+        if new_transformation and not self.transformation:
+            self._graph_transformation = new_transformation
+            self.adjacency_list.min_successors = new_transformation.min_successors
+            self.adjacency_list.max_long_distance = new_transformation.max_long_distance
+            self.adjacency_list.max_ondemand = new_transformation.max_ondemand
+    
     def acquire(self):
         with self._lck:
             assert self._refc > 0, "Reference count at zero, cannot acquire"
@@ -169,14 +161,15 @@ class NetworkOverlay():
 
     def release(self):
         with self._lck:
-            assert self._refc < MaxConcurrentOps, "Reference count at maximum, invalid attempt to release"
+            assert self._refc < self._max_concurrent_transitions, "Reference count at maximum, invalid attempt to release"
             self._refc += 1
 
-    def is_ready(self):
+    @property
+    def is_idle(self):
         """Is the current transition operation completed"""
         with self._lck:
-            assert self._refc > 0 or self._refc < MaxConcurrentOps, f"Invalid reference count {self._refc}"
-            return self._refc == MaxConcurrentOps
+            assert self._refc >= 0 or self._refc <= self._max_concurrent_transitions, f"Invalid reference count {self._refc}"
+            return self._refc == self._max_concurrent_transitions
 
     def get_adj_list(self):
         return deepcopy(self.adjacency_list)
@@ -529,7 +522,7 @@ class Topology(ControllerModule, CFX):
     def _update_overlay(self, olid):
         net_ovl = self._net_ovls[olid]
 
-        if not net_ovl.transition:
+        if not net_ovl.transformation and net_ovl.is_idle:
             net_ovl.new_peer_count = 0
             ovl_cfg = self.config["Overlays"][olid]
             enf_lnks = ovl_cfg.get("StaticEdges", [])
@@ -550,27 +543,26 @@ class Topology(ControllerModule, CFX):
                       "StaticEdges": enf_lnks, "MinSuccessors": max_succ,
                       "MaxLongDistEdges": max_ldl, "MaxOnDemandEdges": max_ond}
             gb = GraphBuilder(params, top=self)
-            net_ovl.transition = gb.get_network_transitions(peer_list,
+            net_ovl.transformation = gb.get_transformation(peer_list,
                                                             net_ovl.get_adj_list(),
                                                             net_ovl.ond_peers)
         self._process_next_transition(net_ovl)
 
     def _process_next_transition(self, net_ovl):
-        if not (net_ovl.transition and net_ovl.is_ready):
-            return
-        tns = net_ovl.transition.head()
-        update_initiated = False
-        if tns.operation == OpType.Add:
-            update_initiated = self._initiate_negotiate_edge(
-                net_ovl, tns.conn_edge)
-        elif tns.operation == OpType.Remove:
-            update_initiated = self._initiate_remove_edge(
-                net_ovl, tns.conn_edge)
-        elif tns.operation == OpType.Update:
-            update_initiated = True
-            net_ovl.adjacency_list.update_edge_type(tns.conn_edge)
-        if update_initiated:
-            net_ovl.transition.pop()
+        if net_ovl.transformation and net_ovl.is_idle:  # start a new op
+            tns = net_ovl.transformation.head()
+            update_initiated = False
+            if tns.operation == OpType.Add:
+                update_initiated = self._initiate_negotiate_edge(
+                    net_ovl, tns.conn_edge)
+            elif tns.operation == OpType.Remove:
+                update_initiated = self._initiate_remove_edge(
+                    net_ovl, tns.conn_edge)
+            elif tns.operation == OpType.Update:
+                update_initiated = True
+                net_ovl.adjacency_list.update_edge_type(tns.conn_edge)
+            if update_initiated:
+                net_ovl.transformation.pop()
 ###################################################################################################
 
     def _initiate_negotiate_edge(self, net_ovl, ce):
@@ -710,17 +702,17 @@ class Topology(ControllerModule, CFX):
         elif edge_req.edge_type == "CETypeOnDemand":
             edge_resp = EdgeResponse(
                 is_accepted=True, message="On-demand edge permitted", tunnel_type=tnl_type)
-        elif not self._adj_list.is_threshold(EdgeTypesIn.ILongDistance):
+        elif not net_ovl.adjacency_list.is_threshold(EdgeTypesIn.ILongDistance):
             edge_resp = EdgeResponse(
-                is_accepted=True, message="Any edge permitted")
+                is_accepted=True, message="Any edge permitted", tunnel_type=tnl_type)
         else:
-            edge_resp = EdgeResponse(is_accepted=False,
-                                     message="E5 - Too many existing edges.", tunnel_type=None)
+            edge_resp = EdgeResponse(
+                is_accepted=False, message="E5 - Too many existing edges.", tunnel_type=None)
         return edge_resp
 
     def _select_tunnel_type(self, net_ovl, edge_req):
         tunnel_type = SupportedTunnels.Tincan
-        if edge_req.location_id == net_ovl.location_id:
+        if edge_req.location_id is not None and edge_req.location_id == net_ovl.location_id:
             if net_ovl.is_encr_required:
                 tunnel_type = SupportedTunnels.WireGuard
             else:
@@ -751,13 +743,13 @@ class Topology(ControllerModule, CFX):
                     not self._all_successors_connected():
                 return False
             conn_edge.edge_state = EdgeStates.Deleting
+            net_ovl.acquire()
             self._remove_tunnel(net_ovl, conn_edge.tunnel_type,
                                 conn_edge.peer_id, conn_edge.edge_id)
             return True
         return False
 
     def _remove_tunnel(self, net_ovl, tunnel_type, peer_id, tunnel_id):
-        net_ovl.acquire()
         params = {"OverlayId": net_ovl.overlay_id,
                   "PeerId": peer_id, "TunnelId": tunnel_id}
         if tunnel_type == SupportedTunnels.Geneve:

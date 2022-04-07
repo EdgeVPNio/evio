@@ -24,7 +24,7 @@ import random
 
 from .NetworkGraph import ConnectionEdge, EdgeTypesOut
 from .NetworkGraph import ConnEdgeAdjacenctList
-from .NetworkGraph import NetworkTransitions
+from .NetworkGraph import GraphTransformation
 from .NetworkGraph import EdgeStates
 
 
@@ -132,7 +132,7 @@ class GraphBuilder():
         for ce in ldlnks:
             if ce.edge_state in [EdgeStates.Connected] and \
                 ce.peer_id not in adj_list and not self.is_too_close(ce.peer_id):
-                adj_list[ce.peer_id] = ConnectionEdge(peer_id, ce.edge_id, ce.edge_type)
+                adj_list[ce.peer_id] = ConnectionEdge(ce.peer_id, ce.edge_id, ce.edge_type)
                 num_existing_ldl += 1
                 if num_existing_ldl >= self._max_ldl_cnt:
                     return
@@ -189,9 +189,9 @@ class GraphBuilder():
             assert ce.edge_state == EdgeStates.Initialized, "Invalid CE edge state, CE={}".format(ce)
         return adj_list
 
-    def get_network_transitions(self, peers, initial_adj_list, request_list=None, relink=False):
+    def get_transformation(self, peers, initial_adj_list, request_list=None, relink=False):
         new_adj_list = self.build_adj_list(peers, initial_adj_list, request_list, relink)
-        return NetworkTransitions(initial_adj_list, new_adj_list)
+        return GraphTransformation(initial_adj_list, new_adj_list)
         
     def build_adj_list_ata(self,):
         """
