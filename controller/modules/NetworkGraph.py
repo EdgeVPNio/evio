@@ -80,6 +80,8 @@ def transpose_edge_type(edge_type):
         et = EdgeTypesOut.LongDistance
     elif edge_type == EdgeTypesIn.IOnDemand:
         et = EdgeTypesOut.OnDemand
+    else:
+        assert False, f"Invalid edge type for transpose {edge_type}"
     return et
 
 
