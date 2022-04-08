@@ -28,7 +28,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 from framework.CBT import CBT
 from modules.Topology import DiscoveredPeer, SupportedTunnels, Topology, EdgeRequest, EdgeNegotiate
-from modules.NetworkGraph import ConnectionEdge, ConnEdgeAdjacenctList, EdgeStates, EdgeTypesOut
+from modules.NetworkGraph import ConnectionEdge, ConnEdgeAdjacenctList, EdgeStates, EdgeTypesOut, EdgeTypesIn
 from modules.NetworkGraph import GraphTransformation, UpdatePriority
 
 TunnelCapabilities=["Geneve", "WireGuard", "Tincan"]
@@ -472,10 +472,10 @@ class TopologyTest(unittest.TestCase):
         print("passed: test_initiate_remove_edge")
             
 ###################################################################################################
-# NetworkTransitions
+# GraphTransformation
 ###################################################################################################
 
-    def test_network_transitions(self):
+    def test_graph_transformation(self):
         '''Hand crafted test dataset to yeild predetermined results for asserts'''
         adjl1 = ConnEdgeAdjacenctList("A0FB389", "1234434323")
         ce = (ConnectionEdge(
@@ -552,14 +552,59 @@ class TopologyTest(unittest.TestCase):
             self.assertTrue(nts.head())
             nts.pop()
         self.assertFalse(nts)
-        print("passed: test_netop_diff\n")
+        print("passed: test_graph_transformation\n")
 
+###################################################################################################
+# ConnEdgeAdjacenctList
+###################################################################################################
 
+    def test_conn_edge_adjacency_list(self):
+        adjl1 = ConnEdgeAdjacenctList("A0FB389", "1234434323", min_succ=1, max_ldl=1, max_ond=1)        
+        ce = ConnectionEdge(
+            peer_id="1", edge_id="e1", edge_type=EdgeTypesOut.Successor)
+        self.assertFalse(adjl1.is_all_successors_connected())
+        
+        adjl1[ce.peer_id]= ce
+        ce.edge_state = EdgeStates.Connected       
+        self.assertTrue(adjl1.is_all_successors_connected())
+        
+        adjl1.min_successors = 2
+        self.assertFalse(adjl1.is_all_successors_connected())
+        
+        ce2 = ConnectionEdge(
+            peer_id="3", edge_id="e3", edge_type=EdgeTypesOut.Successor)
+        ce2.edge_state = EdgeStates.Connected       
+        adjl1[ce2.peer_id]= ce2   
+        self.assertTrue(adjl1.is_all_successors_connected())
+        
+        adjl1.remove_conn_edge(ce2.peer_id)
+        self.assertFalse(adjl1.is_all_successors_connected())
+        self.assertFalse(adjl1.is_threshold(EdgeTypesIn.ILongDistance))
+        
+        ce3 = ConnectionEdge(
+            peer_id="3", edge_id="e3", edge_type=EdgeTypesIn.ILongDistance)
+        adjl1[ce3.peer_id]= ce3
+        self.assertTrue(adjl1.is_threshold(EdgeTypesIn.ILongDistance))
+        
+        ce4 = ConnectionEdge(
+            peer_id="3", edge_id="e3", edge_type=EdgeTypesOut.OnDemand)
+        adjl1[ce3.peer_id]= ce4
+        ce5 = ConnectionEdge(
+            peer_id="3", edge_id="e3", edge_type=EdgeTypesOut.LongDistance)
+        adjl1.update_edge(ce5)
+        self.assertTrue(ce4.edge_type == EdgeTypesOut.LongDistance)
+        
+        print("passed: test_conn_edge_adjacency_list\n")
+        
+###################################################################################################
+# Main
+###################################################################################################
 if __name__ == "__main__":
     # unittest.main()
     suite = unittest.TestSuite()
     # NetworkTransition
-    suite.addTest(TopologyTest("test_network_transitions"))
+    suite.addTest(TopologyTest("test_graph_transformation"))
+    suite.addTest(TopologyTest("test_conn_edge_adjacency_list"))
     # TopologyManager
     suite.addTest(TopologyTest("test_initialize"))
     suite.addTest(TopologyTest("test_initiate_negotiate_edge"))
