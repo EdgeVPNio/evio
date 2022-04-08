@@ -309,7 +309,7 @@ class GraphEdit():
 
 class GraphTransformation():
     def __init__(self, curr_net_graph, tgt_net_graph):
-        self._updates = deque()
+        self._edits = deque()
         self._prev_priority = 0
         self.min_successors = tgt_net_graph.min_successors
         self.max_long_distance = tgt_net_graph.max_long_distance
@@ -317,20 +317,20 @@ class GraphTransformation():
         self._diff(curr_net_graph, tgt_net_graph)
 
     def __iter__(self):
-        return iter(self._updates)
+        return iter(self._edits)
 
     def __repr__(self):
         items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
         return "{{{}}}".format(", ".join(items))
 
     def __bool__(self):
-        return bool(self._updates)
+        return bool(self._edits)
 
     def __len__(self):
-        return self._updates
+        return self._edits
 
     def __getitem__(self, index):
-        return self._updates[index]
+        return self._edits[index]
 
     def _diff(self, current, target):
         for peer_id in target:
@@ -339,25 +339,25 @@ class GraphTransformation():
                 if target[peer_id].edge_type == EdgeTypesOut.Static:
                     op = GraphEdit(
                         target[peer_id], OpType.Add, UpdatePriority.AddStatic)  # 1
-                    self._updates.append(op)
+                    self._edits.append(op)
                 elif target[peer_id].edge_type == EdgeTypesOut.Successor:
                     op = GraphEdit(
                         target[peer_id], OpType.Add, UpdatePriority.AddSucc)  # 2
-                    self._updates.append(op)
+                    self._edits.append(op)
                 elif target[peer_id].edge_type == EdgeTypesOut.OnDemand:
                     op = GraphEdit(
                         target[peer_id], OpType.Add, UpdatePriority.AddOnd)  # 4
-                    self._updates.append(op)
+                    self._edits.append(op)
                 elif target[peer_id].edge_type == EdgeTypesOut.LongDistance:
                     op = GraphEdit(
                         target[peer_id], OpType.Add, UpdatePriority.AddLongDst)  # 7
-                    self._updates.append(op)
+                    self._edits.append(op)
             else:
                 # Op Update
                 if current[peer_id].edge_type != target[peer_id].edge_type:
                     op = GraphEdit(
                         target[peer_id], OpType.Update, UpdatePriority.ModifyExisting)  # 0
-                    self._updates.append(op)
+                    self._edits.append(op)
 
         for peer_id in current:
             if peer_id not in target:
@@ -365,28 +365,28 @@ class GraphTransformation():
                 if current[peer_id].edge_type == EdgeTypesOut.OnDemand:
                     op = GraphEdit(
                         current[peer_id], OpType.Remove, UpdatePriority.RmvOnd)  # 3
-                    self._updates.append(op)
+                    self._edits.append(op)
                 elif current[peer_id].edge_type == EdgeTypesOut.Successor:
                     op = GraphEdit(
                         current[peer_id], OpType.Remove, UpdatePriority.RmvSucc)  # 5
-                    self._updates.append(op)
+                    self._edits.append(op)
                 elif current[peer_id].edge_type == EdgeTypesOut.LongDistance:
                     op = GraphEdit(
                         current[peer_id], OpType.Remove, UpdatePriority.RmvLongDst)  # 6
-                    self._updates.append(op)
-        if self._updates:
-            self._updates = sorted(self._updates, key=lambda x: x.priority)
-            self._prev_priority = self._updates[0].priority
+                    self._edits.append(op)
+        if self._edits:
+            self._edits = sorted(self._edits, key=lambda x: x.priority)
+            self._prev_priority = self._edits[0].priority
 
     def head(self):
-        if self._updates:
-            return self._updates[0]
+        if self._edits:
+            return self._edits[0]
         return None
 
     def pop(self):
-        if self._updates:
-            self._prev_priority = self._updates[0].priority
-            del self._updates[0]
+        if self._edits:
+            self._prev_priority = self._edits[0].priority
+            del self._edits[0]
 
     def push_back(self, update):
-        self._updates.append(update)
+        self._edits.append(update)
