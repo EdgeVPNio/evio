@@ -300,7 +300,6 @@ class GraphEdit():
         self.conn_edge = conn_edge
         self.operation = op_type
         self.priority = priority
-        self.is_completed = False
 
     def __repr__(self):
         items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
