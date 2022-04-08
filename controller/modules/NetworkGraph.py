@@ -217,23 +217,30 @@ class ConnEdgeAdjacenctList(MutableMapping):
             return bool(self.num_ondi >= self.max_ondemand)
         else:
             raise RuntimeWarning("EdgeType threshold not implemented")
-        # return bool(self.num_ldli >= math.ceil(self.max_ldl * 1.5))
 
+    def is_all_successors_connected(self):
+        sl = self.select_edges_by_type(EdgeTypesOut.Successor)
+        c = 0
+        for e in sl:
+            if e.edge_state == EdgeStates.Connected:
+                c += 1
+        return c >= self.min_successors
+    
     def add_conn_edge(self, peer_id, ce):
         self.remove_conn_edge(peer_id)
         self._conn_edges[peer_id] = ce
         # self.update_closest()
         if ce.edge_type == EdgeTypesOut.LongDistance:
             self.num_ldl += 1
-        if ce.edge_type == "EdgeTypesIn.ILongDistance":
+        if ce.edge_type == EdgeTypesIn.ILongDistance:
             self.num_ldli += 1
         elif ce.edge_type == EdgeTypesOut.Successor:
             self.num_succ += 1
-        elif ce.edge_type == "EdgeTypesIn.Predecessor":
+        elif ce.edge_type == EdgeTypesIn.Predecessor:
             self.num_succi += 1
         elif ce.edge_type == EdgeTypesOut.OnDemand:
             self.num_ond += 1
-        elif ce.edge_type == "EdgeTypesIn.IOnDemand":
+        elif ce.edge_type == EdgeTypesIn.IOnDemand:
             self.num_ondi += 1
 
     def remove_conn_edge(self, peer_id):
@@ -242,19 +249,18 @@ class ConnEdgeAdjacenctList(MutableMapping):
             return
         if ce.edge_type == EdgeTypesOut.LongDistance:
             self.num_ldl -= 1
-        if ce.edge_type == "EdgeTypesIn.ILongDistance":
+        elif ce.edge_type == EdgeTypesIn.ILongDistance:
             self.num_ldli -= 1
         elif ce.edge_type == EdgeTypesOut.Successor:
             self.num_succ -= 1
-        elif ce.edge_type == "EdgeTypesIn.Predecessor":
+        elif ce.edge_type == EdgeTypesIn.Predecessor:
             self.num_succi -= 1
         elif ce.edge_type == EdgeTypesOut.OnDemand:
             self.num_ond -= 1
-        elif ce.edge_type == "EdgeTypesIn.IOnDemand":
+        elif ce.edge_type == EdgeTypesIn.IOnDemand:
             self.num_ondi -= 1
-        # return ce
 
-    def update_edge_type(self, new_conn_edge):
+    def update_edge(self, new_conn_edge):
         ce = self._conn_edges.get(new_conn_edge.peer_id)
         if ce:
             ce.edge_type = new_conn_edge.edge_type
