@@ -22,7 +22,7 @@
 import math
 import random
 
-from .NetworkGraph import ConnectionEdge, EdgeTypesOut
+from .NetworkGraph import ConnectionEdge, EdgeTypesIn, EdgeTypesOut
 from .NetworkGraph import ConnEdgeAdjacenctList
 from .NetworkGraph import GraphTransformation
 from .NetworkGraph import EdgeStates
@@ -79,23 +79,26 @@ class GraphBuilder():
         # add the ideal successors to the new adj list
         for peer_id in successors:
             if peer_id not in adj_list:
-                adj_list[peer_id] = ConnectionEdge(peer_id, edge_type="CETypeSuccessor")
                 if peer_id in suc_ces:
                     # this is an ideal succ that was previously connected
                     num_ideal_conn_succ += 1
                     del suc_ces[peer_id]
+                    adj_list[peer_id] = transition_adj_list[peer_id]
+                else:
+                    adj_list[peer_id] = ConnectionEdge(peer_id, edge_type="CETypeSuccessor")
         # do not remove the existing successor until the new one is connected
-        for peer_id in suc_ces:
+        sucl = sorted(suc_ces, reverse=True)
+        for peer_id in sucl:
             # these are to be replaced when the ideal ones are in connected state
             if num_ideal_conn_succ < self._min_successors:
                 # not an ideal successor but keep until better succ is connected
                 adj_list[peer_id] = ConnectionEdge(peer_id, edge_type="CETypeSuccessor")
                 num_ideal_conn_succ += 1
             else:
-                break # consider selecting the best of these
+                break
 
     @staticmethod
-    def symphony_prob_distribution(network_sz, samples):
+    def symphony_prob_distribution(network_sz, samples)->list:
         """exp (log(n) * (rand() - 1.0))"""
         results = [None]*(samples)
         for i in range(0, samples):
@@ -103,9 +106,9 @@ class GraphBuilder():
             results[i] = math.exp(math.log10(network_sz) * (rnd_val - 1.0))
         return results
 
-    def _get_long_dist_links(self, num_ldl):
+    def _get_long_dist_candidates(self, num_ldl)->list:
         # Calculates long distance link candidates.
-        long_dist_links = []
+        long_dist_candidates = []
         net_sz = len(self._nodes)
         if net_sz > 1:
             num_ldl = min(num_ldl, net_sz)
@@ -113,35 +116,35 @@ class GraphBuilder():
             for i in node_off:
                 idx = math.floor(net_sz*i)
                 ldl_idx = (self._my_idx + idx) % net_sz
-                long_dist_links.append(self._nodes[ldl_idx])
-        return long_dist_links
+                long_dist_candidates.append(self._nodes[ldl_idx])
+        return long_dist_candidates
 
     def _build_long_dist_links(self, adj_list, transition_adj_list):
         # Preserve existing incoming ldl
-        # handled in net builder
-        #ldlnks = transition_adj_list.select_edges_by_type(["CETypeILongDistance"])
-        #for peer_id, ce in ldlnks.items():
-        #    if ce.edge_state in (EdgeStates.Initialized", EdgeStates.Created", EdgeStates.Connected") and \
-        #        peer_id not in adj_list:
-        #        adj_list[peer_id] = ConnectionEdge(peer_id, ce.edge_id, ce.edge_type)
-        # evaluate existing ldl
         ldlnks = {}
+        if 2 * self._min_successors <= len(self._peers):
+            return  # not enough peers to build LDL
         if not self._relink:
             ldlnks = transition_adj_list.select_edges_by_type(["CETypeLongDistance"])
         num_existing_ldl = 0
         for ce in ldlnks:
-            if ce.edge_state in [EdgeStates.Connected] and \
+            if ce.edge_state in (EdgeStates.Initialized, EdgeStates.PreAuth, EdgeStates.Authorized, 
+                                 EdgeStates.Created, EdgeStates.Connected) and \
                 ce.peer_id not in adj_list and not self.is_too_close(ce.peer_id):
-                adj_list[ce.peer_id] = ConnectionEdge(ce.peer_id, ce.edge_id, ce.edge_type)
+                adj_list[ce.peer_id] = transition_adj_list[ce.peer_id]
+                # adj_list[ce.peer_id] = ConnectionEdge(ce.peer_id, ce.edge_id, ce.edge_type)
                 num_existing_ldl += 1
                 if num_existing_ldl >= self._max_ldl_cnt:
                     return
         num_ldl = self._max_ldl_cnt - num_existing_ldl
-        ldl = self._get_long_dist_links(num_ldl)
+        ldl = self._get_long_dist_candidates(num_ldl)
         for peer_id in ldl:
             if peer_id not in adj_list:
-                ce = ConnectionEdge(peer_id, edge_type="CETypeLongDistance")
-                adj_list[peer_id] = ce
+                oce = transition_adj_list.get(peer_id)
+                if oce is None:
+                    adj_list[peer_id] = ConnectionEdge(peer_id, edge_type="CETypeLongDistance")
+                elif oce.edge_type == EdgeTypesOut.Successor:
+                    adj_list[peer_id] = transition_adj_list[peer_id]
 
     def _build_ondemand_links(self, adj_list, transition_adj_list, request_list):
         ond = {}
@@ -185,8 +188,6 @@ class GraphBuilder():
             self._build_successors(adj_list, transition_adj_list)
             self._build_long_dist_links(adj_list, transition_adj_list)
             self._build_ondemand_links(adj_list, transition_adj_list, request_list)
-        for _, ce in adj_list._conn_edges.items():
-            assert ce.edge_state == EdgeStates.Initialized, "Invalid CE edge state, CE={}".format(ce)
         return adj_list
 
     def get_transformation(self, peers, initial_adj_list, request_list=None, relink=False):

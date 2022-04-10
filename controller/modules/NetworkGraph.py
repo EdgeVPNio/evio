@@ -281,7 +281,7 @@ class ConnEdgeAdjacenctList(MutableMapping):
                 conn_edges.append(self._conn_edges[ce.peer_id])
         return conn_edges
 
-    def select_edges(self, edges):
+    def select_edges(self, edges)->dict:
         """
         Input is a list of edge type/state tuples
         Output is a list of peer ids that have edges of STATE and STATE
