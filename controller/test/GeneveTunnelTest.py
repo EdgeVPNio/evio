@@ -92,6 +92,7 @@ class GeneveTunnelTest(unittest.TestCase):
             "OverlayId": overlay_id, 
             "PeerId": self.config["GeneveTunnel"]["NodeId"]}
         self.gen.req_handler_create_tunnel(cbt)
+        self.assertIsNotNone(tns.get(tnlid))
         self.assertEqual(tns[tnlid].state, TunnelStates.AUTHORIZED)
         print("Passed : test_req_handler_create_tunnel")
 

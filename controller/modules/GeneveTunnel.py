@@ -19,7 +19,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-from collections import namedtuple
 from pyroute2 import IPRoute
 from pyroute2 import NDB
 from framework.Modlib import RemoteAction
@@ -136,12 +135,8 @@ class GeneveTunnel(ControllerModule):
     def _is_tunnel_connected(self, tap_name):
         # get link info of our tunnel, parse it to extract data
         eth = self.ipr.link("get", index=self.ipr.link_lookup(ifname=tap_name)[0])
-        self.logger.info("LINK INFO: ")
-        self.logger.info(eth)
-        # get list of UP links, try to extract our tunnel from it
-        up_links = self.ipr.link_lookup(operstate='UP')
-        self.logger.info("ALL UP LINKS: ")
-        self.logger.info(up_links)
+        state = eth[0]['state']
+        
 
     def req_handler_auth_tunnel(self, cbt):
         olid = cbt.request.params["OverlayId"]
@@ -218,7 +213,13 @@ class GeneveTunnel(ControllerModule):
             cbt.set_response(msg, False)
             self.complete_cbt(cbt)
             return
-      
+        if vnid is None:
+            msg = str("The VNID is NULL. Tunnel cannot be created. "
+            "TunnelId={0}, PeerId={1}".format(tnlid, peer_id))
+            self.logger.warning(msg)
+            cbt.set_response(msg, False)
+            self.complete_cbt(cbt)
+            return
         # publish notification of link creation initiated
         event_param = {
             "UpdateType": TunnelEvents.Creating, "OverlayId": olid, "PeerId": peer_id,
@@ -284,10 +285,17 @@ class GeneveTunnel(ControllerModule):
             if rem_act.action == "GNV_EXCHANGE_ENDPT":
                 olid = rem_act.overlay_id
                 peer_id = rem_act.data["NodeId"]
+                tnlid = cbt.request.params["TunnelId"]
                 vnid = rem_act.data["VNId"]
                 endpnt_address = rem_act.data["EndPointAddress"]
                 tap_name = self.get_tap_name(peer_id, olid)
-
+                if vnid is None:
+                    msg = str("The VNID is NULL. Tunnel cannot be created. "
+                    "TunnelId={0}, PeerId={1}".format(tnlid, peer_id))
+                    self.logger.warning(msg)
+                    parent_cbt.set_response(msg, False)
+                    self.complete_cbt(parent_cbt)
+                    return
                 self._create_geneve_tunnel(tap_name, vnid, endpnt_address)
                 self.logger.info("Inside resp_handler_remote_action")
                 self._is_tunnel_connected(tap_name)
