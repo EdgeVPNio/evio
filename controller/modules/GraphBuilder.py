@@ -92,7 +92,7 @@ class GraphBuilder():
             # these are to be replaced when the ideal ones are in connected state
             if num_ideal_conn_succ < self._min_successors:
                 # not an ideal successor but keep until better succ is connected
-                adj_list[peer_id] = ConnectionEdge(peer_id, edge_type="CETypeSuccessor")
+                adj_list[peer_id] = transition_adj_list[peer_id]
                 num_ideal_conn_succ += 1
             else:
                 break
@@ -122,7 +122,7 @@ class GraphBuilder():
     def _build_long_dist_links(self, adj_list, transition_adj_list):
         # Preserve existing incoming ldl
         ldlnks = {}
-        if 2 * self._min_successors <= len(self._peers):
+        if 2 * self._min_successors > len(self._peers):
             return  # not enough peers to build LDL
         if not self._relink:
             ldlnks = transition_adj_list.select_edges_by_type(["CETypeLongDistance"])
@@ -141,10 +141,8 @@ class GraphBuilder():
         for peer_id in ldl:
             if peer_id not in adj_list:
                 oce = transition_adj_list.get(peer_id)
-                if oce is None:
+                if (oce is None) or (oce is not None and oce.edge_type == EdgeTypesOut.Successor):
                     adj_list[peer_id] = ConnectionEdge(peer_id, edge_type="CETypeLongDistance")
-                elif oce.edge_type == EdgeTypesOut.Successor:
-                    adj_list[peer_id] = transition_adj_list[peer_id]
 
     def _build_ondemand_links(self, adj_list, transition_adj_list, request_list):
         ond = {}

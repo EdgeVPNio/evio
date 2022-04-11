@@ -285,7 +285,7 @@ class Topology(ControllerModule, CFX):
             self._net_ovls[olid].new_peer_count += 1
             if self._net_ovls[olid].new_peer_count >= self.config.get("PeerDiscoveryCoalesce", PeerDiscoveryCoalesce):
                 self.logger.debug("Overlay %s - Coalesced %s new peer discovery, "
-                                  "initiating overlay update",
+                                  "attempting overlay update",
                                   olid, self._net_ovls[olid].new_peer_count)
                 self._update_overlay(olid)
             else:
@@ -363,7 +363,7 @@ class Topology(ControllerModule, CFX):
             if ce.edge_state == EdgeStates.Deleting:  # topo initiated the removal
                 ovl.release()
                 self._process_next_transition(ovl)
-            elif ce.edge_state == EdgeStates.Disconnected:                                     # the peer disconnected
+            elif ce.edge_state == EdgeStates.Disconnected:  # the peer disconnected
                 ce.edge_state = EdgeStates.Deleting
             else:
                 self.logger.error(f"Connection edge state is invalid for removed event: {ce}")
@@ -580,15 +580,18 @@ class Topology(ControllerModule, CFX):
         self._process_next_transition(ovl)
 
     def _process_next_transition(self, net_ovl):
-        if net_ovl.transformation and net_ovl.is_idle:  # start a new op
-            tns = net_ovl.transformation.head()
-            if tns.operation == OpType.Add:
-                self._initiate_negotiate_edge(net_ovl, tns.conn_edge)
-            elif tns.operation == OpType.Remove:
-                self._initiate_remove_edge(net_ovl, tns.conn_edge.peer_id)
-            elif tns.operation == OpType.Update:
-                self._update_edge(net_ovl, tns.conn_edge)
-            net_ovl.transformation.pop()
+        suspend = False
+        while not suspend: # was the edit cancelled?
+            suspend = True
+            if net_ovl.transformation and net_ovl.is_idle:  # start a new op
+                tns = net_ovl.transformation.head()
+                if tns.operation == OpType.Add:
+                    suspend = self._initiate_negotiate_edge(net_ovl, tns.conn_edge)
+                elif tns.operation == OpType.Remove:
+                    suspend = self._initiate_remove_edge(net_ovl, tns.conn_edge.peer_id)
+                elif tns.operation == OpType.Update:
+                    suspend = self._update_edge(net_ovl, tns.conn_edge)
+                net_ovl.transformation.pop()
 ###################################################################################################
 
     def _initiate_negotiate_edge(self, net_ovl, ce):
@@ -617,6 +620,8 @@ class Topology(ControllerModule, CFX):
                                    "Topology", "TOP_NEGOTIATE_EDGE", edge_params)
             net_ovl.acquire()
             rem_act.submit_remote_act(self)
+            return True
+        return False
 
     def _authorize_incoming_tunnel(self, net_ovl, peer_id, edge_id, tunnel_type, neg_edge_cbt):
 
@@ -760,19 +765,20 @@ class Topology(ControllerModule, CFX):
 
     def _initiate_remove_edge(self, net_ovl, peer_id):
         if not peer_id in net_ovl.adjacency_list:
-            return
+            return False
         ce = net_ovl.adjacency_list[peer_id]
         if ce.edge_state == EdgeStates.Connected and \
                 ce.edge_type in EdgeTypesOut and \
                 time.time() - ce.connected_time >= Topology._EDGE_PROTECTION_AGE:
             if ce.edge_type == EdgeTypesOut.Successor and \
                     not net_ovl.adjacency_list.is_all_successors_connected():
-                return
+                return False
             ce.edge_state = EdgeStates.Deleting
             self.logger.debug(f"Removing edge {ce}")
             net_ovl.acquire()
             self._remove_tunnel(net_ovl, ce.tunnel_type,
                                 ce.peer_id, ce.edge_id)
+            return True
 
     def _remove_tunnel(self, net_ovl, tunnel_type, peer_id, tunnel_id):
         params = {"OverlayId": net_ovl.overlay_id,
@@ -789,9 +795,10 @@ class Topology(ControllerModule, CFX):
 
     def _update_edge(self, net_ovl, new_conn_edge):
         if not new_conn_edge.peer_id in net_ovl.adjacency_list:
-            return        
+            return False        
         ce = net_ovl.adjacency_list[new_conn_edge.peer_id]
         if ce.edge_state != EdgeStates.Connected:
-            return
-        self.logger.debug(f"NOT Updating conn edge {ce} to {new_conn_edge}")
-        # net_ovl.adjacency_list.update_edge(tns.conn_edge)
+            return False
+        self.logger.debug(f"Updating conn edge {ce} to {new_conn_edge}")
+        net_ovl.adjacency_list.update_edge(new_conn_edge)
+        return False
