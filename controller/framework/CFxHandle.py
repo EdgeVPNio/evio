@@ -129,6 +129,7 @@ class CFxHandle():
         # call the timer_method of each CM every timer_interval seconds
         while not self._exit_event.wait(self._timer_interval):
             try:
+                self._cm_instance.trace_state()
                 self._check_container_bounds()
                 self._cm_instance.timer_method()
             except Exception as err:
