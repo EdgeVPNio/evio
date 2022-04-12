@@ -509,7 +509,6 @@ class Signal(ControllerModule):
 
     def timer_method(self):
         with self._lock:
-            self.trace_state()
             for overlay_id in self._circles:
                 self._circles[overlay_id]["Transport"].wait_until_initialized()
                 if not self._circles[overlay_id]["Transport"].is_connected():

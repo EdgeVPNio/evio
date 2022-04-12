@@ -25,10 +25,9 @@ import time
 
 TUNNEL_EVENTS = namedtuple(
     "TUNNEL_EVENTS",
-    ["Creating", "Created", "Connected", "Disconnected", "Removed",
-    "Authorized", "AuthExpired"],
-    defaults=["LnkEvCreating", "LnkEvCreated", "LnkEvConnected", "LnkEvDisconnected",
-              "LnkEvRemoved", "LnkEvAuthorized", "LnkEvAuthExpired"])
+    ["Authorized", "AuthExpired", "Created", "Connected", "Disconnected", "Removed"],
+    defaults=["LnkEvAuthorized", "LnkEvAuthExpired", "LnkEvCreated", "LnkEvConnected",
+              "LnkEvDisconnected", "LnkEvRemoved"])
 TunnelEvents = TUNNEL_EVENTS()
 
 TUNNEL_STATES = namedtuple(

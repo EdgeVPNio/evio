@@ -261,8 +261,6 @@ class BoundedFloodProxy(socketserver.ThreadingMixIn, socketserver.TCPServer):
         self._bf_proc = None
 
     def start_bf_client_module(self):
-        # with open("/etc/opt/evio/bf-config.json", "w", encoding="utf-8") as f:
-        #     json.dump(self.config, f, ensure_ascii=False, indent=4)
         cmd = [
             BoundedFloodProxy.RyuManager,
             "--user-flags", "modules/BFFlags.py",
@@ -294,10 +292,6 @@ class BFRequestHandler(socketserver.BaseRequestHandler):
         #      Response=dict(Status=False, Data=None))
         if task["Request"]["Action"] == "GetTunnelData":
             task = self._handle_get_tunnel_data(task)
-        # elif task["Request"]["Action"] == "GetTunnels":
-        #     task = self._handle_get_tunnels(task)
-        # elif task["Request"]["Action"] == "GetSeqNum":
-        #     task = self._handle_get_current_seq(task)
         elif task["Request"]["Action"] == "GetNodeId":
             task["Response"] = dict(Status=True,
                                     Data=dict(NodeId=str(self.server.netman.node_id)))
@@ -315,23 +309,10 @@ class BFRequestHandler(socketserver.BaseRequestHandler):
                 ErrorMsg="Unsupported request"))
         return task
 
-    # def _handle_get_tunnels(self, task):
-    #     olid = task["Request"]["Params"]["OverlayId"]
-    #     seq = task["Request"]["Params"]["DSeq"]
-    #     topo = self.server.netman.get_overlay_tunnels(olid, seq)
-    #     task["Response"] = dict(Status=bool(topo), Data=topo)
-    #     return task
-
     def _handle_get_tunnel_data(self, task):
         topo = self.server.netman.get_tunnels()
         task["Response"] = dict(Status=bool(topo), Data=topo)
         return task
-
-    # def _handle_get_current_seq(self, task):
-    #     olid = task["Request"]["Params"]["OverlayId"]
-    #     topo = self.server.netman.get_overlay_seq(olid)
-    #     task["Response"] = dict(Status=bool(topo), Data=topo)
-    #     return task
 
 ###################################################################################################
 
@@ -506,18 +487,8 @@ class BridgeController(ControllerModule):
             ign_br_names[olid].add(self._ovl_net[olid].name)
             self.register_cbt("LinkManager", "LNK_ADD_IGN_INF", ign_br_names)
         self.logger.debug(f"ignored bridges={ign_br_names}")
-        # self.log("LOG_DEBUG", "ignored bridges=%s", ign_br_names)
-        # try:
-        #    # Subscribe for data request notifications from OverlayVisualizer
-        #    self.start_subscription("OverlayVisualizer", "VIS_DATA_REQ")
-        # except NameError as err:
-        #    if "OverlayVisualizer" in str(err):
-        #        self.register_cbt("Logger", "LOG_INFO",
-        #                          "OverlayVisualizer module not loaded."
-        #                          " Visualization data will not be sent.")
-
         self.start_subscription("LinkManager", "LNK_TUNNEL_EVENTS")
-        self.start_subscription("GeneveTunnel", "GNV_TUNNEL_EVENTS")
+        # self.start_subscription("GeneveTunnel", "GNV_TUNNEL_EVENTS")
         self.logger.info("Module Loaded")
 
     def req_handler_manage_bridge(self, cbt):
@@ -526,13 +497,13 @@ class BridgeController(ControllerModule):
             br = self._ovl_net[olid]
             port_name = cbt.request.params.get("TapName")
             tnlid = cbt.request.params["TunnelId"]
-            if cbt.request.params["UpdateType"] in ("LnkEvCreated", TunnelEvents.Created):
+            if cbt.request.params["UpdateType"] == TunnelEvents.Created:
                 # block external system components from attempting to configure our
                 # tunnel as a source of traffic
                 Modlib.runshell(
                     ["sysctl", "net.ipv6.conf.{}.disable_ipv6=1".format(port_name)])
                 Modlib.runshell([OvsBridge.iptool, "addr", "flush", port_name])
-            elif cbt.request.params["UpdateType"] in ("LnkEvConnected", TunnelEvents.Connected):
+            elif cbt.request.params["UpdateType"] == TunnelEvents.Connected:
                 self._tunnels[olid][port_name] = {
                     "PeerId": cbt.request.params["PeerId"],
                     "TunnelId": tnlid,
@@ -544,7 +515,7 @@ class BridgeController(ControllerModule):
                 br.add_port(port_name)
                 self.log("LOG_INFO", "Port %s added to bridge %s",
                          port_name, str(br))
-            elif cbt.request.params["UpdateType"] in ("LnkEvRemoved", TunnelEvents.Removed):
+            elif cbt.request.params["UpdateType"] == TunnelEvents.Removed:
                 self._tunnels[olid].pop(port_name, None)
                 if br.bridge_type == OvsBridge.bridge_type:
                     br.del_port(port_name)

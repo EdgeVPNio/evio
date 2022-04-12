@@ -163,7 +163,8 @@ class TopologyTest(unittest.TestCase):
         lts = time.time() - 2
         ovl = self.top._net_ovls[overlay_id]
         self._create_peers(overlay_id, int(peer_id)+1)
-        ce = ConnectionEdge(peer_id, tnlid, EdgeTypesOut.Successor, "Geneve")        
+        ce = ConnectionEdge(peer_id, tnlid, EdgeTypesOut.Successor, "Geneve")
+        ce.edge_state = EdgeStates.PreAuth
         ovl.adjacency_list[peer_id] = ce
         params = {"UpdateType": "LnkEvAuthorized", "OverlayId": overlay_id, "PeerId": peer_id,
                 "TunnelId": tnlid}
@@ -182,6 +183,7 @@ class TopologyTest(unittest.TestCase):
 
 
         ce = ConnectionEdge(peer_id, tnlid, EdgeTypesOut.Successor, "Geneve")
+        ce.edge_state = EdgeStates.PreAuth
         ovl.adjacency_list[peer_id] = ce
         params = {"UpdateType": "LnkEvAuthorized", "OverlayId": overlay_id, "PeerId": peer_id,
                 "TunnelId": tnlid}
@@ -189,14 +191,7 @@ class TopologyTest(unittest.TestCase):
         self.top.process_cbt(cbt)
         self.assertTrue(peer_id in ovl.adjacency_list)
         self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeStates.Authorized)
-                
-        params = {"UpdateType": "LnkEvCreating", "OverlayId": overlay_id, "PeerId": peer_id,
-                    "TunnelId": tnlid}
-        cbt =  CBT("Geneve", "Topology", "GNV_TUNNEL_EVENTS", params)
-        self.top.process_cbt(cbt)
-        self.assertTrue(peer_id in ovl.adjacency_list)
-        self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeStates.Created)
-                
+
         params = {"UpdateType": "LnkEvCreated", "OverlayId": overlay_id, "PeerId": peer_id,
                         "TunnelId": tnlid, "TapName": tap_name}
         cbt =  CBT("Geneve", "Topology", "GNV_TUNNEL_EVENTS", params)
@@ -459,16 +454,17 @@ class TopologyTest(unittest.TestCase):
         print("passed: test_complete_negotiate_edge_reject")
                 
     def test_initiate_remove_edge(self):
+        peer_id = "256"
         self.top.initialize()
         ovl = self.top._net_ovls["A0FB389"]
-        ce = ConnectionEdge("256", uuid.uuid4().hex, EdgeTypesOut.LongDistance)
+        ce = ConnectionEdge(peer_id, uuid.uuid4().hex, EdgeTypesOut.LongDistance)
         ce.connected_time = time.time() - (Topology._EDGE_PROTECTION_AGE + 1)
         ce.edge_state = EdgeStates.Connected
-        ovl.adjacency_list[ce.peer_id]= ce
+        ovl.adjacency_list[peer_id]= ce
         
-        is_rem = self.top._initiate_remove_edge(ovl, ce)
+        is_rem = self.top._initiate_remove_edge(ovl, peer_id)
         self.assertTrue(is_rem)
-        self.assertEqual(ovl.adjacency_list["256"].edge_state, EdgeStates.Deleting)
+        self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeStates.Deleting)
         print("passed: test_initiate_remove_edge")
             
 ###################################################################################################

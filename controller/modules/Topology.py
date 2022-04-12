@@ -34,8 +34,8 @@ from .NetworkGraph import EdgeStates, EdgeTypesOut, EdgeTypesIn, OpType, transpo
 from .GraphBuilder import GraphBuilder
 from .Tunnel import TunnelEvents
 
-MinSuccessors = 1
-MaxOnDemandEdges = 0
+MinSuccessors = 2
+MaxOnDemandEdges = 3
 PeerDiscoveryCoalesce = 1
 ExclusionBaseInterval = 60
 MaxSuccessiveFails = 4
@@ -43,42 +43,34 @@ TrimCheckInterval = 3600
 MaxConcurrentOps = 1
 SuccessiveFailsIncr = 1
 SuccessiveFailsDecr = 2
-StaleInterval = 8 * 36000 # 8 hrs
+StaleInterval = 8 * 36000  # 8 hrs
+
 EdgeRequest = namedtuple("EdgeRequest",
                          ["overlay_id", "edge_id", "edge_type", "initiator_id",
                           "recipient_id", "location_id", "capability"])
 
 EdgeResponse = namedtuple("EdgeResponse",
-                           ["is_accepted", "message", "tunnel_type"])
+                          ["is_accepted", "message", "tunnel_type"])
 
 EdgeNegotiate = namedtuple("EdgeNegotiate",
-                            [*EdgeRequest._fields, *EdgeResponse._fields])
+                           [*EdgeRequest._fields, *EdgeResponse._fields])
 
 SUPPORTED_TUNNELS = namedtuple("SUPPORTED_TUNNELS",
                                ["Geneve", "WireGuard", "Tincan"],
                                defaults=["Geneve", "WireGuard", "Tincan"])
 SupportedTunnels = SUPPORTED_TUNNELS()
 
-class DiscoveredPeer():
-    _REFLECT = set(["peer_id", "is_banned", "successive_fails", "available_time",
-                    "last_checkin"])
 
+class DiscoveredPeer():
     def __init__(self, peer_id, **kwargs):
         self.peer_id = peer_id
         self.is_banned = False  # bars conn attempts from local node, the peer can still recon
         self.successive_fails = 0
         self.available_time = time.time()
         self.last_checkin = self.available_time
-        self.expiry_interval = randint(16, 24) * 3600  # 16-24 hrs
 
-    # def __repr__(self):
-    #     items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
-    #     return "{{{}}}".format(", ".join(items))
     def __repr__(self):
-        items = set()
-        if hasattr(self, "_REFLECT"):
-            for k in self._REFLECT:
-                items.add(f"\"{k}\": {self.__dict__[k]!r}")
+        items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
         return "{{{}}}".format(", ".join(items))
 
     def exclude(self):
@@ -105,20 +97,21 @@ class DiscoveredPeer():
 
     @property
     def is_available(self):
-        return bool((not self.is_banned)  # successive_fails < max_successive_fails
-                    # the falloff wait period is over
-                    and (time.time() >= self.available_time)
+        return bool((not self.is_banned)  # successive_fails < max_successive_fails                    
+                    and (time.time() >= self.available_time)  # the falloff wait period is over
                     and (time.time() - self.last_checkin < StaleInterval + 1800))  # 30 mins before expiry
 
 
 class NetworkOverlay():
     _REFLECT = set(["_max_concurrent_edits", "_refc", "node_id", "overlay_id",
-                    "new_peer_count", "_graph_transformation", "pending_auth_conn_edges",
-                    "ond_peers", "adjacency_list", "_loc_id", "_encr_req"])
+                    "new_peer_count", "_graph_transformation", "known_peers", 
+                    "pending_auth_conn_edges", "ond_peers", "adjacency_list", "_loc_id", "_encr_req"])
+
     def __init__(self, node_id, overlay_id, **kwargs):
-        self._lck = threading.Lock()
+        # self._lck = threading.Lock()
         # used to limit number of concurrent operations initiated
-        self._max_concurrent_edits = kwargs.get("MaxConcurrentOps", MaxConcurrentOps)
+        self._max_concurrent_edits = kwargs.get(
+            "MaxConcurrentOps", MaxConcurrentOps)
         self._refc = self._max_concurrent_edits
         self.node_id = node_id
         self.overlay_id = overlay_id
@@ -165,23 +158,23 @@ class NetworkOverlay():
             self.adjacency_list.min_successors = new_transformation.min_successors
             self.adjacency_list.max_long_distance = new_transformation.max_long_distance
             self.adjacency_list.max_ondemand = new_transformation.max_ondemand
-    
+
     def acquire(self):
-        with self._lck:
-            assert self._refc > 0, "Reference count at zero, cannot acquire"
-            self._refc -= 1
+        # with self._lck:
+        assert self._refc > 0, "Reference count at zero, cannot acquire"
+        self._refc -= 1
 
     def release(self):
-        with self._lck:
-            assert self._refc < self._max_concurrent_edits, "Reference count at maximum, invalid attempt to release"
-            self._refc += 1
+        # with self._lck:
+        assert self._refc < self._max_concurrent_edits, "Reference count at maximum, invalid attempt to release"
+        self._refc += 1
 
     @property
     def is_idle(self):
         """Is the current transition operation completed"""
-        with self._lck:
-            assert self._refc >= 0 or self._refc <= self._max_concurrent_edits, f"Invalid reference count {self._refc}"
-            return self._refc == self._max_concurrent_edits
+        # with self._lck:
+        assert self._refc >= 0 or self._refc <= self._max_concurrent_edits, f"Invalid reference count {self._refc}"
+        return self._refc == self._max_concurrent_edits
 
     def get_adj_list(self):
         return deepcopy(self.adjacency_list)
@@ -264,7 +257,6 @@ class Topology(ControllerModule, CFX):
     def timer_method(self):
         with self._lock:
             self._manage_topology()
-            self.trace_state()
 
     def req_handler_peer_presence(self, cbt):
         """
@@ -324,11 +316,11 @@ class Topology(ControllerModule, CFX):
         ovl = self._net_ovls[overlay_id]
         ce = ovl.adjacency_list[peer_id]
 
-        if event["UpdateType"] in ("LnkEvAuthorized", TunnelEvents.Authorized):
+        if event["UpdateType"] == TunnelEvents.Authorized:
             """ Role B """
             assert ce.edge_state == EdgeStates.PreAuth, f"Invalid edge state {ce}"
             ce.edge_state = EdgeStates.Authorized
-        elif event["UpdateType"] in ("LnkEvAuthExpired", TunnelEvents.AuthExpired):
+        elif event["UpdateType"] == TunnelEvents.AuthExpired:
             """ Role B """
             assert ce.edge_state == EdgeStates.Authorized, f"Invalid edge state {ce}"
             ce.edge_state = EdgeStates.Deleting
@@ -337,12 +329,10 @@ class Topology(ControllerModule, CFX):
             self.logger.debug("Excluding peer %s until %s", peer_id,
                               str(datetime.fromtimestamp(
                                   ovl.known_peers[peer_id].available_time)))
-        elif event["UpdateType"] in ("LnkEvCreating", TunnelEvents.Creating):
+        elif event["UpdateType"] == TunnelEvents.Created:
             assert ce.edge_state == EdgeStates.Authorized, f"Invalid edge state {ce}"
             ce.edge_state = EdgeStates.Created
-        elif event["UpdateType"] in ("LnkEvCreated", TunnelEvents.Created):
-            pass
-        elif event["UpdateType"] in ("LnkEvConnected", TunnelEvents.Connected):
+        elif event["UpdateType"] == TunnelEvents.Connected:
             """Roles A & B"""
             assert ce.edge_state == EdgeStates.Created, f"Invalid edge state {ce}"
             ce.edge_state = EdgeStates.Connected
@@ -351,13 +341,13 @@ class Topology(ControllerModule, CFX):
             if ce.edge_type in EdgeTypesOut:
                 ovl.release()
                 self._process_next_transition(ovl)
-        elif event["UpdateType"] in ("LnkEvDisconnected", TunnelEvents.Disconnected):
+        elif event["UpdateType"] == TunnelEvents.Disconnected:
             assert ce.edge_state == EdgeStates.Connected, f"Invalid edge state {ce}"
             # the local topology did not request removal of the connection
             ce = ovl.adjacency_list[peer_id]
             ce.edge_state = EdgeStates.Disconnected
             self._remove_tunnel(ovl, ce.tunnel_type, peer_id, edge_id)
-        elif event["UpdateType"] in ("LnkEvRemoved", TunnelEvents.Removed):
+        elif event["UpdateType"] == TunnelEvents.Removed:
             """Roles A & B"""
             ce = ovl.adjacency_list[peer_id]
             if ce.edge_state == EdgeStates.Deleting:  # topo initiated the removal
@@ -366,10 +356,9 @@ class Topology(ControllerModule, CFX):
             elif ce.edge_state == EdgeStates.Disconnected:  # the peer disconnected
                 ce.edge_state = EdgeStates.Deleting
             else:
-                self.logger.error(f"Connection edge state is invalid for removed event: {ce}")
+                self.logger.error(
+                    f"Connection edge state is invalid for removed event: {ce}")
             del ovl.adjacency_list[peer_id]
-            
-            
         else:
             self.logger.warning("Invalid UpdateType specified for event")
         cbt.set_response(None, True)
@@ -435,9 +424,9 @@ class Topology(ControllerModule, CFX):
                     peer_id=peer_id, edge_id=edge_req.edge_id, edge_type=et,
                     tunnel_type=edge_resp.tunnel_type)
                 ce.edge_state = EdgeStates.PreAuth
-                net_ovl.adjacency_list[ce.peer_id] = ce                
+                net_ovl.adjacency_list[ce.peer_id] = ce
             self._authorize_incoming_tunnel(net_ovl, peer_id, edge_req.edge_id,
-                                            edge_resp.tunnel_type, edge_cbt)        
+                                            edge_resp.tunnel_type, edge_cbt)
         else:
             edge_cbt.set_response(edge_resp, edge_resp.is_accepted)
             self.complete_cbt(edge_cbt)
@@ -474,7 +463,7 @@ class Topology(ControllerModule, CFX):
 
     def resp_handler_remote_action(self, cbt):
         """ Role Node A, initiate edge creation on successful neogtiation """
-        if not cbt.response.status and type(cbt.response.data)==str:
+        if not cbt.response.status and type(cbt.response.data) == str:
             rem_act = RemoteAction.request(cbt)
             self.logger.info("The remote action timed out %s", cbt)
             olid = rem_act.overlay_id
@@ -521,13 +510,12 @@ class Topology(ControllerModule, CFX):
         params = cbt.request.params
         olid = params["OverlayId"]
         peer_id = params["PeerId"]
-        ovl = self._net_ovls[olid]        
+        ovl = self._net_ovls[olid]
         if not cbt.response.status:
             self.logger.warning(
-                     "Failed to remove topology edge %s, will retry operation", cbt.response.data)
+                "Failed to remove topology edge %s, will retry operation", cbt.response.data)
             ovl.release()
             self._process_next_transition(ovl)
-            
         self.free_cbt(cbt)
 ###################################################################################################
 
@@ -543,7 +531,7 @@ class Topology(ControllerModule, CFX):
         rmv = []
         self.logger.debug("Checking for expired peers")
         for peer_id, peer in self._net_ovls[olid].known_peers.items():
-            if peer.is_expired():
+            if peer.is_idle():
                 rmv.append(peer_id)
         for peer_id in rmv:
             self.logger.debug(f"Removing expired peer {peer_id}")
@@ -575,20 +563,22 @@ class Topology(ControllerModule, CFX):
                       "MaxLongDistEdges": max_ldl, "MaxOnDemandEdges": max_ond}
             gb = GraphBuilder(params, top=self)
             ovl.transformation = gb.get_transformation(peer_list,
-                                                            ovl.get_adj_list(),
-                                                            ovl.ond_peers)
+                                                       ovl.get_adj_list(),
+                                                       ovl.ond_peers)
         self._process_next_transition(ovl)
 
     def _process_next_transition(self, net_ovl):
         suspend = False
-        while not suspend: # was the edit cancelled?
+        while not suspend:  # was the edit discarded?
             suspend = True
             if net_ovl.transformation and net_ovl.is_idle:  # start a new op
                 tns = net_ovl.transformation.head()
                 if tns.operation == OpType.Add:
-                    suspend = self._initiate_negotiate_edge(net_ovl, tns.conn_edge)
+                    suspend = self._initiate_negotiate_edge(
+                        net_ovl, tns.conn_edge)
                 elif tns.operation == OpType.Remove:
-                    suspend = self._initiate_remove_edge(net_ovl, tns.conn_edge.peer_id)
+                    suspend = self._initiate_remove_edge(
+                        net_ovl, tns.conn_edge.peer_id)
                 elif tns.operation == OpType.Update:
                     suspend = self._update_edge(net_ovl, tns.conn_edge)
                 net_ovl.transformation.pop()
@@ -752,10 +742,12 @@ class Topology(ControllerModule, CFX):
         params = {"OverlayId": net_ovl.overlay_id,
                   "PeerId": peer_id, "TunnelId": tunnel_id}
         if tunnel_type == SupportedTunnels.Geneve:
-            params["VNId"] = self.config["Overlays"][net_ovl.overlay_id].get("LocationId")
+            params["VNId"] = self.config["Overlays"][net_ovl.overlay_id].get(
+                "LocationId")
             self.register_cbt("GeneveTunnel", "GNV_CREATE_TUNNEL", params)
         elif tunnel_type == SupportedTunnels.WireGuard:
-            params["LocationId"] = self.config["Overlays"][net_ovl.overlay_id].get("LocationId")
+            params["LocationId"] = self.config["Overlays"][net_ovl.overlay_id].get(
+                "LocationId")
             self.register_cbt("WireGuard", "WGD_CREATE_TUNNEL", params)
         elif tunnel_type == SupportedTunnels.Tincan:
             self.register_cbt("LinkManager", "LNK_CREATE_TUNNEL", params)
@@ -779,6 +771,7 @@ class Topology(ControllerModule, CFX):
             self._remove_tunnel(net_ovl, ce.tunnel_type,
                                 ce.peer_id, ce.edge_id)
             return True
+        return False
 
     def _remove_tunnel(self, net_ovl, tunnel_type, peer_id, tunnel_id):
         params = {"OverlayId": net_ovl.overlay_id,
@@ -795,7 +788,7 @@ class Topology(ControllerModule, CFX):
 
     def _update_edge(self, net_ovl, new_conn_edge):
         if not new_conn_edge.peer_id in net_ovl.adjacency_list:
-            return False        
+            return False
         ce = net_ovl.adjacency_list[new_conn_edge.peer_id]
         if ce.edge_state != EdgeStates.Connected:
             return False
