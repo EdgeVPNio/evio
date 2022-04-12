@@ -108,6 +108,9 @@ class GeneveTunnel(ControllerModule):
                         kind="geneve",
                         geneve_id=vnid,
                         geneve_remote=remote_addr)
+            x = self.ipr.link_lookup(ifname=tap_name)[0]
+            # bring link up
+            self.ipr.link("set", index=x, state="up")
         except Exception as e:
             self.logger.warning("Failed to create Geneve tunnel %s, error code: %s",
                                 tap_name, str(e))
@@ -136,7 +139,6 @@ class GeneveTunnel(ControllerModule):
         # get link info of our tunnel, parse it to extract data
         eth = self.ipr.link("get", index=self.ipr.link_lookup(ifname=tap_name)[0])
         state = eth[0]['state']
-        
 
     def req_handler_auth_tunnel(self, cbt):
         olid = cbt.request.params["OverlayId"]
