@@ -152,10 +152,16 @@ class ControllerModule():
     def remove_subscription(self, sub):
         self._cfx_handle.remove_subscription(sub)
 
-    # Caller is the subscription sink
-    def start_subscription(self, owner_name, subscription_name):
-        self._cfx_handle.start_subscription(
-            owner_name, subscription_name, self)
+    def get_registered_publishers(self)->list:
+        return  self._cfx_handle.get_registered_publishers()
 
-    def end_subscription(self, owner_name, subscription_name):
-        self._cfx_handle.end_subscription(owner_name, subscription_name, self)
+    def get_available_subscriptions(self, publisher_name)->list:
+        return self._cfx_handle.get_available_subscriptions(publisher_name)
+
+    # Caller is the subscription sink
+    def start_subscription(self, publisher_name, subscription_name):
+        self._cfx_handle.start_subscription(
+            publisher_name, subscription_name, self)
+
+    def end_subscription(self, publisher_name, subscription_name):
+        self._cfx_handle.end_subscription(publisher_name, subscription_name, self)

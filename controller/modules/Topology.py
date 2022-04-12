@@ -43,7 +43,7 @@ TrimCheckInterval = 3600
 MaxConcurrentOps = 1
 SuccessiveFailsIncr = 1
 SuccessiveFailsDecr = 2
-StaleInterval = 8 * 36000  # 8 hrs
+StaleInterval = float(8 * 36000)  # 8 hrs
 
 EdgeRequest = namedtuple("EdgeRequest",
                          ["overlay_id", "edge_id", "edge_type", "initiator_id",
@@ -195,24 +195,22 @@ class Topology(ControllerModule, CFX):
             "TrimCheckInterval", TrimCheckInterval)
 
     def initialize(self):
-        self.start_subscription("Signal", "SIG_PEER_PRESENCE_NOTIFY")
-        self.start_subscription("LinkManager", "LNK_TUNNEL_EVENTS")
-        #self.start_subscription("GeneveTunnel", "GNV_TUNNEL_EVENTS")
+        publishers = self.get_registered_publishers()
+        if "Signal" in publishers and "SIG_PEER_PRESENCE_NOTIFY" in self.get_available_subscriptions("Signal"):
+            self.start_subscription("Signal", "SIG_PEER_PRESENCE_NOTIFY")
+        if "LinkManager" in publishers and "LNK_TUNNEL_EVENTS" in self.get_available_subscriptions("LinkManager"):
+            self.start_subscription("LinkManager", "LNK_TUNNEL_EVENTS")
+        if "GeneveTunnel" in publishers and "GNV_TUNNEL_EVENTS" in self.get_available_subscriptions("GeneveTunnel"):
+            self.start_subscription("GeneveTunnel", "GNV_TUNNEL_EVENTS")
         for olid in self.overlays:
             self._net_ovls[olid] = NetworkOverlay(self.node_id, olid,
                                                   Logger=self.logger,
                                                   LocationId=self.config["Overlays"][olid].get(
                                                       "LocationId"),
                                                   EncryptionRequired=self.config["Overlays"][olid].get("EncryptionRequired"))
-        try:
-            # Subscribe for data request notifications from OverlayVisualizer
-            self.start_subscription("OverlayVisualizer",
-                                    "VIS_DATA_REQ")
-        except NameError as err:
-            if "OverlayVisualizer" in str(err):
-                self.log("LOG_WARNING",
-                         "OverlayVisualizer module not loaded. "
-                         "Visualization data will not be sent.")
+        # Subscribe for data request notifications from OverlayVisualizer
+        if "OverlayVisualizer" in publishers and "VIS_DATA_REQ" in self.get_available_subscriptions("OverlayVisualizer"):
+            self.start_subscription("OverlayVisualizer", "VIS_DATA_REQ")
         self.logger.info("Module loaded")
 
     def terminate(self):
@@ -529,12 +527,12 @@ class Topology(ControllerModule, CFX):
 
     def _trim_inactive_peers(self, olid):
         rmv = []
-        self.logger.debug("Checking for expired peers")
+        self.logger.info("Checking for stale peers")
         for peer_id, peer in self._net_ovls[olid].known_peers.items():
-            if peer.is_idle():
+            if peer.is_stale:
                 rmv.append(peer_id)
         for peer_id in rmv:
-            self.logger.debug(f"Removing expired peer {peer_id}")
+            self.logger.info(f"Removing stale peer {peer_id}")
             self._net_ovls[olid].known_peers.pop(peer_id)
         self._last_trim_time = time.time()
 

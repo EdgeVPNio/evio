@@ -19,6 +19,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+from copy import deepcopy
 import os
 import json
 import signal
@@ -44,7 +45,7 @@ class CFX():
         self._cfx_handle_dict = {}
         self.model = self._config["CFx"]["Model"]
         self._event = None
-        self._subscriptions = {}
+        self._subscriptions: dict[str, CFxSubscription] = {}
         self._node_id = self._set_node_id()
         self._load_order = []
 
@@ -266,42 +267,52 @@ class CFX():
         return val
 
     # Caller is the subscription source
-    def publish_subscription(self, owner_name, subscription_name, owner):
-        sub = CFxSubscription(owner_name, subscription_name)
-        sub._owner = owner
-        if sub._owner_name not in self._subscriptions:
-            self._subscriptions[sub._owner_name] = []
-        self._subscriptions[sub._owner_name].append(sub)
+    def publish_subscription(self, publisher_name, subscription_name, publisher):
+        sub = CFxSubscription(publisher_name, subscription_name)
+        sub._publisher = publisher
+        if sub._publisher_name not in self._subscriptions:
+            self._subscriptions[sub._publisher_name] = []
+        self._subscriptions[sub._publisher_name].append(sub)
         return sub
 
     def remove_subscription(self, sub):
         sub.post_update("SUBSCRIPTION_SOURCE_TERMINATED")
-        if sub._owner_name not in self._subscriptions:
+        if sub._publisher_name not in self._subscriptions:
             raise NameError("Failed to remove subscription source \"{}\"."
                             " No such provider name exists."
-                            .format(sub._owner_name))
-        self._subscriptions[sub._owner_name].remove(sub)
+                            .format(sub._publisher_name))
+        self._subscriptions[sub._publisher_name].remove(sub)
 
-    def find_subscription(self, owner_name, subscription_name):
+    def find_subscription(self, publisher_name, subscription_name):
         sub = None
-        if owner_name not in self._subscriptions:
+        if publisher_name not in self._subscriptions:
             raise NameError("The specified subscription provider {} was not found."
-                            .format(owner_name))
-        for sub in self._subscriptions[owner_name]:
+                            .format(publisher_name))
+        for sub in self._subscriptions[publisher_name]:
             if sub._subscription_name == subscription_name:
                 return sub
         return None
 
+    def get_registered_publishers(self)->list:
+        return [*self._subscriptions]
+
+    def get_available_subscriptions(self, publisher_name)->list:
+        # sub_names = []
+        # for sub in self._subscriptions[publisher_name]:
+        #     sub_names.append(sub._subscription_name)
+        # return sub_names
+        return [s._subscription_name for s in self._subscriptions[publisher_name]]
+
     # Caller is the subscription sink
-    def start_subscription(self, owner_name, subscription_name, Sink):
-        sub = self.find_subscription(owner_name, subscription_name)
+    def start_subscription(self, publisher_name, subscription_name, Sink):
+        sub = self.find_subscription(publisher_name, subscription_name)
         if sub is not None:
             sub.add_subscriber(Sink)
         else:
             raise NameError("The specified subscription name was not found")
 
-    def end_subscription(self, owner_name, subscription_name, sink):
-        sub = self.find_subscription(owner_name, subscription_name)
+    def end_subscription(self, publisher_name, subscription_name, sink):
+        sub = self.find_subscription(publisher_name, subscription_name)
         if sub is not None:
             sub.remove_subscriber(sink)
 

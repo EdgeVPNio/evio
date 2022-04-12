@@ -76,7 +76,7 @@ class TopologyTest(unittest.TestCase):
         Setup the variables and the mocks required by the unit tests.
         :return: The signal object and signal dictionary
         """
-        cfx_handle = Mock()
+        cfx_handle = MagicMock()
         module = importlib.import_module("modules.{0}"
                                          .format("Topology"))
         module_class = getattr(module, "Topology")

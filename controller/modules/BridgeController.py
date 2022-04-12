@@ -487,8 +487,11 @@ class BridgeController(ControllerModule):
             ign_br_names[olid].add(self._ovl_net[olid].name)
             self.register_cbt("LinkManager", "LNK_ADD_IGN_INF", ign_br_names)
         self.logger.debug(f"ignored bridges={ign_br_names}")
-        self.start_subscription("LinkManager", "LNK_TUNNEL_EVENTS")
-        # self.start_subscription("GeneveTunnel", "GNV_TUNNEL_EVENTS")
+        publishers = self.get_registered_publishers()
+        if "LinkManager" in publishers and "LNK_TUNNEL_EVENTS" in self.get_available_subscriptions("LinkManager"):
+            self.start_subscription("LinkManager", "LNK_TUNNEL_EVENTS")
+        if "GeneveTunnel" in publishers and "GNV_TUNNEL_EVENTS" in self.get_available_subscriptions("GeneveTunnel"):
+            self.start_subscription("GeneveTunnel", "GNV_TUNNEL_EVENTS")
         self.logger.info("Module Loaded")
 
     def req_handler_manage_bridge(self, cbt):

@@ -100,17 +100,11 @@ class LinkManager(ControllerModule):
     def initialize(self):
         self._link_updates_publisher = \
             self.publish_subscription("LNK_TUNNEL_EVENTS")
-        self.start_subscription("TincanInterface",
-                                "TCI_TINCAN_MSG_NOTIFY")
-        try:
-            # Subscribe for data request notifications from OverlayVisualizer
-            self.start_subscription("OverlayVisualizer",
-                                    "VIS_DATA_REQ")
-        except NameError as err:
-            if "OverlayVisualizer" in str(err):
-                self.log("LOG_WARNING",
-                         "OverlayVisualizer module not loaded."
-                         " Visualization data will not be sent.")
+        publishers = self.get_registered_publishers()
+        if "TincanInterface" in publishers and "TCI_TINCAN_MSG_NOTIFY" in self.get_available_subscriptions("TincanInterface"):
+            self.start_subscription("TincanInterface","TCI_TINCAN_MSG_NOTIFY")
+        if "OverlayVisualizer" in publishers and "VIS_DATA_REQ" in self.get_available_subscriptions("OverlayVisualizer"):
+            self.start_subscription("OverlayVisualizer", "VIS_DATA_REQ")
 
         for olid in self.config["Overlays"]:
             self._peers[olid] = dict()
@@ -860,7 +854,7 @@ class LinkManager(ControllerModule):
         parent_cbt = cbt.parent
         resp_data = cbt.response.data
         if not cbt.response.status:
-            lnkid = cbt.request.params["Params"]["LinkId"]
+            lnkid = cbt.request.params["params"]["LinkId"]
             tnlid = self.tunnel_id(lnkid)
             self._rollback_link_creation_changes(tnlid)
             self.free_cbt(cbt)
