@@ -39,11 +39,11 @@ MaxOnDemandEdges = 3
 PeerDiscoveryCoalesce = 1
 ExclusionBaseInterval = 60
 MaxSuccessiveFails = 4
-TrimCheckInterval = 3600
+TrimCheckInterval = 300
 MaxConcurrentOps = 1
 SuccessiveFailsIncr = 1
 SuccessiveFailsDecr = 2
-StaleInterval = float(8 * 36000)  # 8 hrs
+StaleInterval = float(2 * 3600)  # 2 hrs
 
 EdgeRequest = namedtuple("EdgeRequest",
                          ["overlay_id", "edge_id", "edge_type", "initiator_id",
@@ -92,19 +92,21 @@ class DiscoveredPeer():
         elif self.is_banned and self.successive_fails > 0:
             self.successive_fails -= SuccessiveFailsDecr
 
+    @property
     def is_stale(self):
         return bool(time.time() - self.last_checkin >= StaleInterval)
 
     @property
     def is_available(self):
-        return bool((not self.is_banned)  # successive_fails < max_successive_fails                    
-                    and (time.time() >= self.available_time)  # the falloff wait period is over
-                    and (time.time() - self.last_checkin < StaleInterval + 1800))  # 30 mins before expiry
+        return bool((not self.is_banned)  # successive_fails < max_successive_fails
+                    # the falloff wait period is over
+                    and (time.time() >= self.available_time)
+                    and (time.time() - self.last_checkin < StaleInterval - 600))  # 10 mins before a node is stale
 
 
 class NetworkOverlay():
     _REFLECT = set(["_max_concurrent_edits", "_refc", "node_id", "overlay_id",
-                    "new_peer_count", "_graph_transformation", "known_peers", 
+                    "new_peer_count", "_graph_transformation", "known_peers",
                     "pending_auth_conn_edges", "ond_peers", "adjacency_list", "_loc_id", "_encr_req"])
 
     def __init__(self, node_id, overlay_id, **kwargs):
@@ -264,14 +266,12 @@ class Topology(ControllerModule, CFX):
         peer = cbt.request.params
         peer_id = peer["PeerId"]
         olid = peer["OverlayId"]
-        new_disc = False
         disc = self._net_ovls[olid].known_peers.get(peer_id)
         if not disc:
             disc = DiscoveredPeer(peer_id)
             self._net_ovls[olid].known_peers[peer_id] = disc
-            new_disc = True
         disc.presence()
-        if new_disc or not disc.is_available:
+        if disc.is_available:
             self._net_ovls[olid].new_peer_count += 1
             if self._net_ovls[olid].new_peer_count >= self.config.get("PeerDiscoveryCoalesce", PeerDiscoveryCoalesce):
                 self.logger.debug("Overlay %s - Coalesced %s new peer discovery, "
@@ -323,6 +323,7 @@ class Topology(ControllerModule, CFX):
             assert ce.edge_state == EdgeStates.Authorized, f"Invalid edge state {ce}"
             ce.edge_state = EdgeStates.Deleting
             del ovl.adjacency_list[peer_id]
+            # ToDo: if peer_id in ovl.known_peers:
             ovl.known_peers[peer_id].exclude()
             self.logger.debug("Excluding peer %s until %s", peer_id,
                               str(datetime.fromtimestamp(
@@ -344,6 +345,9 @@ class Topology(ControllerModule, CFX):
             # the local topology did not request removal of the connection
             ce = ovl.adjacency_list[peer_id]
             ce.edge_state = EdgeStates.Disconnected
+            if time.time() - ce.connected_time < Topology._EDGE_PROTECTION_AGE and \
+                    peer_id in ovl.known_peers:
+                ovl.known_peers[peer_id].exclude()
             self._remove_tunnel(ovl, ce.tunnel_type, peer_id, edge_id)
         elif event["UpdateType"] == TunnelEvents.Removed:
             """Roles A & B"""
@@ -353,9 +357,10 @@ class Topology(ControllerModule, CFX):
                 self._process_next_transition(ovl)
             elif ce.edge_state == EdgeStates.Disconnected:  # the peer disconnected
                 ce.edge_state = EdgeStates.Deleting
-            else:
-                self.logger.error(
-                    f"Connection edge state is invalid for removed event: {ce}")
+            else:  # a failed attempt to create the tunnel
+                # Todo: if peer_id in ovl.known_peers:
+                ovl.known_peers[peer_id].exclude()
+                ovl.adjacency_list[peer_id].edge_state = EdgeStates.Deleting
             del ovl.adjacency_list[peer_id]
         else:
             self.logger.warning("Invalid UpdateType specified for event")
@@ -499,9 +504,6 @@ class Topology(ControllerModule, CFX):
         if not cbt.response.status:
             self.logger.warning("Failed to create topology edge to %s. %s",
                                 cbt.request.params["PeerId"], cbt.response.data)
-            ovl.known_peers[peer_id].exclude()
-            ovl.adjacency_list[peer_id].edge_state = EdgeStates.Deleting
-            del ovl.adjacency_list[peer_id]
         self.free_cbt(cbt)
 
     def resp_handler_remove_tnl(self, cbt):
@@ -527,18 +529,16 @@ class Topology(ControllerModule, CFX):
 
     def _trim_inactive_peers(self, olid):
         rmv = []
-        self.logger.info("Checking for stale peers")
         for peer_id, peer in self._net_ovls[olid].known_peers.items():
             if peer.is_stale:
                 rmv.append(peer_id)
+        self.logger.debug(f"Removing stale peers {rmv}")
         for peer_id in rmv:
-            self.logger.info(f"Removing stale peer {peer_id}")
             self._net_ovls[olid].known_peers.pop(peer_id)
         self._last_trim_time = time.time()
 
     def _update_overlay(self, olid):
         ovl = self._net_ovls[olid]
-
         if not ovl.transformation and ovl.is_idle:
             ovl.new_peer_count = 0
             ovl_cfg = self.config["Overlays"][olid]
@@ -646,6 +646,7 @@ class Topology(ControllerModule, CFX):
             if not edge_nego.message[:2] in ("E1", "E2"):
                 ce.edge_state = EdgeStates.Deleting
                 del net_ovl.adjacency_list[ce.peer_id]
+            # ToDo: if peer_id in net_ovl.known_peers:
             net_ovl.known_peers[peer_id].exclude()
             net_ovl.release()  # release on explicit negotiate fail
             self._process_next_transition(net_ovl)
