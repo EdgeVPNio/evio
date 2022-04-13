@@ -30,6 +30,7 @@ from framework.CBT import CBT
 from modules.Topology import DiscoveredPeer, SupportedTunnels, Topology, EdgeRequest, EdgeNegotiate
 from modules.NetworkGraph import ConnectionEdge, ConnEdgeAdjacenctList, EdgeStates, EdgeTypesOut, EdgeTypesIn
 from modules.NetworkGraph import GraphTransformation, UpdatePriority
+from modules.Topology import StaleInterval
 
 TunnelCapabilities=["Geneve", "WireGuard", "Tincan"]
 class TopologyTest(unittest.TestCase):
@@ -52,7 +53,7 @@ class TopologyTest(unittest.TestCase):
             "Topology": {
                 "Enabled": True,
                 "PeerDiscoveryCoalesce": 1,
-                "CacheExpiry": 5,
+                "TrimCheckInterval": 60,
                 "Overlays": {
                     "A0FB389": {
                         "MinSuccessors": 2,
@@ -88,18 +89,31 @@ class TopologyTest(unittest.TestCase):
     def tearDown(self):
         self.top = None
 
+    def _create_peers(self, olid, num=256):
+        self.top._net_ovls[olid].known_peers.clear()
+        for peer_id in range(1, num+1):
+            self.top._net_ovls[olid].known_peers[str(
+                peer_id)] = DiscoveredPeer(str(peer_id))
+
     def test_initialize(self):
         self.top.initialize()
         self.assertTrue(self.top._net_ovls)
         print("passed: test_initialize")
 
-    # def test_do_topo_change_post(self):
-    #     # self.top._do_topo_change_post(overlay_id)
-    #     pass
-
-    # def test_trim_inactive_peers(self):
-    #     # self.top._trim_inactive_peers(olid)
-    #     pass
+    def test_trim_inactive_peers(self):
+        self.top.initialize()
+        olid = "A0FB389"
+        num_peers = 3
+        self._create_peers(olid, num_peers)
+        self.top._trim_inactive_peers(olid)
+        # no peer deleted
+        self.assertEqual(len(self.top._net_ovls[olid].known_peers), num_peers)
+        ovl = self.top._net_ovls[olid]
+        for ce in ovl.known_peers.values():
+            ce.last_checkin -= StaleInterval
+        self.top._trim_inactive_peers(olid)
+        self.assertEqual(len(self.top._net_ovls[olid].known_peers), 0)
+        print("passed: test_trim_inactive_peers")
 
     def test_process_cbt_request_no_action_match(self):
         self.top.initialize()
@@ -118,24 +132,17 @@ class TopologyTest(unittest.TestCase):
             self.top.process_cbt(cbt)
         print("passed: test_process_cbt_response_no_action_match")
 
-    def _create_peers(self, olid, num):
-        self.top._net_ovls[olid].known_peers.clear()
-        for peer_id in range(1, num):
-            self.top._net_ovls[olid].known_peers[str(
-                peer_id)] = DiscoveredPeer(str(peer_id))
+    def test_req_handler_peer_presence(self):
+        print("passed: test_req_handler_peer_presence")
 
-    # def test_update_overlay(self):
-    #     self.top.initialize()
-    #     for olid in self.config["Topology"]["Overlays"]:
-    #         self._create_peers(olid, 256)
-    #         self.assertTrue(self.top._net_ovls[olid].is_idle)
-    #         self.top._update_overlay(olid)
-    #         ovl = self.top._net_ovls[olid]
-    #         while ovl.transformation:
-    #             self.top._process_next_transition(ovl)
-    #         self.assertFalse(ovl.transformation)
-    #         self.assertTrue(ovl.is_idle)
-    #     print("passed: test_update_overlay")
+    def test_req_handler_vis_data(self):
+        print("passed: test_req_handler_vis_data")
+
+    def test_req_handler_req_ond_tunnels(self):
+        print("passed: test_req_handler_req_ond_tunnels")
+
+    def test_req_handler_query_known_peers(self):
+        print("passed: test_req_handler_query_known_peers")
 
     def test_req_handler_negotiate_edge(self):
         self.top.initialize()
@@ -225,19 +232,18 @@ class TopologyTest(unittest.TestCase):
         self.assertEqual(ce.edge_state, EdgeStates.Deleting)
      
         print("passed: test_req_handler_tunnl_update")
-        
-        
-###################################################################################################
-# ConnEdgeAdjacenctList
-###################################################################################################      
- 
-###################################################################################################
-# TunnelSelector
-###################################################################################################      
-    
-    def test_negotiate_edge(self):
-        pass
-  
+
+    def test_resp_handler_remote_action(self):
+        print("passed: test_resp_handler_remote_action")
+
+    def test_resp_handler_auth_tunnel(self):
+        print("passed: test_resp_handler_auth_tunnel")
+
+    def test_resp_handler_create_tnl(self):
+        print("passed: test_resp_handler_create_tnl")
+
+    def test_resp_handler_remove_tnl(self):
+        print("passed: test_resp_handler_remove_tnl")
 ###################################################################################################
 # Negotiate
 ###################################################################################################
@@ -466,7 +472,23 @@ class TopologyTest(unittest.TestCase):
         self.assertTrue(is_rem)
         self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeStates.Deleting)
         print("passed: test_initiate_remove_edge")
-            
+
+    def test_update_overlay(self):
+        self.top.initialize()
+        olid = "A0FB389"
+        ovl = self.top._net_ovls[olid]
+        self._create_peers(olid, 256)
+        self.assertTrue(self.top._net_ovls[olid].is_idle)
+        self.top._update_overlay(olid)
+        while ovl.transformation:
+            self.top._process_next_transition(ovl)
+            ovl.release()
+        self.assertTrue(ovl.is_idle)
+        self.top._update_overlay(olid)
+        self.assertFalse(ovl.transformation)
+        self.assertTrue(ovl.is_idle)
+        print("passed: test_update_overlay")
+
 ###################################################################################################
 # GraphTransformation
 ###################################################################################################
@@ -591,7 +613,11 @@ class TopologyTest(unittest.TestCase):
         self.assertTrue(ce4.edge_type == EdgeTypesOut.LongDistance)
         
         print("passed: test_conn_edge_adjacency_list\n")
-        
+
+###################################################################################################
+# Discovered Peer
+###################################################################################################
+
 ###################################################################################################
 # Main
 ###################################################################################################
@@ -601,6 +627,7 @@ if __name__ == "__main__":
     # NetworkTransition
     suite.addTest(TopologyTest("test_graph_transformation"))
     suite.addTest(TopologyTest("test_conn_edge_adjacency_list"))
+    suite.addTest(TopologyTest("test_trim_inactive_peers"))
     # TopologyManager
     suite.addTest(TopologyTest("test_initialize"))
     suite.addTest(TopologyTest("test_initiate_negotiate_edge"))
@@ -616,11 +643,19 @@ if __name__ == "__main__":
     suite.addTest(TopologyTest("test_complete_negotiate_edge_reject_collision"))
     suite.addTest(TopologyTest("test_complete_negotiate_edge_reject"))
     suite.addTest(TopologyTest("test_initiate_remove_edge"))
-    # suite.addTest(TopologyTest("test_update_overlay"))
+    suite.addTest(TopologyTest("test_update_overlay"))
     suite.addTest(TopologyTest("test_process_cbt_request_no_action_match"))
     suite.addTest(TopologyTest("test_process_cbt_response_no_action_match"))
     suite.addTest(TopologyTest("test_req_handler_negotiate_edge"))
     suite.addTest(TopologyTest("test_req_handler_tunnl_update"))
+    suite.addTest(TopologyTest("test_req_handler_peer_presence"))
+    suite.addTest(TopologyTest("test_req_handler_vis_data"))
+    suite.addTest(TopologyTest("test_req_handler_req_ond_tunnels"))
+    suite.addTest(TopologyTest("test_req_handler_query_known_peers"))
+    suite.addTest(TopologyTest("test_resp_handler_remote_action"))
+    suite.addTest(TopologyTest("test_resp_handler_auth_tunnel"))
+    suite.addTest(TopologyTest("test_resp_handler_create_tnl"))
+    suite.addTest(TopologyTest("test_resp_handler_remove_tnl"))
     
     runner = unittest.TextTestRunner()
     runner.run(suite)    
