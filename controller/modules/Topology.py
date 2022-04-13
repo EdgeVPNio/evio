@@ -44,6 +44,7 @@ MaxConcurrentOps = 1
 SuccessiveFailsIncr = 1
 SuccessiveFailsDecr = 2
 StaleInterval = float(2 * 3600)  # 2 hrs
+DefaultRole = "Switch"
 
 EdgeRequest = namedtuple("EdgeRequest",
                          ["overlay_id", "edge_id", "edge_type", "initiator_id",
@@ -402,7 +403,7 @@ class Topology(ControllerModule, CFX):
             # this node miss the presence notification, so add to KnownPeers
             self._net_ovls[olid].known_peers[peer_id] = DiscoveredPeer(
                 peer_id)
-        if self.config["Overlays"][olid].get("Role", "Switch").casefold() == "leaf".casefold():
+        if self.config["Overlays"][olid].get("Role", DefaultRole).casefold() == "leaf".casefold():
             self.log("LOG_INFO", "Rejected edge negotiation, "
                      "this leaf device is not accepting edge requests")
             edge_cbt.set_response(
@@ -553,7 +554,7 @@ class Topology(ControllerModule, CFX):
             max_ldl = int(ovl_cfg.get("MaxLongDistEdges",
                           math.floor(math.log(num_peers+1, 2))))
             manual_topo = ovl_cfg.get("ManualTopology", False)
-            if self.config["Overlays"][olid].get("Role", "Switch").casefold() == \
+            if self.config["Overlays"][olid].get("Role", DefaultRole).casefold() == \
                     "leaf".casefold():
                 manual_topo = True
             params = {"OverlayId": olid, "NodeId": self.node_id, "ManualTopology": manual_topo,

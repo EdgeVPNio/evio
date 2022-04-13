@@ -41,7 +41,7 @@ BridgeAutoDelete = False
 BridgeProvider = "OVS"
 ProxyListenAddress = ""
 ProxyListenPort = 5802
-
+SDNControllerPort = 6633
 
 class BridgeABC():
     __metaclass__ = ABCMeta
@@ -372,7 +372,7 @@ def BridgeFactory(overlay_id, dev_type, config, cm):
                        mtu=config.get("MTU", MTU),
                        cm=cm,
                        sw_proto=(config.get("SwitchProtocol", "")),
-                       sdn_ctrl_port=config.get("SDNControllerPort", 6633))
+                       sdn_ctrl_port=config.get("SDNControllerPort", SDNControllerPort))
     return br
 
 ###################################################################################################
