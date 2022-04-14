@@ -157,7 +157,6 @@ class XmppTransport(slixmpp.ClientXMPP):
         else:
             raise RuntimeError("Invalid authentication method specified in configuration: {0}"
                                .format(auth_method))
-        # pylint: disable=protected-access
         transport._host = host
         transport._port = port
         transport._overlay_id = overlay_id
@@ -186,7 +185,6 @@ class XmppTransport(slixmpp.ClientXMPP):
         """Registers custom event handlers at the start of XMPP session"""
         self._sig.log("LOG_DEBUG", "XMPP Signalling started for overlay: %s",
                       self._overlay_id)
-        # pylint: disable=broad-except
         try:
            # Register evio message with the server
             register_stanza_plugin(Message, EvioSignal)
