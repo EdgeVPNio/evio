@@ -27,7 +27,7 @@ import unittest
 import logging
 import logging.handlers as lh
 
-from evio.controller.modules.BoundedFlood import EvioPortal
+from modules.BoundedFlood import EvioPortal
 
 class BoundedFloodTestCase(unittest.TestCase):
 

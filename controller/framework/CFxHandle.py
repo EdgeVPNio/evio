@@ -164,17 +164,11 @@ class CFxHandle():
             publisher_name, subscription_name, self._cm_instance)
 
     def _check_container_bounds(self):
-        if self._timer_loop_cnt % 10 == 0:
+        if self._timer_loop_cnt % 100 == 0:
             plen = len(self._pending_cbts)
             if plen >= 50:
-                log_cbt = self.create_cbt(initiator=self._cm_instance.__class__.__name__,
-                                          recipient="Logger", action="LOG_WARNING",
-                                          params="_pending_cbts length={0}".format(plen))
-                self.submit_cbt(log_cbt)
+                self._cm_instance.logger.warning("_pending_cbts length=%s", plen)
             olen = len(self._owned_cbts)
             if olen >= 50:
-                log_cbt = self.create_cbt(initiator=self._cm_instance.__class__.__name__,
-                                          recipient="Logger", action="LOG_WARNING",
-                                          params="_owned_cbts length={0}".format(olen))
-                self.submit_cbt(log_cbt)
+                self._cm_instance.logger.warning("_owned_cbts length=%s", olen)
         self._timer_loop_cnt = self._timer_loop_cnt + 1
