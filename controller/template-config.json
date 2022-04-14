@@ -18,31 +18,17 @@
     }
   },
   "Topology": {
-    "Dependencies": [
-        "Logger",
-        "TincanInterface",
-        "LinkManager",
-        "OverlayVisualizer"
-    ],
     "Overlays": {
       "_OVERLAYNAME_": {}
     }
   },
   "LinkManager": {
-    "Dependencies": [
-      "Logger",
-      "TincanInterface",
-      "Signal",
-      "OverlayVisualizer"
-    ],
     "Stun": [
       "stun.l.google.com:19302",
       "stun1.l.google.com:19302"
     ],
     "Overlays": {
-      "_OVERLAYNAME_": {
-        "IgnoredNetInterfaces": ["flannel.1", "cni0", "docker0", "ovs-system"]
-      }
+      "_OVERLAYNAME_": {}
     }
   },
   "BridgeController": {
@@ -66,15 +52,5 @@
     "Enabled": true,
     "TimerInterval": 3600,
     "WebService": "https://qdscz6pg37.execute-api.us-west-2.amazonaws.com/default/EvioUsageReport"
-  },
-  "OverlayVisualizer": {
-    "Enabled": true,
-    "Dependencies": [
-      "Logger"
-    ],
-    "TimerInterval": 30,
-    "WebServiceAddress": "*.*.*:5802",
-    "NodeName": "nd-###",
-    "GeoCoordinate": "0,0"
   }
 }
