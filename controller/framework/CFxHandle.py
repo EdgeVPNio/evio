@@ -141,9 +141,9 @@ class CFxHandle():
         return pv
 
     # Caller is the subscription source
-    def publish_subscription(self, publisher_name, subscription_name, publisher):
-        return self.__cfx_object.publish_subscription(publisher_name,
-                                                      subscription_name, publisher)
+    def publish_subscription(self, publisher_name, subscription_name):
+        return self.__cfx_object.publish_subscription(
+            publisher_name, subscription_name, self._cm_instance)
 
     def remove_subscription(self, sub):
         self.__cfx_object.remove_subscription(sub)
@@ -155,13 +155,13 @@ class CFxHandle():
         return self.__cfx_object.get_available_subscriptions(publisher_name)
 
     # Caller is the subscription sink
-    def start_subscription(self, publisher_name, subscription_name, publisher):
+    def start_subscription(self, publisher_name, subscription_name):
         self.__cfx_object.start_subscription(
-            publisher_name, subscription_name, publisher)
+            publisher_name, subscription_name, self._cm_instance)
 
-    def end_subscription(self, publisher_name, subscription_name, publisher):
+    def end_subscription(self, publisher_name, subscription_name):
         self.__cfx_object.end_subscription(
-            publisher_name, subscription_name, publisher)
+            publisher_name, subscription_name, self._cm_instance)
 
     def _check_container_bounds(self):
         if self._timer_loop_cnt % 10 == 0:

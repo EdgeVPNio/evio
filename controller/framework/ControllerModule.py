@@ -146,8 +146,8 @@ class ControllerModule():
 
     # Caller is the subscription source
     def publish_subscription(self, subscription_name):
-        return self._cfx_handle.publish_subscription(self.module_name,
-                                                     subscription_name, self)
+        return self._cfx_handle.publish_subscription(
+            self.module_name, subscription_name)
 
     def remove_subscription(self, sub):
         self._cfx_handle.remove_subscription(sub)
@@ -161,7 +161,7 @@ class ControllerModule():
     # Caller is the subscription sink
     def start_subscription(self, publisher_name, subscription_name):
         self._cfx_handle.start_subscription(
-            publisher_name, subscription_name, self)
+            publisher_name, subscription_name)
 
     def end_subscription(self, publisher_name, subscription_name):
-        self._cfx_handle.end_subscription(publisher_name, subscription_name, self)
+        self._cfx_handle.end_subscription(publisher_name, subscription_name)
