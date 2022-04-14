@@ -20,6 +20,7 @@
 # THE SOFTWARE.
 
 
+from collections import namedtuple
 import json
 from typing import List
 from eventlet.green import socket
@@ -55,10 +56,13 @@ from ryu.topology import event
 from ryu.lib import addrconv
 from ryu.lib.packet import packet_utils
 
+LogDir = "/var/log/evio/"
+LogFilename = "bf.log"
+LogLevel = "INFO"
 DemandThreshold = "10M"
 FlowIdleTimeout = 60
 FlowHardTimeout = 60
-MaxOnDemandEdges = 0
+MaxOnDemandEdges = 3
 TrafficAnalysisInterval = 10
 StateLoggingInterval = 60
 ExtendedLogging = False
@@ -71,13 +75,15 @@ BF_COUNTER_DIGEST = hashlib.sha256("".encode("utf-8")).hexdigest()
 BF_STATE_DIGEST = hashlib.sha256("".encode("utf-8")).hexdigest()
 INTERNAL_PORT_NUM = 4294967294
 KNOWN_LEAF_PORTS = {INTERNAL_PORT_NUM, 1}
-TUNNEL_TYPES = types.SimpleNamespace(UNKNOWN="TNL_TYPE_UNKNOWN",
-                                     LEAF="TNL_TYPE_LEAF",
-                                     EVIO_LEAF="TNL_TYPE_EVIO_LEAF",
-                                     PEER="TNL_TYPE_PEER")
-OPCODE = types.SimpleNamespace(UPDATE_TUNNELS="UPDATE_TUNNELS",
-                               OND_REQUEST="OND_REQUEST")
+TUNNEL_TYPES = namedtuple("TUNNEL_TYPES",
+                          ["UNKNOWN", "LEAF", "EVIO_LEAF", "PEER"],
+                          defaults=["TNL_TYPE_UNKNOWN", "TNL_TYPE_LEAF", "TNL_TYPE_EVIO_LEAF", "TNL_TYPE_PEER"])
+TunnelTypes = TUNNEL_TYPES()
 
+OPCODE = namedtuple("OPCODE",
+                    ["UPDATE_TUNNELS", "OND_REQUEST"],
+                    defaults=["UPDATE_TUNNELS", "OND_REQUEST"])
+Opcode = OPCODE()
 
 def runcmd(cmd):
     """ Run a shell command. if fails, raise an exception. """
@@ -201,7 +207,7 @@ class PortDescriptor():
         self.name = name                    # interface (TAP/NIC) name
         self.hw_addr = hw_addr              # local side tunnel MAC
         # is the remote device a peer switch or leaf
-        self.tnl_type = TUNNEL_TYPES.UNKNOWN
+        self.tnl_type = TunnelTypes.UNKNOWN
         self.peer_data = None               # valid if TNL_TYPE_PEER
 
     def __repr__(self):
@@ -226,11 +232,11 @@ class PortDescriptor():
 
     @property
     def is_peer(self):
-        return bool(self.tnl_type == TUNNEL_TYPES.PEER and self.peer_data is not None)
+        return bool(self.tnl_type == TunnelTypes.PEER and self.peer_data is not None)
 
     @property
     def is_categorized(self):
-        return bool(self.tnl_type != TUNNEL_TYPES.UNKNOWN)
+        return bool(self.tnl_type != TunnelTypes.UNKNOWN)
 ###################################################################################################
 
 
@@ -383,7 +389,7 @@ class EvioSwitch(MutableMapping):
             pd = PortDescriptor(
                 port_no, prt.name.decode("utf-8"), prt.hw_addr)
             if port_no == INTERNAL_PORT_NUM:
-                pd.tnl_type = TUNNEL_TYPES.LEAF
+                pd.tnl_type = TunnelTypes.LEAF
             else:
                 self._uncategorized_ports.add(pd)
             self._port_tbl[port_no] = pd
@@ -747,7 +753,7 @@ class BoundedFlood(app_manager.RyuApp):
             self._lt[datapath.id].update_bridge_ports(datapath.ports)
             self._reset_switch_flow_rules(datapath)
             self._ev_bh_update.put(
-                EvioOp(OPCODE.UPDATE_TUNNELS, datapath.id, overlay_id))
+                EvioOp(Opcode.UPDATE_TUNNELS, datapath.id, overlay_id))
         except RuntimeError as wrn:
             self.logger.exception(
                 f"An runtime error occurred while registering a switch {ev.msg}")
@@ -784,7 +790,7 @@ class BoundedFlood(app_manager.RyuApp):
                     "OFPPortStatus: port ADDED desc=%s", msg.desc)
                 self._lt[dp.id].add_port(msg.desc)
                 self._ev_bh_update.put(
-                    EvioOp(OPCODE.UPDATE_TUNNELS, dp.id, self._lt[dp.id].overlay_id))
+                    EvioOp(Opcode.UPDATE_TUNNELS, dp.id, self._lt[dp.id].overlay_id))
             elif msg.reason == ofp.OFPPR_DELETE:
                 self.logger.debug(
                     "OFPPortStatus: port DELETED desc=%s", msg.desc)
@@ -847,7 +853,7 @@ class BoundedFlood(app_manager.RyuApp):
                 flow_metrics=ev.msg.body, evio_sw=evi_sw)
             if ond_ops:
                 self._ev_bh_update.put(
-                    EvioOp(OPCODE.OND_REQUEST, dpid, evi_sw.overlay_id, ond_ops))
+                    EvioOp(Opcode.OND_REQUEST, dpid, evi_sw.overlay_id, ond_ops))
         except Exception as err:
             self.logger.exception(
                 f"An error occurred in the flow stats handler. Event={ev.msg}")
@@ -873,7 +879,7 @@ class BoundedFlood(app_manager.RyuApp):
                 while not self._is_exit:
                     tnl_data = {}
                     op = self._ev_bh_update.get()
-                    if op.code == OPCODE.UPDATE_TUNNELS:
+                    if op.code == Opcode.UPDATE_TUNNELS:
                         tnl_data = self._query_evio_tunnel_data(op.olid)
                         if op.olid in tnl_data:
                             updated_prts = \
@@ -884,7 +890,7 @@ class BoundedFlood(app_manager.RyuApp):
                                     self._update_port_flow_rules(self.dpset.dps[op.dpid],
                                                                  port.peer.node_id,
                                                                  port.port_no)
-                    elif op.code == OPCODE.OND_REQUEST:
+                    elif op.code == Opcode.OND_REQUEST:
                         self._request_ond_tnl_ops(op.olid, op.data)
                     self._ev_bh_update.task_done()
             except Exception:
@@ -911,11 +917,11 @@ class BoundedFlood(app_manager.RyuApp):
 
     def _setup_logger(self):
         fqname = os.path.join(
-            self.config["LogDir"], self.config["LogFilename"])
+            self.config.get("LogDir", LogDir), self.config.get("LogFilename", LogFilename))
         if os.path.isfile(fqname):
             os.remove(fqname)
         self.logger = logging.getLogger(self.name)
-        level = getattr(logging, self.config["LogLevel"])
+        level = getattr(logging, self.config.get("LogLevel", LogLevel))
         self.logger.setLevel(level)
         handler = lh.RotatingFileHandler(filename=fqname, maxBytes=self.config.get("MaxBytes", MaxBytes),
                                          backupCount=self.config.get("BackupCount", BackupCount))

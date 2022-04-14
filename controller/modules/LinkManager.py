@@ -28,6 +28,7 @@ from framework.ControllerModule import ControllerModule
 from .Tunnel import TunnelEvents, TunnelStates
 
 LinkSetupTimeout = 120
+TapNamePrefix = ""
 
 class Link():
     _REFLECT = set(
@@ -380,7 +381,7 @@ class LinkManager(ControllerModule):
         lnkid = params["LinkId"]
         peer_id = params["PeerId"]
         tap_name_prefix = self.config["Overlays"][overlay_id].get(
-            "TapNamePrefix", "")
+            "TapNamePrefix", TapNamePrefix)
         end_i = self.TAPNAME_MAXLEN - len(tap_name_prefix)
         tap_name = tap_name_prefix + str(peer_id[:end_i])
         if os.name == "nt":
@@ -614,7 +615,7 @@ class LinkManager(ControllerModule):
         self._assign_link_to_tunnel(tnlid, lnkid, 0xB1)
         self.logger.debug("Create Link:%s Phase 1/4 Node B", lnkid[:7])
         # Send request to Tincan
-        tap_name_prefix = self.config["Overlays"][olid].get("TapNamePrefix", "")[
+        tap_name_prefix = self.config["Overlays"][olid].get("TapNamePrefix", TapNamePrefix)[
             :3]
         end_i = self.TAPNAME_MAXLEN - len(tap_name_prefix)
         tap_name = tap_name_prefix + str(peer_id[:end_i])
