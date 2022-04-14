@@ -5,15 +5,7 @@
       "_OVERLAYNAME_"
     ]
   },
-  "Logger": {
-    "LogLevel": "WARNING",
-    "Device": "File",
-    "Directory": "/var/log/evio/",
-    "CtrlLogFileName": "ctrl.log",
-    "TincanLogFileName": "tincan_log",
-    "MaxFileSize": 10000000,
-    "MaxArchives": 2
-  },
+  "Logger": {},
   "Signal": {
     "Overlays": {
       "_OVERLAYNAME_": {
@@ -26,69 +18,47 @@
     }
   },
   "Topology": {
-    "PeerDiscoveryCoalesce": 1,
+    "Dependencies": [
+        "Logger",
+        "TincanInterface",
+        "LinkManager",
+        "OverlayVisualizer"
+    ],
     "Overlays": {
-      "_OVERLAYNAME_": {
-        "MinSuccessors": 2,
-        "MaxOnDemandEdges": 3,
-        "Role": "Switch",
-        "LocationId": 12345,
-        "EncryptionRequired": false
-      }
-    }
-  },
-  "GeneveTunnel": {
-    "Overlays":{
-      "_OVERLAYNAME_": {
-        "TapNamePrefix": "gen",
-        "EndPointAddress": ""
-      }
+      "_OVERLAYNAME_": {}
     }
   },
   "LinkManager": {
+    "Dependencies": [
+      "Logger",
+      "TincanInterface",
+      "Signal",
+      "OverlayVisualizer"
+    ],
     "Stun": [
       "stun.l.google.com:19302",
       "stun1.l.google.com:19302"
     ],
     "Overlays": {
       "_OVERLAYNAME_": {
-        "TapNamePrefix": "tnl"
+        "IgnoredNetInterfaces": ["flannel.1", "cni0", "docker0", "ovs-system"]
       }
     }
   },
   "BridgeController": {
     "BoundedFlood": {
-      "LogDir": "/var/log/evio/",
-      "LogFilename": "bf.log",
-      "LogLevel": "WARNING",
-      "MaxBytes": 10000000,
-      "ExtendedLogging": true,
       "Overlays": {
-        "_OVERLAYNAME_": {
-          "DemandThreshold": "10M",
-          "MaxOnDemandEdges": 0
-        }
+        "_OVERLAYNAME_": {}
       }
     },
     "Overlays": {
       "_OVERLAYNAME_": {
         "NetDevice": {
-          "AutoDelete": true,
-          "BridgeProvider": "OVS",
-          "SwitchProtocol": "BF",
-          "NamePrefix": "evi",
-          "MTU": 1410,
           "AppBridge": {
-            "AutoDelete": true,
-            "BridgeProvider": "OVS",
-            "NamePrefix": "app",
-            "NetworkAddress": "10.10.100.0/24",
-            "MTU": 1370,
             "IP4": "10.10.100.1",
             "PrefixLen": 24
           }
-        },
-        "SDNControllerPort": 6633
+        }
       }
     }
   },
@@ -96,5 +66,15 @@
     "Enabled": true,
     "TimerInterval": 3600,
     "WebService": "https://qdscz6pg37.execute-api.us-west-2.amazonaws.com/default/EvioUsageReport"
+  },
+  "OverlayVisualizer": {
+    "Enabled": true,
+    "Dependencies": [
+      "Logger"
+    ],
+    "TimerInterval": 30,
+    "WebServiceAddress": "*.*.*:5802",
+    "NodeName": "nd-###",
+    "GeoCoordinate": "0,0"
   }
 }
