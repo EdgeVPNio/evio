@@ -116,11 +116,11 @@ class OvsBridge(BridgeABC):
             self.cm.log("LOG_WARNING",
                         "The following error occurred while setting MTU for OVS bridge: %s", e)
 
-        if sw_proto.casefold() == "STP".casefold():
+        if sw_proto is not None and sw_proto.casefold() == "STP".casefold():
             self.stp(True)
-        elif sw_proto.casefold() == "BF".casefold():
+        elif sw_proto is not None and sw_proto.casefold() == "BF".casefold():
             self.add_sdn_ctrl(sdn_ctrl_port)
-        elif sw_proto != None:
+        elif sw_proto is not None:
             raise RuntimeError(
                 f"Invalid switch protocol \'{sw_proto}\' specified for bridge {name}.")
         Modlib.runshell([OvsBridge.iptool, "link",
@@ -599,7 +599,7 @@ class BridgeController(ControllerModule):
         end_i = 15 - len(name_prefix)
         name = name_prefix[:3] + olid[:end_i]
         gbr = BridgeFactory(olid, abr_cfg.get(
-            "BridgeProvider", BridgeProvider), None, self, abr_cfg)
+            "BridgeProvider", BridgeProvider), None, self, **abr_cfg)
 
         gbr.add_patch_port(self._ovl_net[olid].get_patch_port_name())
         self._ovl_net[olid].add_patch_port(gbr.get_patch_port_name())

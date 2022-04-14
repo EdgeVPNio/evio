@@ -46,7 +46,7 @@ class Logger(ControllerModule):
         level = getattr(logging, self.config.get("LogLevel", LogLevel))
 
         # If the Logging is set to Console by the User
-        if self.config["Device"] == "Console":
+        if self.config.get("Device", Device) == "Console":
             # Console logging
             logging.basicConfig(format="[%(asctime)s.%(msecs)03d] %(levelname)s: %(message)s",
                                 datefmt="%H:%M:%S",
@@ -54,7 +54,7 @@ class Logger(ControllerModule):
             self._logger = logging.getLogger()
 
         # If the Logging is set to File by the User
-        elif self.config["Device"] == "File":
+        elif self.config.get("Device", Device) == "File":
             # Extracts the filepath else sets logs to current working directory
             filepath = self.config.get("Directory", Directory)
             fqname = os.path.join(filepath,
