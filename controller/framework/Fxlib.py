@@ -70,3 +70,9 @@ def gen_ip6(uid, ip6=None):
     for i in range(0, 16, 4):
         ip6 += ":" + uid[i:i + 4]
     return ip6
+
+def inject_fault(frequency=0, fault_type=RuntimeWarning):
+    pass
+    # Todo: WIP
+    # if frequency == 3:
+    #         raise fault_type("Contrived fault")

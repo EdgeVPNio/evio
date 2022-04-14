@@ -29,6 +29,7 @@ import time
 import importlib
 import uuid
 import framework.Fxlib as fxlib
+from .CBT import CBT
 from .CFxHandle import CFxHandle
 from .CFxSubscription import CFxSubscription
 
@@ -49,10 +50,13 @@ class CFX():
         self._node_id = self._set_node_id()
         self._load_order = []
 
-    def submit_cbt(self, cbt):
+    def submit_cbt(self, cbt: CBT):
         recipient = cbt.request.recipient
+        initiator = cbt.request.initiator
         if cbt.op_type == "Response":
             recipient = cbt.response.recipient
+            initiator = cbt.response.initiator
+        self.inject_fault(initiator)
         self._cfx_handle_dict[recipient]._cm_queue.put(cbt)
 
     def initialize(self,):
@@ -297,17 +301,13 @@ class CFX():
         return [*self._subscriptions]
 
     def get_available_subscriptions(self, publisher_name)->list:
-        # sub_names = []
-        # for sub in self._subscriptions[publisher_name]:
-        #     sub_names.append(sub._subscription_name)
-        # return sub_names
         return [s._subscription_name for s in self._subscriptions[publisher_name]]
 
     # Caller is the subscription sink
-    def start_subscription(self, publisher_name, subscription_name, Sink):
+    def start_subscription(self, publisher_name, subscription_name, sink):
         sub = self.find_subscription(publisher_name, subscription_name)
         if sub is not None:
-            sub.add_subscriber(Sink)
+            sub.add_subscriber(sink)
         else:
             raise NameError("The specified subscription name was not found")
 
@@ -316,6 +316,11 @@ class CFX():
         if sub is not None:
             sub.remove_subscriber(sink)
 
+    def inject_fault(self, module_name):
+        if "InjectFaults" not in self._config["CFx"]:
+            return
+        if module_name in self._config["CFx"]["InjectFaults"]:
+            fxlib.inject_fault(frequency=self._config["CFx"]["InjectFaults"][module_name])
 
 if __name__ == "__main__":
     cf = CFX()
