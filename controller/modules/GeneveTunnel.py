@@ -139,6 +139,27 @@ class GeneveTunnel(ControllerModule):
         # get link info of our tunnel, parse it to extract data
         eth = self.ipr.link("get", index=self.ipr.link_lookup(ifname=tap_name)[0])
         state = eth[0]['state']
+        oper_state = eth[0]['attrs'][2][1]
+        if state=="up" and oper_state in ['UP', 'UNKNOWN']:
+            return True # Connected
+        return False # Disconnected
+
+    def _is_tunnel_connected_async(self, tap_name):
+        eth = self.ipr.link("get", index=self.ipr.link_lookup(ifname=tap_name)[0])
+        oper_state = eth[0]['attrs'][2][1]
+        if oper_state == 'UP':
+            return True
+        if oper_state == 'UNKNOWN':
+            self.ipr.bind()
+            for message in self.ipr.get():
+                state = message['state']
+                oper_state = message['attrs'][2][1]
+                if state=="up" and oper_state in ['UP']:
+                    return True # Connected
+                return False # Disconnected
+            self.ipr.close()
+        if oper_state == 'DOWN':
+            return False
 
     def req_handler_auth_tunnel(self, cbt):
         olid = cbt.request.params["OverlayId"]
@@ -232,7 +253,6 @@ class GeneveTunnel(ControllerModule):
             tap_name = self.get_tap_name(peer_id, olid)
             self._create_geneve_tunnel(tap_name, vnid, endpnt_address)
             self.logger.info("Inside req_handler_exchnge_endpt")
-            self._is_tunnel_connected(tap_name)
             msg = {"EndPointAddress": self.config["Overlays"][olid]["EndPointAddress"],
                    "VNId": vnid, "NodeId": self.node_id}
             cbt.set_response(msg, True)
@@ -300,7 +320,11 @@ class GeneveTunnel(ControllerModule):
                     return
                 self._create_geneve_tunnel(tap_name, vnid, endpnt_address)
                 self.logger.info("Inside resp_handler_remote_action")
-                self._is_tunnel_connected(tap_name)
+                if not self._is_tunnel_connected(tap_name):
+                    self._is_tunnel_connected_async(tap_name)
+                else:
+                    # send message to bridge controller
+                    pass
                 self.free_cbt(cbt)
                 parent_cbt.set_response("Geneve tunnel created", True)
                 self.complete_cbt(parent_cbt)
