@@ -102,10 +102,11 @@ class LinkManager(ControllerModule):
         self._link_updates_publisher = \
             self.publish_subscription("LNK_TUNNEL_EVENTS")
         publishers = self.get_registered_publishers()
-        if "TincanInterface" in publishers and "TCI_TINCAN_MSG_NOTIFY" in self.get_available_subscriptions("TincanInterface"):
-            self.start_subscription("TincanInterface","TCI_TINCAN_MSG_NOTIFY")
+        self.start_subscription("TincanInterface","TCI_TINCAN_MSG_NOTIFY")
         if "OverlayVisualizer" in publishers and "VIS_DATA_REQ" in self.get_available_subscriptions("OverlayVisualizer"):
             self.start_subscription("OverlayVisualizer", "VIS_DATA_REQ")
+        else:
+            self.logger.info("Overlay visualizer capability unavailable")
 
         for olid in self.config["Overlays"]:
             self._peers[olid] = dict()
@@ -173,35 +174,35 @@ class LinkManager(ControllerModule):
             cbt.set_response("Tunnel busy, retry operation", False)
             self.complete_cbt(cbt)
 
-    def req_handler_remove_link(self, cbt):
-        """Remove the link given either the overlay id and peer id, or the link id or tunnel id"""
-        # not currently being used
-        olid = cbt.request.params.get("OverlayId", None)
-        peer_id = cbt.request.params.get("PeerId", None)
-        lnkid = cbt.request.params.get("LinkId", None)
-        tnlid = cbt.request.params.get("TunnelId", None)
-        if olid is not None and peer_id is not None:
-            tnlid = self._peers[olid][peer_id]
-            lnkid = self.link_id(tnlid)
-        elif tnlid is not None:
-            olid = self._tunnels[tnlid].overlay_id
-            lnkid = self.link_id(tnlid)
-        elif lnkid is not None:
-            tnlid = self.tunnel_id(lnkid)
-            olid = self._tunnels[tnlid].overlay_id
-        else:
-            cbt.set_response("Insufficient parameters", False)
-            self.complete_cbt(cbt)
-            return
+    # def req_handler_remove_link(self, cbt):
+    #     """Remove the link given either the overlay id and peer id, or the link id or tunnel id"""
+    #     # not currently being used
+    #     olid = cbt.request.params.get("OverlayId", None)
+    #     peer_id = cbt.request.params.get("PeerId", None)
+    #     lnkid = cbt.request.params.get("LinkId", None)
+    #     tnlid = cbt.request.params.get("TunnelId", None)
+    #     if olid is not None and peer_id is not None:
+    #         tnlid = self._peers[olid][peer_id]
+    #         lnkid = self.link_id(tnlid)
+    #     elif tnlid is not None:
+    #         olid = self._tunnels[tnlid].overlay_id
+    #         lnkid = self.link_id(tnlid)
+    #     elif lnkid is not None:
+    #         tnlid = self.tunnel_id(lnkid)
+    #         olid = self._tunnels[tnlid].overlay_id
+    #     else:
+    #         cbt.set_response("Insufficient parameters", False)
+    #         self.complete_cbt(cbt)
+    #         return
 
-        if self._tunnels[tnlid].tunnel_state == TunnelStates.ONLINE or \
-                self._tunnels[tnlid].tunnel_state == TunnelStates.OFFLINE:
-            params = {"OverlayId": olid, "TunnelId": tnlid,
-                      "LinkId": lnkid, "PeerId": peer_id}
-            self.register_cbt("TincanInterface", "TCI_REMOVE_LINK", params)
-        else:
-            cbt.set_response("Tunnel busy, retry operation", False)
-            self.complete_cbt(cbt)
+    #     if self._tunnels[tnlid].tunnel_state == TunnelStates.ONLINE or \
+    #             self._tunnels[tnlid].tunnel_state == TunnelStates.OFFLINE:
+    #         params = {"OverlayId": olid, "TunnelId": tnlid,
+    #                   "LinkId": lnkid, "PeerId": peer_id}
+    #         self.register_cbt("TincanInterface", "TCI_REMOVE_LINK", params)
+    #     else:
+    #         cbt.set_response("Tunnel busy, retry operation", False)
+    #         self.complete_cbt(cbt)
 
     def _update_tunnel_descriptor(self, tnl_desc, tnlid):
         """
@@ -263,19 +264,13 @@ class LinkManager(ControllerModule):
                                 "TapName": tnl.tap_name}
                             self._link_updates_publisher.post_update(param)
                         else:
-                            tnl.link.status_retry = retry + 1
-                           # issue a link state check
-                            self.log(
-                                "LOG_DEBUG", "Link %s is offline, attempting to verify.", tnlid)
-                            self._tunnels[tnlid].tunnel_state = TunnelStates.QUERYING
-                            self.register_cbt(
-                                "TincanInterface", "TCI_QUERY_LINK_STATS", [tnlid])
+                            self.logger.warning("Link %s is offline, no further attempts to to query its stats will be made.", tnlid)
                     elif data[tnlid][lnkid]["Status"] == "ONLINE":
                         tnl.tunnel_state = TunnelStates.ONLINE
                         tnl.link.stats = data[tnlid][lnkid]["Stats"]
                         tnl.link.status_retry = 0
                     else:
-                        self.log("LOG_WARNING", "Unrecognized tunnel state ",
+                        self.logger.warning("Unrecognized tunnel state ",
                                  "%s:%s", lnkid, data[tnlid][lnkid]["Status"])
         self.free_cbt(cbt)
 
@@ -341,26 +336,26 @@ class LinkManager(ControllerModule):
         self.log("LOG_INFO", "Tunnel %s removed: %s:%s<->%s",
                  tnlid[:7], olid[:7], self.node_id[:7], peer_id[:7])
 
-    def resp_handler_remove_link(self, rmv_tnl_cbt):
-        parent_cbt = rmv_tnl_cbt.parent
-        tnlid = rmv_tnl_cbt.request.params["TunnelId"]
-        lnkid = self.link_id(tnlid)
-        peer_id = rmv_tnl_cbt.request.params["PeerId"]
-        olid = rmv_tnl_cbt.request.params["OverlayId"]
-        # Notify subscribers of link removal
-        param = {
-            "UpdateType": TunnelEvents.Removed, "OverlayId": olid, "TunnelId": tnlid, "LinkId": lnkid,
-            "PeerId": peer_id}
-        if self._tunnels[tnlid].tap_name:
-            param["TapName"] = self._tunnels[tnlid].tap_name
-        self._link_updates_publisher.post_update(param)
-        self._remove_link_from_tunnel(tnlid)
-        self.free_cbt(rmv_tnl_cbt)
-        if parent_cbt:
-            parent_cbt.set_response("Link removed", True)
-            self.complete_cbt(parent_cbt)
-        self.log("LOG_INFO", "Link %s from Tunnel %s removed: %s:%s<->%s",
-                 lnkid[:7], tnlid[:7], olid[:7], self.node_id[:7], peer_id[:7])
+    # def resp_handler_remove_link(self, rmv_tnl_cbt):
+    #     parent_cbt = rmv_tnl_cbt.parent
+    #     tnlid = rmv_tnl_cbt.request.params["TunnelId"]
+    #     lnkid = self.link_id(tnlid)
+    #     peer_id = rmv_tnl_cbt.request.params["PeerId"]
+    #     olid = rmv_tnl_cbt.request.params["OverlayId"]
+    #     # Notify subscribers of link removal
+    #     param = {
+    #         "UpdateType": TunnelEvents.Removed, "OverlayId": olid, "TunnelId": tnlid, "LinkId": lnkid,
+    #         "PeerId": peer_id}
+    #     if self._tunnels[tnlid].tap_name:
+    #         param["TapName"] = self._tunnels[tnlid].tap_name
+    #     self._link_updates_publisher.post_update(param)
+    #     self._remove_link_from_tunnel(tnlid)
+    #     self.free_cbt(rmv_tnl_cbt)
+    #     if parent_cbt:
+    #         parent_cbt.set_response("Link removed", True)
+    #         self.complete_cbt(parent_cbt)
+    #     self.log("LOG_INFO", "Link %s from Tunnel %s removed: %s:%s<->%s",
+    #              lnkid[:7], tnlid[:7], olid[:7], self.node_id[:7], peer_id[:7])
 
     def req_handler_query_tunnels_info(self, cbt):
         results = {}
@@ -530,7 +525,7 @@ class LinkManager(ControllerModule):
                 self.submit_cbt(endp_cbt)
             else:
                 # Link already exists, TM should clean up first
-                cbt.set_response("A link already exist or is being created for "
+                cbt.set_response("Failed, duplicate link requested to "
                                  "overlay id: {0} peer id: {1}"
                                  .format(olid, peer_id), False)
                 self.complete_cbt(cbt)
@@ -551,7 +546,7 @@ class LinkManager(ControllerModule):
         self._create_tunnel(params, parent_cbt=cbt)
 
     def resp_handler_create_tunnel(self, cbt):
-        # Create Link: Phase 2 Node A
+        # Create Tunnel: Phase 2 Node A
         parent_cbt = cbt.parent
         lnkid = cbt.request.params["LinkId"]
         tnlid = cbt.request.params["TunnelId"]
@@ -560,12 +555,11 @@ class LinkManager(ControllerModule):
         resp_data = cbt.response.data
         if not cbt.response.status:
             self._deauth_tnl(self._tunnels[tnlid])
-            # self._cleanup_removed_tunnel(lnkid)
             self.free_cbt(cbt)
-            parent_cbt.set_response(resp_data, False)
+            parent_cbt.set_response("Failed to create tunnel", False)
             self.complete_cbt(parent_cbt)
             self.logger.warning("The create tunnel operation failed:%s",
-                             parent_cbt.response.data)
+                                resp_data)
             return
         # transistion connection connection state
         self._tunnels[tnlid].link.creation_state = 0xA2
@@ -656,7 +650,7 @@ class LinkManager(ControllerModule):
             if parent_cbt.child_count == 1:
                 self.complete_cbt(parent_cbt)
             self.logger.warning(
-                "Create link endpoint failed :%s", cbt.response.data)
+                "Failed to create link endpoint: %s", cbt.response.data)
             self._rollback_link_creation_changes(tnlid)
             return
         self.logger.debug(
@@ -898,9 +892,6 @@ class LinkManager(ControllerModule):
                 elif lnk_status == TunnelStates.QUERYING:
                     # Do not post a notification if the the connection state was being queried
                     self._tunnels[tnlid].link.status_retry = 0
-                # if the lnk_status is TNL_OFFLINE the recconect event came in too late and the
-                # tear down has already been issued. This scenario is unlikely as the recheck time
-                # is long enough such that the webrtc reconnect attempts will have been abandoned.
             cbt.set_response(data=None, status=True)
         else:
             cbt.set_response(data=None, status=True)
@@ -927,8 +918,8 @@ class LinkManager(ControllerModule):
                 elif cbt.request.action == "LNK_REMOVE_TUNNEL":
                     self.req_handler_remove_tnl(cbt)
 
-                elif cbt.request.action == "LNK_REMOVE_LINK":
-                    self.req_handler_remove_link(cbt)
+                # elif cbt.request.action == "LNK_REMOVE_LINK":
+                #     self.req_handler_remove_link(cbt)
 
                 elif cbt.request.action == "LNK_QUERY_TUNNEL_INFO":
                     self.req_handler_query_tunnels_info(cbt)
@@ -1043,3 +1034,38 @@ class LinkManager(ControllerModule):
 
         cbt.set_response({"LinkManager": tnls}, bool(tnls))
         self.complete_cbt(cbt)
+"""
+###################################################################################################
+Link Manager state and event specifications
+###################################################################################################
+
+If LM fails a CBT there will be no further events fired for the tunnel.
+Once tunnel goes online an explicit CBT LNK_REMOVE_TUNNEL is required.
+Partially created tunnels that fails will be removed automatically by LM.
+
+Events
+(1) TunnelEvents.AuthExpired - After a successful completion of CBT LNK_AUTH_TUNNEL, the tunnel
+descriptor is created and TunnelEvents.Authorized is fired. 
+(2) TunnelEvents.AuthExpired - If no action is taken on the tunnel within LinkSetupTimeout LM will
+fire TunnelEvents.AuthExpired and remove the associated tunnel descriptor.
+(3) TunnelEvents.Created - On both nodes A & B, on a successful completion of CBT TCI_CREATE_TUNNEL,
+the TAP device exists and TunnelEvents.Created is fired.
+(4) TunnelEvents.Connected - After Tincan delivers the online event to LM TunnelEvents.Connected
+is fired.
+(5) TunnelEvents.Disconnected - After Tincan signals link offline or QUERYy_LNK_STATUS discovers
+offline TunnelEvents.Disconnected is fired.
+(6) TunnelEvents.Removed - After the TAP device is removed TunnelEvents.Removed is fired and the
+tunnel descriptor is removed. Tunnel must be in TunnelStates.ONLINE or TunnelStates.OFFLINE
+
+ Internal States
+(1) TunnelStates.AUTHORIZED - After a successful completion of CBT LNK_AUTH_TUNNEL, the tunnel
+descriptor exists.
+(2) TunnelStates.CREATING - entered on reception of CBT LNK_CREATE_TUNNEL.
+(3) TunnelStates.QUERYING - entered before issuing CBT TCI_QUERY_LINK_STATS. Happens when 
+LinkStateChange is LINK_STATE_DOWN and state is not already TunnelStates.QUERYING; OR 
+TCI_QUERY_LINK_STATS is OFFLINE and state is not already TunnelStates.QUERYING.
+(4) TunnelStates.ONLINE - entered when CBT TCI_QUERY_LINK_STATS is ONLINE or LinkStateChange is
+LINK_STATE_UP.
+(5) TunnelStates.OFFLINE - entered when QUERY_LNK_STATUS is OFFLINE or LinkStateChange is
+LINK_STATE_DOWN event.
+"""
