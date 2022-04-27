@@ -362,9 +362,10 @@ class Topology(ControllerModule, CFX):
                 self._process_next_transition(ovl)
             elif ce is not None and ce.edge_state == EdgeStates.Disconnected:  # the peer disconnected
                 ce.edge_state = EdgeStates.Deleting
-            # else:  # already handled the failed attempt to create the tunnel
+            else:
+                self.logger.error("Tunnel event remove is unexpected for conn edge %s", ce)
         else:
-            self.logger.warning("Invalid UpdateType specified for event")
+            self.logger.warning("Invalid UpdateType specified for event %s", event)
         cbt.set_response(None, True)
         self.complete_cbt(cbt)
 
@@ -583,6 +584,8 @@ class Topology(ControllerModule, CFX):
                         net_ovl, tns.conn_edge.peer_id)
                 elif tns.operation == OpType.Update:
                     suspend = self._update_edge(net_ovl, tns.conn_edge)
+                else:
+                    self.logger.error("Unexpected transition operation encountered %s", tns.operation)
                 net_ovl.transformation.pop()
 ###################################################################################################
 
