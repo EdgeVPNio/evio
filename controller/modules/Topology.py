@@ -475,6 +475,7 @@ class Topology(ControllerModule, CFX):
             ovl = self._net_ovls[olid]
             peer_id = rem_act.recipient_id
             del ovl.adjacency_list[peer_id]
+            ovl.known_peers[peer_id].exclude()
             ovl.release()
             self.free_cbt(cbt)
             self._process_next_transition(ovl)
