@@ -127,18 +127,18 @@ class XmppTransport(slixmpp.ClientXMPP):
         port = overlay_descr["Port"]
         user = overlay_descr.get("Username", None)
         pswd = overlay_descr.get("Password", None)
-        auth_method = overlay_descr.get("AuthenticationMethod", "Password")
-        if auth_method == "x509" and (user is not None or pswd is not None):
+        auth_method = overlay_descr.get("AuthenticationMethod", "PASSWORD").casefold()
+        if auth_method == "x509".casefold() and (user is not None or pswd is not None):
             er_log = "x509 Authentication is enbabled but credentials " \
                 "exists in evio configuration file; x509 will be used."
             cm_mod.log("LOG_WARNING", er_log)
-        if auth_method == "x509":
+        if auth_method == "x509".casefold():
             transport = XmppTransport(None, None, sasl_mech="EXTERNAL")
             transport.ssl_version = ssl.PROTOCOL_TLSv1
             transport.certfile = os.path.join(overlay_descr["CertDirectory"], overlay_descr["CertFile"])
             transport.keyfile = os.path.join(overlay_descr["CertDirectory"], overlay_descr["KeyFile"])
             transport._enable_ssl = True
-        elif auth_method == "PASSWORD":
+        elif auth_method == "PASSWORD".casefold():
             if user is None:
                 raise RuntimeError("No username is provided in evio configuration file.")
             if pswd is None and not keyring is None:
