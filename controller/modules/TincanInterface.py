@@ -111,7 +111,7 @@ class TincanInterface(ControllerModule):
         ctl = modlib.CTL_CONFIGURE_LOGGING
         ctl["EVIO"]["TransactionId"] = cbt.tag
         if not use_defaults:
-            ctl["EVIO"]["Request"] = log_cfg
+            ctl["EVIO"]["Request"].update(log_cfg)
         self._cfx_handle._pending_cbts[cbt.tag] = cbt
         self.send_control(json.dumps(ctl))
 
