@@ -19,7 +19,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-from collections import namedtuple
 from pyroute2 import IPRoute
 from pyroute2 import NDB
 from framework.Modlib import RemoteAction
@@ -109,6 +108,9 @@ class GeneveTunnel(ControllerModule):
                         kind="geneve",
                         geneve_id=vnid,
                         geneve_remote=remote_addr)
+            x = self.ipr.link_lookup(ifname=tap_name)[0]
+            # bring link up
+            self.ipr.link("set", index=x, state="up")
         except Exception as e:
             self.logger.warning("Failed to create Geneve tunnel %s, error code: %s",
                                 tap_name, str(e))
@@ -132,6 +134,32 @@ class GeneveTunnel(ControllerModule):
         if tun is not None and tun.state in (TunnelStates.AUTHORIZED, TunnelStates.ONLINE, TunnelStates.OFFLINE):
             return True
         return False
+    
+    def _is_tunnel_connected(self, tap_name):
+        # get link info of our tunnel, parse it to extract data
+        eth = self.ipr.link("get", index=self.ipr.link_lookup(ifname=tap_name)[0])
+        state = eth[0]['state']
+        oper_state = eth[0]['attrs'][2][1]
+        if state=="up" and oper_state in ['UP', 'UNKNOWN']:
+            return True # Connected
+        return False # Disconnected
+
+    def _is_tunnel_connected_async(self, tap_name):
+        eth = self.ipr.link("get", index=self.ipr.link_lookup(ifname=tap_name)[0])
+        oper_state = eth[0]['attrs'][2][1]
+        if oper_state == 'UP':
+            return True
+        if oper_state == 'UNKNOWN':
+            self.ipr.bind()
+            for message in self.ipr.get():
+                state = message['state']
+                oper_state = message['attrs'][2][1]
+                if state=="up" and oper_state in ['UP']:
+                    return True # Connected
+                return False # Disconnected
+            self.ipr.close()
+        if oper_state == 'DOWN':
+            return False
 
     def req_handler_auth_tunnel(self, cbt):
         olid = cbt.request.params["OverlayId"]
@@ -208,7 +236,13 @@ class GeneveTunnel(ControllerModule):
             cbt.set_response(msg, False)
             self.complete_cbt(cbt)
             return
-      
+        if vnid is None:
+            msg = str("The VNID is NULL. Tunnel cannot be created. "
+            "TunnelId={0}, PeerId={1}".format(tnlid, peer_id))
+            self.logger.warning(msg)
+            cbt.set_response(msg, False)
+            self.complete_cbt(cbt)
+            return
         # publish notification of link creation initiated
         event_param = {
             "UpdateType": TunnelEvents.Creating, "OverlayId": olid, "PeerId": peer_id,
@@ -218,6 +252,7 @@ class GeneveTunnel(ControllerModule):
         try:
             tap_name = self.get_tap_name(peer_id, olid)
             self._create_geneve_tunnel(tap_name, vnid, endpnt_address)
+            self.logger.info("Inside req_handler_exchnge_endpt")
             msg = {"EndPointAddress": self.config["Overlays"][olid]["EndPointAddress"],
                    "VNId": vnid, "NodeId": self.node_id}
             cbt.set_response(msg, True)
@@ -272,11 +307,24 @@ class GeneveTunnel(ControllerModule):
             if rem_act.action == "GNV_EXCHANGE_ENDPT":
                 olid = rem_act.overlay_id
                 peer_id = rem_act.data["NodeId"]
+                tnlid = cbt.request.params["TunnelId"]
                 vnid = rem_act.data["VNId"]
                 endpnt_address = rem_act.data["EndPointAddress"]
                 tap_name = self.get_tap_name(peer_id, olid)
-
+                if vnid is None:
+                    msg = str("The VNID is NULL. Tunnel cannot be created. "
+                    "TunnelId={0}, PeerId={1}".format(tnlid, peer_id))
+                    self.logger.warning(msg)
+                    parent_cbt.set_response(msg, False)
+                    self.complete_cbt(parent_cbt)
+                    return
                 self._create_geneve_tunnel(tap_name, vnid, endpnt_address)
+                self.logger.info("Inside resp_handler_remote_action")
+                if not self._is_tunnel_connected(tap_name):
+                    self._is_tunnel_connected_async(tap_name)
+                else:
+                    # send message to bridge controller
+                    pass
                 self.free_cbt(cbt)
                 parent_cbt.set_response("Geneve tunnel created", True)
                 self.complete_cbt(parent_cbt)
