@@ -195,7 +195,11 @@ class Topology(ControllerModule, CFX):
 
     def initialize(self):
         publishers = self.get_registered_publishers()
+        if "Signal" not in publishers or "SIG_PEER_PRESENCE_NOTIFY" not in self.get_available_subscriptions("Signal"):
+            raise RuntimeError("The Signal PEER PRESENCE subscription is not available. Topology cannot continue.")
         self.start_subscription("Signal", "SIG_PEER_PRESENCE_NOTIFY")
+        if "LinkManager" not in publishers or "LNK_TUNNEL_EVENTS" not in self.get_available_subscriptions("LinkManager"):
+            raise RuntimeError("The LinkManager TUNNEL EVENTS subscription is not available. Topology cannot continue.")
         self.start_subscription("LinkManager", "LNK_TUNNEL_EVENTS")
         if "GeneveTunnel" in publishers and "GNV_TUNNEL_EVENTS" in self.get_available_subscriptions("GeneveTunnel"):
             self.start_subscription("GeneveTunnel", "GNV_TUNNEL_EVENTS")

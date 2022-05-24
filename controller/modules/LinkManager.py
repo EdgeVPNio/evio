@@ -102,6 +102,8 @@ class LinkManager(ControllerModule):
         self._link_updates_publisher = \
             self.publish_subscription("LNK_TUNNEL_EVENTS")
         publishers = self.get_registered_publishers()
+        if "TincanInterface" not in publishers or "TCI_TINCAN_MSG_NOTIFY" not in self.get_available_subscriptions("TincanInterface"):
+            raise RuntimeError("The TincanInterface MESSAGE NOTIFY subscription is not available. Link Manager cannot continue.")
         self.start_subscription("TincanInterface","TCI_TINCAN_MSG_NOTIFY")
         if "OverlayVisualizer" in publishers and "VIS_DATA_REQ" in self.get_available_subscriptions("OverlayVisualizer"):
             self.start_subscription("OverlayVisualizer", "VIS_DATA_REQ")
