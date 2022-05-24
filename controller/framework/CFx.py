@@ -56,7 +56,6 @@ class CFX():
         if cbt.op_type == "Response":
             recipient = cbt.response.recipient
             initiator = cbt.response.initiator
-        self.inject_fault(initiator)
         self._cfx_handle_dict[recipient]._cm_queue.put(cbt)
 
     def initialize(self,):
@@ -316,11 +315,11 @@ class CFX():
         if sub is not None:
             sub.remove_subscriber(sink)
 
-    def inject_fault(self, module_name):
-        if "InjectFaults" not in self._config["CFx"]:
-            return
-        if module_name in self._config["CFx"]["InjectFaults"]:
-            fxlib.inject_fault(frequency=self._config["CFx"]["InjectFaults"][module_name])
+    # def inject_fault(self, module_name):
+    #     if "InjectFaults" not in self._config["CFx"]:
+    #         return
+    #     if module_name in self._config["CFx"]["InjectFaults"]:
+    #         fxlib.inject_fault(frequency=self._config["CFx"]["InjectFaults"][module_name])
 
 if __name__ == "__main__":
     cf = CFX()
