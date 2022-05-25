@@ -45,6 +45,7 @@ ProxyListenAddress = ""
 ProxyListenPort = 5802
 SDNControllerPort = 6633
 
+
 class BridgeABC():
     __metaclass__ = ABCMeta
 
@@ -343,9 +344,9 @@ class VNIC(BridgeABC):
 ###################################################################################################
 
 
-def get_evio_bridge_name(overlay_id, config):
+def get_evio_bridge_name(overlay_id, name_prefix):
     BR_NAME_MAX_LENGTH = 15
-    prefix = config.get("NamePrefix", NamePrefixEvi)[:3]
+    prefix = name_prefix[:3]
     end_i = BR_NAME_MAX_LENGTH - len(prefix)
     return prefix + overlay_id[:end_i]
 
@@ -359,7 +360,7 @@ def BridgeFactory(overlay_id, dev_type, sw_proto, cm, **config):
                   mtu=config.get("MTU", MTU),
                   cm=cm)
     elif dev_type == LinuxBridge.bridge_type:
-        br_name = get_evio_bridge_name(overlay_id, config)
+        br_name = get_evio_bridge_name(overlay_id, config["NamePrefix"])
         br = LinuxBridge(name=br_name,
                          ip_addr=config.get("IP4", None),
                          prefix_len=config.get("PrefixLen", None),
@@ -367,7 +368,7 @@ def BridgeFactory(overlay_id, dev_type, sw_proto, cm, **config):
                          cm=cm,
                          stp_enable=(True if sw_proto.casefold() == "stp".casefold() else False))
     elif dev_type == OvsBridge.bridge_type:
-        br_name = get_evio_bridge_name(overlay_id, config)
+        br_name = get_evio_bridge_name(overlay_id, config["NamePrefix"])
         br = OvsBridge(name=br_name,
                        ip_addr=config.get("IP4", None),
                        prefix_len=config.get("PrefixLen", None),
@@ -462,7 +463,8 @@ class BridgeController(ControllerModule):
             bf_config["NodeId"] = self.node_id
             bf_ovls = bf_config.pop("Overlays")
             for olid in bf_ovls:
-                br_name = get_evio_bridge_name(olid, self.overlays[olid]["NetDevice"])
+                br_name = get_evio_bridge_name(
+                    olid, self.overlays[olid]["NetDevice"].get("NamePrefix", NamePrefixEvi))
                 bf_config[br_name] = bf_ovls[olid]
                 bf_config[br_name]["OverlayId"] = olid
             time.sleep(1)
@@ -480,9 +482,13 @@ class BridgeController(ControllerModule):
             self._tunnels[olid] = TunnelsLog()
             br_cfg = self.overlays[olid]
             ign_br_names[olid] = set()
+            if "NamePrefix" not in br_cfg["NetDevice"]:
+                br_cfg["NetDevice"]["NamePrefix"] = NamePrefixEvi
             self._ovl_net[olid] = BridgeFactory(olid,
-                                                br_cfg["NetDevice"].get("BridgeProvider", BridgeProvider),
-                                                br_cfg["NetDevice"].get("SwitchProtocol", SwitchProtocol),
+                                                br_cfg["NetDevice"].get(
+                                                    "BridgeProvider", BridgeProvider),
+                                                br_cfg["NetDevice"].get(
+                                                    "SwitchProtocol", SwitchProtocol),
                                                 self, **br_cfg["NetDevice"])
             if "AppBridge" in br_cfg["NetDevice"]:
                 name = self._create_app_bridge(
@@ -596,16 +602,15 @@ class BridgeController(ControllerModule):
         self.complete_cbt(cbt)
 
     def _create_app_bridge(self, olid, abr_cfg):
-        name_prefix = abr_cfg.get("NamePrefix", NamePrefixAppBr)[:3]
-        end_i = 15 - len(name_prefix)
-        name = name_prefix[:3] + olid[:end_i]
+        if "NamePrefix" not in abr_cfg:
+            abr_cfg["NamePrefix"] = NamePrefixAppBr
         gbr = BridgeFactory(olid, abr_cfg.get(
             "BridgeProvider", BridgeProvider), None, self, **abr_cfg)
 
         gbr.add_patch_port(self._ovl_net[olid].get_patch_port_name())
         self._ovl_net[olid].add_patch_port(gbr.get_patch_port_name())
         self._appbr[olid] = gbr
-        return name
+        return self._appbr[olid].name
 
     def get_tunnels(self):
         resp = {}
