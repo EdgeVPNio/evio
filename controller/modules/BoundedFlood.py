@@ -65,7 +65,7 @@ FlowHardTimeout = 60
 MaxOnDemandEdges = 3
 TrafficAnalysisInterval = 10
 StateLoggingInterval = 60
-ExtendedLogging = False
+StateTracingEnabled = False
 ProxyListenAddress = ""
 ProxyListenPort = 5802
 BackupCount = 2
@@ -406,7 +406,7 @@ class EvioSwitch(MutableMapping):
                                      peer_hw_addr=tnl_data["PeerMac"],
                                      in_port=port.port_no, hop_count=1)
             self._port_tbl[port.port_no].peer_data = pd
-        self.logger.debug("Categorized port %s %s",
+        self.logger.info("Categorized port %s %s",
                           self.name, self._port_tbl[port.port_no])
 
     def add_port(self, ofpport):
@@ -712,7 +712,7 @@ class BoundedFlood(app_manager.RyuApp):
         self._ev_bh_update = Queue.Queue()
         hub.spawn(self.monitor_flow_traffic)
         hub.spawn(self.update_tunnels)
-        if self.config.get("ExtendedLogging", ExtendedLogging):
+        if self.config.get("StateTracingEnabled", StateTracingEnabled):
             hub.spawn(self.log_state)
         self.logger.info("BoundedFlood: Module loaded")
 
@@ -1245,7 +1245,7 @@ class BoundedFlood(app_manager.RyuApp):
                                           actions=acts, data=p.data, in_port=ofproto.OFPP_LOCAL)
             resp = datapath.send_msg(pkt_out)
             if resp:
-                self.logger.info("FRB local leaf transfer completed, %s/%s %s %s",
+                self.logger.debug("FRB local leaf transfer completed, %s/%s %s %s",
                                  self._lt[datapath.id].name, port_no, peer_id, payload)
             else:
                 self.logger.warning(
@@ -1324,7 +1324,7 @@ class BoundedFlood(app_manager.RyuApp):
         # perform bounded flood
         out_bounds = self._lt[dpid].get_flooding_bounds(
             frb_type, None, [in_port])
-        self.logger.info("Generated FRB(s)=%s/%s",
+        self.logger.debug("Generated FRB(s)=%s/%s",
                          self._lt[dpid].name, out_bounds)
         # fwd frame on every port wrapped with an FRB
         if out_bounds:
@@ -1433,7 +1433,7 @@ class TrafficAnalyzer():
                 continue
             if peer_sw.node_id not in self._ond and len(self._ond) < self._max_ond and \
                     stat.byte_count > self.demand_threshold:
-                self.logger.info(
+                self.logger.debug(
                     "Creating a request for OND edge to %s", peer_sw.node_id)
                 tunnel_reqs.append((peer_sw.node_id, "ADD"))
                 self._ond[peer_sw.node_id] = time.time()
@@ -1444,7 +1444,7 @@ class TrafficAnalyzer():
             if (time.time() - self._ond[rnid]) < self._min_tnl_age:
                 continue
             if rnid not in active_flows:
-                self.logger.info(
+                self.logger.debug(
                     "Creating requesting for removal of OND edge to %s", rnid)
                 tunnel_reqs.append((rnid, "REMOVE"))
                 remove_list.append(rnid)
