@@ -270,6 +270,11 @@ class Topology(ControllerModule, CFX):
         peer_id = peer["PeerId"]
         olid = peer["OverlayId"]
         disc = self._net_ovls[olid].known_peers.get(peer_id)
+        if disc and disc.is_available:
+            disc.presence()
+            cbt.set_response(None, True)
+            self.complete_cbt(cbt)
+            return            
         if not disc:
             disc = DiscoveredPeer(peer_id)
             self._net_ovls[olid].known_peers[peer_id] = disc
@@ -277,14 +282,16 @@ class Topology(ControllerModule, CFX):
         if disc.is_available:
             self._net_ovls[olid].new_peer_count += 1
             if self._net_ovls[olid].new_peer_count >= self.config.get("PeerDiscoveryCoalesce", PeerDiscoveryCoalesce):
-                self.logger.debug("Overlay %s - Coalesced %s new peer discovery, "
+                self.logger.debug("Overlay:%s new peer %s discovered - Coalesced %s of %s, "
                                   "attempting overlay update",
-                                  olid, self._net_ovls[olid].new_peer_count)
+                                  olid, peer_id, self._net_ovls[olid].new_peer_count,
+                                  self.config.get("PeerDiscoveryCoalesce", PeerDiscoveryCoalesce))
                 self._update_overlay(olid)
             else:
-                self.logger.info("Overlay %s, %s new peers discovered, "
+                self.logger.info("Overlay:%s, new peers %s discovered - Coalesced %s of %s, "
                                  "delaying overlay update",
-                                 olid, self._net_ovls[olid].new_peer_count)
+                                 olid, peer_id, self._net_ovls[olid].new_peer_count,
+                                 self.config.get("PeerDiscoveryCoalesce", PeerDiscoveryCoalesce))
         cbt.set_response(None, True)
         self.complete_cbt(cbt)
 
@@ -472,7 +479,7 @@ class Topology(ControllerModule, CFX):
 
     def resp_handler_remote_action(self, cbt):
         """ Role Node A, initiate edge creation on successful neogtiation """
-        if not cbt.response.status and type(cbt.response.data) == str:
+        if not cbt.response.status and (not cbt.response.data or type(cbt.response.data) == str):
             rem_act = RemoteAction.request(cbt)
             self.logger.info("The remote action timed out %s", cbt)
             olid = rem_act.overlay_id
@@ -509,11 +516,20 @@ class Topology(ControllerModule, CFX):
         ovl = self._net_ovls[olid]
         peer_id = params["PeerId"]
         if not cbt.response.status:
-            self.logger.warning("Failed to create topology edge to %s. %s",
+            ce = ovl.adjacency_list.get(peer_id)
+            if ce is None:
+                self.free_cbt(cbt)
+                return
+            if ce.edge_state == EdgeStates.Connected:
+                self.logger.warning("Response failed but tunnel to %s is connected - preserving tunnel. %s",
+                                    peer_id, cbt.response.data)
+            else:
+                self.logger.warning("Failed to create topology edge to %s. %s",
                                 peer_id, cbt.response.data)
-            ovl.known_peers[peer_id].exclude()
-            del ovl.adjacency_list[peer_id]
-            ovl.release()
+                ovl.known_peers[peer_id].exclude()
+                del ovl.adjacency_list[peer_id]
+                ovl.release()
+                self._process_next_transition(ovl)
         self.free_cbt(cbt)
 
     def resp_handler_remove_tnl(self, cbt):

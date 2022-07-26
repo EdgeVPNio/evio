@@ -165,7 +165,7 @@ class GraphBuilder():
             elif op == "REMOVE":
                 self._top.log("LOG_DEBUG", "Processing OND Removal, popping %s", peer_id)
                 ond.pop(peer_id, None)
-                if peer_id not in adj_list:
+                if peer_id not in transition_adj_list:
                     # only clear the task after the tunnel has been removed by NetworkBuilder
                     task_rmv.append(task)
         for peer_id in ond:

@@ -652,7 +652,8 @@ class LinkManager(ControllerModule):
             if parent_cbt.child_count == 1:
                 self.complete_cbt(parent_cbt)
             self.logger.warning(
-                "Failed to create link endpoint: %s", cbt.response.data)
+                "Failed to create connection endpoint for request link: %s. Response data= %s",
+                lnkid, cbt.response.data)
             self._rollback_link_creation_changes(tnlid)
             return
         self.logger.debug(
@@ -853,6 +854,9 @@ class LinkManager(ControllerModule):
         if not cbt.response.status:
             lnkid = cbt.request.params["params"]["LinkId"]
             tnlid = self.tunnel_id(lnkid)
+            self.logger.debug(
+                "The remote action requesting a connection endpoint link %s has failed",
+                tnlid)
             self._rollback_link_creation_changes(tnlid)
             self.free_cbt(cbt)
             parent_cbt.set_response(resp_data, False)
@@ -998,6 +1002,7 @@ class LinkManager(ControllerModule):
         for tnl in deauth:
             self._deauth_tnl(tnl)
         for tnlid in rollbk:
+            self.logger.debug("Removing expired link operation %s", tnlid)
             self._rollback_link_creation_changes(tnlid)
 
     def timer_method(self):
