@@ -80,8 +80,10 @@ class JidCache:
         jid = None
         with self._lck:
             entry = self._cache.get(node_id)
-            if entry:
+            if entry and (time.time() - entry[1] < self._expiry):
                 jid = entry[0]
+            elif entry:
+                del self._cache[node_id]
         return jid
 
 
@@ -173,17 +175,16 @@ class XmppTransport(slixmpp.ClientXMPP):
         return transport
 
     def handle_failed_auth_event(self, event):
-        emsg = "XMPP authentication failure. Verify credentials for overlay {} and restart EVIO".format(self._overlay_id)
-        self._sig.log("LOG_ERROR", emsg)
+        self._sig.logger.error("XMPP authentication failure. Verify credentials for overlay %s and restart EVIO", self._overlay_id)
 
     def handle_disconnect_event(self, reason):
-        self._sig.log("LOG_DEBUG", "XMPP disconnected event triggered, reason=%s. "
+        self._sig.logger.info("XMPP disconnected event triggered, reason=%s. "
                       "Stopping event loop", reason)
         self.loop.stop()
         
     def handle_start_event(self, event):
         """Registers custom event handlers at the start of XMPP session"""
-        self._sig.log("LOG_DEBUG", "XMPP Signalling started for overlay: %s",
+        self._sig.logger.info("XMPP Signalling started for overlay: %s",
                       self._overlay_id)
         try:
            # Register evio message with the server
@@ -198,7 +199,7 @@ class XmppTransport(slixmpp.ClientXMPP):
             self.send_presence(pstatus="ident#" + self._node_id)
             self._init_event.set()
         except Exception as err:
-            self._sig.log("LOG_ERROR", "XmppTransport: Exception:%s Event:%s", err, event)
+            self._sig.logger.error("XmppTransport: Exception:%s Event:%s", err, event)
 
     def handle_presence_event(self, presence):
         """
@@ -210,20 +211,20 @@ class XmppTransport(slixmpp.ClientXMPP):
             presence_receiver = str(presence_receiver_jid.user) + "@" \
                 + str(presence_receiver_jid.domain)
             status = presence["status"]
-            self._sig.log("LOG_DEBUG", "Presence recv - Overlay:%s Local JID:%s Msg:%s",
+            self._sig.logger.debug("Presence recv - Overlay:%s Local JID:%s Msg:%s",
                           self._overlay_id, self.boundjid, presence)
             if(presence_receiver == self.boundjid.bare and presence_sender != self.boundjid.full):
-                if (status != "" and "#" in status):
+                if (status and "#" in status):
                     pstatus, peer_id = status.split("#")
                     if pstatus == "ident":
-                        if peer_id == self._sig.config["NodeId"]:
+                        if peer_id == self._node_id:
                             return
-                        # a notification of a peers node id to jid mapping
+                        # a notification of a peer's node id to jid mapping
                         pts = self._jid_cache.add_entry(node_id=peer_id, jid=presence_sender)
                         self._presence_publisher.post_update(
                             dict(PeerId=peer_id, OverlayId=self._overlay_id,
                                  PresenceTimestamp=pts))
-                        self._sig.log("LOG_DEBUG", "Resolved %s@%s->%s", 
+                        self._sig.logger.debug("Resolved %s@%s->%s", 
                                       peer_id[:7], self._overlay_id, presence_sender)
                         payload = self.boundjid.full + "#" + self._node_id
                         self.send_msg(presence_sender, "announce", payload)
@@ -233,11 +234,10 @@ class XmppTransport(slixmpp.ClientXMPP):
                             payload = self.boundjid.full + "#" + self._node_id
                             self.send_msg(presence_sender, "uid!", payload)
                     else:
-                        self._sig.log("LOG_WARNING",
-                                      "Unrecognized PSTATUS:%s on overlay:%s",
+                        self._sig.logger.warning("Unrecognized PSTATUS:%s on overlay:%s",
                                       pstatus, self._overlay_id)
         except Exception as err:
-            self._sig.log("LOG_ERROR", "XmppTransport:Exception:%s overlay:%s presence:%s",
+            self._sig.logger.error("XmppTransport:Exception:%s overlay:%s presence:%s",
                           err, self._overlay_id, presence)
             
     def handle_message(self, msg):
@@ -254,20 +254,20 @@ class XmppTransport(slixmpp.ClientXMPP):
             msg_type = msg["evio"]["type"]
             msg_payload = msg["evio"]["payload"]
             if msg_type == "uid!":
-                match_jid, matched_uid = msg_payload.split("#")
+                match_jid, matched_nid = msg_payload.split("#")
                 # put the learned JID in cache
-                self._jid_cache.add_entry(matched_uid, match_jid)
+                self._jid_cache.add_entry(matched_nid, match_jid)
                 # send the remote actions that are waiting on JID refresh
-                rm_que = self._outgoing_rem_acts.get(matched_uid, Queue())
+                rm_que = self._outgoing_rem_acts.get(matched_nid, Queue())
                 while not rm_que.empty():
                     entry = rm_que.get()
                     msg_type, msg_data = entry[0], entry[1]
                     self.send_msg(match_jid, msg_type, json.dumps(msg_data))
-                    self._sig.log("LOG_DEBUG", "Sent buffered remote action: %s", msg_data)
+                    self._sig.logger.debug("Sent buffered remote action: %s", msg_data)
             elif msg_type == "announce":
                 peer_jid, peer_id = msg_payload.split("#")
-                if peer_id == self._sig.node_id:
-                    self._sig.log("LOG_INFO", "UID Announce msg returned to self msg=%s", msg)
+                if peer_id == self._node_id:
+                    self._sig.logger.info("UID Announce msg returned to self msg=%s", msg)
                     return
                 # a notification of a peers node id to jid mapping
                 pts = self._jid_cache.add_entry(node_id=peer_id, jid=peer_jid)
@@ -277,9 +277,9 @@ class XmppTransport(slixmpp.ClientXMPP):
                 rem_act = json.loads(msg_payload)
                 self._sig.handle_remote_action(self._overlay_id, rem_act, msg_type)
             else:
-                self._sig.log("LOG_WARNING", "Invalid message type received %s", str(msg))
+                self._sig.logger.warning("Invalid message type received %s", str(msg))
         except Exception as err:
-            self._sig.log("LOG_ERROR", "XmppTransport:Exception:%s msg:%s", err, msg)
+            self._sig.logger.error("XmppTransport:Exception:%s msg:%s", err, msg)
 
     def send_msg(self, peer_jid, msg_type, payload):
         """Send a message to Peer JID via XMPP server"""
@@ -300,7 +300,7 @@ class XmppTransport(slixmpp.ClientXMPP):
         try:
             res = socket.getaddrinfo(self._host, self._port, 0, socket.SOCK_STREAM)
         except socket.gaierror as err:
-                    self._sig.log("LOG_ERROR", "Check network failed, unable to retrieve address info for %s:%s.", self._host, self._port)
+                    self._sig.logger.error("Check network failed, unable to retrieve address info for %s:%s.", self._host, self._port)
         return bool(res)
 
     def run(self):
@@ -311,7 +311,7 @@ class XmppTransport(slixmpp.ClientXMPP):
         try:
             self.connect(address=(self._host, int(self._port)))
             self.process(forever=True)
-            self._sig.log("LOG_DEBUG", "Attempting graceful shutdown of XMPP overlay=%s", self._overlay_id)
+            self._sig.logger.debug("Attempting graceful shutdown of XMPP overlay=%s", self._overlay_id)
             # Do not show `asyncio.CancelledError` exceptions during shutdown
             def shutdown_exception_handler(loop, context):
                 if "exception" not in context \
@@ -326,11 +326,11 @@ class XmppTransport(slixmpp.ClientXMPP):
             while not tasks.done() and not self.loop.is_closed():
                 self.loop.run_forever() 
         except Exception as err:
-            self._sig.log("LOG_ERROR", "XMPPTransport run exception %s", str(err))           
+            self._sig.logger.error("XMPPTransport run exception %s", str(err))           
         finally:
             self.loop.run_until_complete(self.loop.shutdown_asyncgens())
             self.loop.close()
-            self._sig.log("LOG_DEBUG", "Event loop closed on XMPP overlay=%s", self._overlay_id)
+            self._sig.logger.debug("Event loop closed on XMPP overlay=%s", self._overlay_id)
 
     def shutdown(self,):
         self.loop.call_soon_threadsafe(self.disconnect(reason="controller shutdown"))        
@@ -359,6 +359,8 @@ class Signal(ControllerModule):
                                       self._circles[overlay_id]["JidCache"],
                                       self._circles[overlay_id]["OutgoingRemoteActs"])
         self._circles[overlay_id]["Transport"] = xport
+        # waiting to release the lock here prevents other threads from attempting to use the transport object before its has been created.
+        self._lock.release() 
         xport.run()
 
     def _setup_circle(self, overlay_id):
@@ -374,6 +376,7 @@ class Signal(ControllerModule):
 
     def initialize(self):
         self._presence_publisher = self.publish_subscription("SIG_PEER_PRESENCE_NOTIFY")
+        self._lock.acquire()
         for overlay_id in self.overlays:
             self._setup_circle(overlay_id)
         self.log("LOG_INFO", "Module loaded")
@@ -508,6 +511,9 @@ class Signal(ControllerModule):
     def timer_method(self):
         with self._lock:
             for overlay_id in self._circles:
+                if "Transport" not in self._circles[overlay_id]: 
+                    self.logger.warning("Transport not yet available")
+                    continue
                 self._circles[overlay_id]["Transport"].wait_until_initialized()
                 if not self._circles[overlay_id]["Transport"].is_connected():
                     self.log("LOG_WARNING", "ThreadId=%d, OverlayID %s is disconnected; "
