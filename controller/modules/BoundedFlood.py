@@ -62,6 +62,7 @@ LogLevel = "INFO"
 DemandThreshold = "10M"
 FlowIdleTimeout = 60
 FlowHardTimeout = 60
+LinkCheckInterval = 3
 MaxOnDemandEdges = 3
 TrafficAnalysisInterval = 10
 StateLoggingInterval = 60
@@ -75,9 +76,14 @@ BF_COUNTER_DIGEST = hashlib.sha256("".encode("utf-8")).hexdigest()
 BF_STATE_DIGEST = hashlib.sha256("".encode("utf-8")).hexdigest()
 INTERNAL_PORT_NUM = 4294967294
 KNOWN_LEAF_PORTS = {INTERNAL_PORT_NUM, 1}
-TUNNEL_TYPES = namedtuple("TUNNEL_TYPES",
+NODE_TYPES = namedtuple("NODE_TYPES",
                           ["UNKNOWN", "LEAF", "EVIO_LEAF", "PEER"],
-                          defaults=["TNL_TYPE_UNKNOWN", "TNL_TYPE_LEAF", "TNL_TYPE_EVIO_LEAF", "TNL_TYPE_PEER"])
+                          defaults=["ND_TYPE_UNKNOWN", "ND_TYPE_LEAF", "ND_TYPE_EVIO_LEAF", "ND_TYPE_PEER"])
+NodeTypes = NODE_TYPES()
+
+TUNNEL_TYPES = namedtuple("TUNNEL_TYPES",
+                          ["UNKNOWN", "PATCH", "TINCAN", "GENEVE", "WIREGUARD"],
+                          defaults=["TNL_TYPE_UNKNOWN", "TNL_TYPE_PATCH", "TNL_TYPE_TINCAN", "TNL_TYPE_GENEVE", "TNL_TYPE_WIREGUARD"])
 TunnelTypes = TUNNEL_TYPES()
 
 OPCODE = namedtuple("OPCODE",
@@ -199,7 +205,6 @@ class PeerData():
 
 ###################################################################################################
 
-
 class PortDescriptor():
 
     def __init__(self, port_no: int, name: str, hw_addr: str):
@@ -207,12 +212,15 @@ class PortDescriptor():
         self.name = name                    # interface (TAP/NIC) name
         self.hw_addr = hw_addr              # local side tunnel MAC
         # is the remote device a peer switch or leaf
-        self.tnl_type = TunnelTypes.UNKNOWN
-        self.peer_data = None               # valid if TNL_TYPE_PEER
-
+        self.rmt_nd_type = NodeTypes.UNKNOWN
+        self.peer_data = None               # valid if ND_TYPE_PEER
+        self._tnl_type = TunnelTypes.UNKNOWN
+        self.is_activated = False
+        self.last_active_time = 0
+        
     def __repr__(self):
         msg = {"port_no": self.port_no, "name": self.name, "hw_addr": self.hw_addr,
-               "tnl_type": self.tnl_type, "peer_data": self.peer_data.__dict__ if self.peer_data else None}
+               "rmt_nd_type": self.rmt_nd_type, "peer_data": self.peer_data.__dict__ if self.peer_data else None}
         return json.dumps(msg, default=lambda o: list(o) if isinstance(o, set) else o)
 
     def __str__(self):
@@ -232,11 +240,25 @@ class PortDescriptor():
 
     @property
     def is_peer(self):
-        return bool(self.tnl_type == TunnelTypes.PEER and self.peer_data is not None)
+        return bool(self.rmt_nd_type == NodeTypes.PEER and self.peer_data is not None)
 
     @property
     def is_categorized(self):
-        return bool(self.tnl_type != TunnelTypes.UNKNOWN)
+        return bool(self.rmt_nd_type != NodeTypes.UNKNOWN)
+
+    @property
+    def tnl_type(self):
+        return self._tnl_type
+    
+    @tnl_type.setter
+    def tnl_type(self, tech):
+        if tech == TunnelTypes.TINCAN:
+            self.is_activated = True
+        self._tnl_type = tech
+    
+    @property
+    def is_geneve_tunnel(self):
+        return self._tnl_type == TunnelTypes.GENEVE        
 ###################################################################################################
 
 
@@ -266,7 +288,8 @@ class EvioSwitch(MutableMapping):
         #self._lock = threading.RLock()
         self._max_hops = 0
         self._ond_ops = []
-
+        self._lnk_chk_interval = kwargs.get("LinkCheckInterval", LinkCheckInterval)
+        
     def __repr__(self):
         msg = {"EvioSwitch": {
             "overlay_id": self._overlay_id, "node_id": self._node_id,
@@ -371,10 +394,13 @@ class EvioSwitch(MutableMapping):
         # with self._lock:
         return bool(port_no in self._datapath.ports)
 
-    def is_port_ready(self, port_no) -> bool:
+    def is_port_categorized(self, port_no) -> bool:
         # with self._lock:
         return bool(self._port_tbl[port_no].is_categorized)
 
+    def is_port_activated(self, port_no) -> bool:
+        return  self._port_tbl[port_no].is_activated
+    
     def is_update_pending(self) -> bool:
         with self._lock:
             return bool(self._uncategorized_ports)
@@ -389,26 +415,33 @@ class EvioSwitch(MutableMapping):
             pd = PortDescriptor(
                 port_no, prt.name.decode("utf-8"), prt.hw_addr)
             if port_no == INTERNAL_PORT_NUM:
-                pd.tnl_type = TunnelTypes.LEAF
+                pd.rmt_nd_type = NodeTypes.LEAF
+                pd.tnl_type = TunnelTypes.PATCH
             else:
                 self._uncategorized_ports.add(pd)
             self._port_tbl[port_no] = pd
 
-    def _categorize_port(self,  port, tnl_type, tnl_data=None):
+    def _categorize_port(self,  port, rmt_nd_type, tnl_data=None):
         """
         Categorize a port in the local switch by setting the tunnel type,
         and optionally creating the PeerData entry in the peer table and port descriptor.
         """
-        port.tnl_type = tnl_type
+        port.rmt_nd_type = rmt_nd_type
         self._port_tbl[port.port_no] = port
         if tnl_data:
+            port.tnl_type = tnl_data["TunnelType"]
             pd = self._register_peer(peer_id=tnl_data["PeerId"],
                                      peer_hw_addr=tnl_data["PeerMac"],
                                      in_port=port.port_no, hop_count=1)
             self._port_tbl[port.port_no].peer_data = pd
+        else:
+            port.tnl_type = TunnelTypes.PATCH
         self.logger.info("Categorized port %s %s",
                           self.name, self._port_tbl[port.port_no])
 
+    def activate_port(self, port_no):
+        self._port_tbl[port_no].is_activated = True
+        
     def add_port(self, ofpport):
         port = PortDescriptor(
             ofpport.port_no, ofpport.name.decode("utf-8"), ofpport.hw_addr)
@@ -424,13 +457,13 @@ class EvioSwitch(MutableMapping):
         if port:
             self.logger.debug("Removed %s:%s from _port_tbl",
                               self.name, port)
-            if port.tnl_type == "TNL_TYPE_PEER":
+            if port.rmt_nd_type == "ND_TYPE_PEER":
                 self._deregister_peer(port.peer_data.node_id)
                 self._link_prts.remove(port_no)
                 for mac in port.peer_data.leaf_macs:
                     self._ingress_tbl.pop(mac, None)
                     self._root_sw_tbl.pop(mac, None)
-            elif port.tnl_type == "TNL_TYPE_LEAF":
+            elif port.rmt_nd_type == "ND_TYPE_LEAF":
                 self._leaf_prts.remove(port_no)
             tbr = []  # build a list of all mac that ingress via this port
             for mac_key, port_val in self._ingress_tbl.items():
@@ -457,11 +490,11 @@ class EvioSwitch(MutableMapping):
             for port in uncat:
                 if port.name in tnl_data["snapshot"]:
                     self._categorize_port(
-                        port, "TNL_TYPE_PEER", tnl_data["snapshot"][port.name])
+                        port, "ND_TYPE_PEER", tnl_data["snapshot"][port.name])
                     self._link_prts.add(port.port_no)
                     updated.append(port)
                 elif port.port_no in KNOWN_LEAF_PORTS:
-                    self._categorize_port(port, "TNL_TYPE_LEAF")
+                    self._categorize_port(port, "ND_TYPE_LEAF")
                     self._leaf_prts.add(port.port_no)
                     updated.append(port)
                 else:
@@ -604,11 +637,11 @@ class EvioSwitch(MutableMapping):
                 frb_hdr = FloodRouteBound(root_nid, bound_nid, hops, frb_type)
                 if frb_hdr:
                     prtno = self.port_no(peer1)
-                    if prtno and prtno not in exclude_ports:
-                        out_bounds.append((prtno, frb_hdr))
+                    # if prtno and prtno not in exclude_ports:
+                    out_bounds.append((prtno, frb_hdr))
             else:
                 if prev_frb.bound_nid == my_nid:
-                    self.logger.warning("This frb should not have reached this node ny_nid={0} prev_frb={1}"
+                    self.logger.warning("This frb should not have reached this node my_nid={0} prev_frb={1}"
                                         .format(my_nid, prev_frb))
                     return out_bounds
                 hops = prev_frb.hop_count + 1
@@ -811,17 +844,20 @@ class BoundedFlood(app_manager.RyuApp):
         pkt = packet.Packet(msg.data)
         eth = pkt.protocols[0]
         dpid = msg.datapath.id
+        port: PortDescriptor = self._lt[dpid].port_descriptor(in_port)
         try:
             if self.logger.isEnabledFor(logging.DEBUG):
                 self.logger.debug(f"packet_in[{in_port}]<=={pkt}")
 
             if not self._lt[dpid].is_valid_port(in_port):
-                self.logger.warning(
-                    f"On removed port:{self._lt[dpid].name}/{in_port} bufferd frame: {pkt}")
+                if self.logger.isEnabledFor(logging.DEBUG):
+                    self.logger.warning(
+                        f"On removed port:{self._lt[dpid].name}/{in_port} bufferd frame: {pkt}")
                 return
-            if not self._lt[dpid].is_port_ready(in_port):
+            if not port.is_categorized:
                 self.logger.debug(f"Port {in_port} is not yet ready")
                 return
+            port.last_active_time = time.time()
             if eth.ethertype == FloodRouteBound.ETH_TYPE_BF:
                 self.handle_bounded_flood_msg(msg.datapath, pkt, in_port, msg)
             elif eth.dst in self._lt[dpid]:
@@ -887,9 +923,12 @@ class BoundedFlood(app_manager.RyuApp):
                                     tnl_data[op.olid])
                             for port in updated_prts:
                                 if port.is_peer:
-                                    self._update_port_flow_rules(self.dpset.dps[op.dpid],
-                                                                 port.peer.node_id,
-                                                                 port.port_no)
+                                    if port.tnl_type == TunnelTypes.TINCAN:
+                                        self._update_port_flow_rules(self.dpset.dps[op.dpid],
+                                                                    port.peer.node_id,
+                                                                    port.port_no)
+                                    else:
+                                        self.do_link_check(self.dpset.dps[op.dpid], port)
                     elif op.code == Opcode.OND_REQUEST:
                         self._request_ond_tnl_ops(op.olid, op.data)
                     self._ev_bh_update.task_done()
@@ -912,6 +951,24 @@ class BoundedFlood(app_manager.RyuApp):
                     "An exception occurred within log state")
                 hub.sleep(self._state_logging_interval)
 
+    def check_links(self):
+        """
+        A link check is performed every LNK_CHK_INTERVAL. Receiving a LNK_CHK or
+        LNK_ACK satifies the LNK_ACTIVE condition and resets the check interval
+        """
+        for dpid, sw in self._lt.items():
+            tunnel_ops = []
+            for port in sw:
+                if (port.is_geneve or port.is_wireguard):
+                    now = time.time()
+                    if port.last_active_time + 3 * LinkCheckInterval >= now:
+                        pass #send req to remove tunnel to peer
+                        tunnel_ops.append((port.peer.node_id, "REMOVE"))
+                    elif port.last_active_time + LinkCheckInterval >= now:
+                        self.do_link_check(self.dpset.dps[dpid], port)
+            if tunnel_ops:
+                self._ev_bh_update.put(
+                            EvioOp(Opcode.OND_REQUEST, dpid, sw.overlay_id, tunnel_ops))
     ##################################################################################
     ##################################################################################
 
@@ -1181,6 +1238,75 @@ class BoundedFlood(app_manager.RyuApp):
                 "Registering leaf mac %s/%s to peer %s", self._lt[dpid].name, macstr, rnid)
             self._lt[dpid].add_leaf_mac(rnid, macstr)
 
+    def do_link_check(self, datapath, port):
+        """
+        Send a query to an adjacent peer to test transport connectivity. Peer is expected acknowlege
+        sense request.        
+        """
+        sw: EvioSwitch = self._lt[datapath.id]
+        nid = sw.node_id
+        if port.is_peer:
+            port_no = port.port_no
+            peer_id = port.peer.node_id
+            peer_mac = port.peer.hw_addr
+            src_mac = port.peer.hw_addr
+
+            bf_hdr = FloodRouteBound(
+                nid, nid, 0, FloodRouteBound.FRB_LNK_CHK)
+            eth = ethernet.ethernet(dst=peer_mac, src=src_mac,
+                                    ethertype=FloodRouteBound.ETH_TYPE_BF)
+            p = packet.Packet()
+            p.add_protocol(eth)
+            p.add_protocol(bf_hdr)
+            p.serialize()
+            ofproto = datapath.ofproto
+            parser = datapath.ofproto_parser
+            acts = [parser.OFPActionOutput(port_no)]
+            pkt_out = parser.OFPPacketOut(datapath=datapath, buffer_id=ofproto.OFP_NO_BUFFER,
+                                          actions=acts, data=p.data, in_port=ofproto.OFPP_LOCAL)
+            resp = datapath.send_msg(pkt_out)
+            if resp:
+                self.logger.debug("Sent link activate, %s/%s %s",
+                                 self._lt[datapath.id].name, port_no, peer_id)
+            else:
+                self.logger.warning(
+                    "Failed to send link activate FRB, OFPPacketOut=%s", pkt_out)
+        else:
+            self.logger.info("Link CHK attempted but remote is not a peer")
+    
+    def _do_link_ack(self, datapath, port):
+
+        sw: EvioSwitch = self._lt[datapath.id]
+        nid = sw.node_id
+        if port.is_peer:
+            port_no = port.port_no
+            peer_id = port.peer.node_id
+            peer_mac = port.peer.hw_addr
+            src_mac = port.peer.hw_addr
+
+            bf_hdr = FloodRouteBound(
+                nid, nid, 0, FloodRouteBound.FRB_LNK_ACK)
+            eth = ethernet.ethernet(dst=peer_mac, src=src_mac,
+                                    ethertype=FloodRouteBound.ETH_TYPE_BF)
+            p = packet.Packet()
+            p.add_protocol(eth)
+            p.add_protocol(bf_hdr)
+            p.serialize()
+            ofproto = datapath.ofproto
+            parser = datapath.ofproto_parser
+            acts = [parser.OFPActionOutput(port_no)]
+            pkt_out = parser.OFPPacketOut(datapath=datapath, buffer_id=ofproto.OFP_NO_BUFFER,
+                                          actions=acts, data=p.data, in_port=ofproto.OFPP_LOCAL)
+            resp = datapath.send_msg(pkt_out)
+            if resp:
+                self.logger.debug("Sent link activate, %s/%s %s",
+                                 self._lt[datapath.id].name, port_no, peer_id)
+            else:
+                self.logger.warning(
+                    "Failed to send link activate FRB, OFPPacketOut=%s", pkt_out)
+        else:
+            self.logger.info("Link ACK attempted but remote is not a peer")
+    
     ###############################################################################################
     def do_bounded_flood(self, datapath, ingress, tx_bounds, src_mac, payload):
         """
@@ -1225,9 +1351,9 @@ class BoundedFlood(app_manager.RyuApp):
             if not port.is_peer:
                 continue
             port_no = port.port_no
-            peer_id = sw._port_tbl[port_no].peer_data.node_id
-            peer_mac = sw._port_tbl[port_no].peer_data.hw_addr
-            src_mac = sw._port_tbl[port_no].hw_addr
+            peer_id = port.peer.node_id
+            peer_mac = port.peer.hw_addr
+            src_mac = port.peer.hw_addr
 
             bf_hdr = FloodRouteBound(
                 nid, nid, 0, FloodRouteBound.FRB_LEAF_TX, offset//6)
@@ -1258,14 +1384,32 @@ class BoundedFlood(app_manager.RyuApp):
         parser = datapath.ofproto_parser
         rcvd_frb = pkt.protocols[1]
         payload = None
+        port: PortDescriptor
         if len(pkt.protocols) == 3:
             payload = pkt.protocols[2]
         if self._lt._node_id == rcvd_frb.root_nid:
             self.logger.warning(f"Discarded a FRB from self {rcvd_frb}")
             return
-        if rcvd_frb.frb_type != FloodRouteBound.FRB_BRDCST:
+        if rcvd_frb.frb_type not in (FloodRouteBound.FRB_BRDCST,
+                                     FloodRouteBound.FRB_LNK_CHK, FloodRouteBound.FRB_LNK_ACK):
             # discard these types
             self.logger.info(f"Discarded type {rcvd_frb.frb_type} FRB")
+            return
+        port = self._lt[dpid].port_descriptor(in_port)
+        if rcvd_frb.frb_type == FloodRouteBound.FRB_LNK_CHK:
+            self._do_link_ack()
+            if not port.is_activated:
+                port.is_activated = True
+                self._update_port_flow_rules(datapath,
+                                            port.peer.node_id,
+                                            in_port)
+            return
+        if rcvd_frb.frb_type == FloodRouteBound.FRB_LNK_ACK:
+            if not port.is_activated:
+                port.is_activated = True
+                self._update_port_flow_rules(datapath,
+                                            port.peer.node_id,
+                                            in_port)
             return
         self._lt[dpid][src] = (in_port, rcvd_frb.root_nid)
         self._lt[dpid].peer(
@@ -1351,7 +1495,9 @@ class FloodRouteBound(packet_base.PacketBase):
     FRB_BRDCST = 0
     FRB_LEAF_TX = 1
     FRB_FWD = 2
-
+    FRB_LNK_CHK = 3
+    FRB_LNK_ACK = 4
+    
     def __init__(self, root_nid, bound_nid, hop_count, frb_type=0, pl_count=0):
         super(FloodRouteBound, self).__init__()
         self.root_nid = root_nid

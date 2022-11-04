@@ -82,13 +82,13 @@ class GeneveTunnelTest(unittest.TestCase):
         self.tap_name = tap_name_prefix + str(peer_id[:end_i])
     
     def tearDown(self):
-        self.gen = None
         if self.gen._is_tunnel_exist(self.tap_name):
             try:
                 self.ipr.link("del", index=self.ipr.link_lookup(ifname=self.tap_name)[0])
             except:
                 pass
         self.ipr.close()
+        self.gen = None
 
     def test_req_handler_create_tunnel(self):
         self.gen.initialize()
