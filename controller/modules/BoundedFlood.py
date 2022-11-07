@@ -55,6 +55,7 @@ from ryu.lib import mac as mac_lib
 from ryu.topology import event
 from ryu.lib import addrconv
 from ryu.lib.packet import packet_utils
+from .Tunnel import DataplaneTypes
 
 LogDir = "/var/log/evio/"
 LogFilename = "bf.log"
@@ -80,11 +81,6 @@ NODE_TYPES = namedtuple("NODE_TYPES",
                           ["UNKNOWN", "LEAF", "EVIO_LEAF", "PEER"],
                           defaults=["ND_TYPE_UNKNOWN", "ND_TYPE_LEAF", "ND_TYPE_EVIO_LEAF", "ND_TYPE_PEER"])
 NodeTypes = NODE_TYPES()
-
-TUNNEL_TYPES = namedtuple("TUNNEL_TYPES",
-                          ["UNKNOWN", "PATCH", "TINCAN", "GENEVE", "WIREGUARD"],
-                          defaults=["TNL_TYPE_UNKNOWN", "TNL_TYPE_PATCH", "TNL_TYPE_TINCAN", "TNL_TYPE_GENEVE", "TNL_TYPE_WIREGUARD"])
-TunnelTypes = TUNNEL_TYPES()
 
 OPCODE = namedtuple("OPCODE",
                     ["UPDATE_TUNNELS", "OND_REQUEST"],
@@ -214,13 +210,14 @@ class PortDescriptor():
         # is the remote device a peer switch or leaf
         self.rmt_nd_type = NodeTypes.UNKNOWN
         self.peer_data = None               # valid if ND_TYPE_PEER
-        self._tnl_type = TunnelTypes.UNKNOWN
+        self._dp_type = DataplaneTypes.UNKNOWN
         self.is_activated = False
         self.last_active_time = 0
         
     def __repr__(self):
         msg = {"port_no": self.port_no, "name": self.name, "hw_addr": self.hw_addr,
-               "rmt_nd_type": self.rmt_nd_type, "peer_data": self.peer_data.__dict__ if self.peer_data else None}
+               "rmt_nd_type": self.rmt_nd_type, "dp_type": self.dp_type,
+               "peer_data": self.peer_data.__dict__ if self.peer_data else None}
         return json.dumps(msg, default=lambda o: list(o) if isinstance(o, set) else o)
 
     def __str__(self):
@@ -247,18 +244,23 @@ class PortDescriptor():
         return bool(self.rmt_nd_type != NodeTypes.UNKNOWN)
 
     @property
-    def tnl_type(self):
-        return self._tnl_type
+    def dp_type(self):
+        return self._dp_type
     
-    @tnl_type.setter
-    def tnl_type(self, tech):
-        if tech == TunnelTypes.TINCAN:
+    @dp_type.setter
+    def dp_type(self, tech):
+        if tech == DataplaneTypes.TINCAN:
             self.is_activated = True
-        self._tnl_type = tech
+        self._dp_type = tech
     
     @property
     def is_geneve_tunnel(self):
-        return self._tnl_type == TunnelTypes.GENEVE        
+        return self._dp_type == DataplaneTypes.GENEVE
+
+    @property
+    def is_geneve_tunnel(self):
+        return self._dp_type == DataplaneTypes.WIREGUARD
+    
 ###################################################################################################
 
 
@@ -416,7 +418,7 @@ class EvioSwitch(MutableMapping):
                 port_no, prt.name.decode("utf-8"), prt.hw_addr)
             if port_no == INTERNAL_PORT_NUM:
                 pd.rmt_nd_type = NodeTypes.LEAF
-                pd.tnl_type = TunnelTypes.PATCH
+                pd.dp_type = DataplaneTypes.PATCH
             else:
                 self._uncategorized_ports.add(pd)
             self._port_tbl[port_no] = pd
@@ -429,13 +431,13 @@ class EvioSwitch(MutableMapping):
         port.rmt_nd_type = rmt_nd_type
         self._port_tbl[port.port_no] = port
         if tnl_data:
-            port.tnl_type = tnl_data["TunnelType"]
+            port.dp_type = tnl_data["TunnelType"]
             pd = self._register_peer(peer_id=tnl_data["PeerId"],
                                      peer_hw_addr=tnl_data["PeerMac"],
                                      in_port=port.port_no, hop_count=1)
             self._port_tbl[port.port_no].peer_data = pd
         else:
-            port.tnl_type = TunnelTypes.PATCH
+            port.dp_type = DataplaneTypes.PATCH
         self.logger.info("Categorized port %s %s",
                           self.name, self._port_tbl[port.port_no])
 
@@ -923,11 +925,11 @@ class BoundedFlood(app_manager.RyuApp):
                                     tnl_data[op.olid])
                             for port in updated_prts:
                                 if port.is_peer:
-                                    if port.tnl_type == TunnelTypes.TINCAN:
+                                    if port.dp_type == DataplaneTypes.TINCAN:
                                         self._update_port_flow_rules(self.dpset.dps[op.dpid],
                                                                     port.peer.node_id,
                                                                     port.port_no)
-                                    else:
+                                    elif port.dp_type in (DataplaneTypes.GENEVE, DataplaneTypes.WIREGUARD):
                                         self.do_link_check(self.dpset.dps[op.dpid], port)
                     elif op.code == Opcode.OND_REQUEST:
                         self._request_ond_tnl_ops(op.olid, op.data)
@@ -962,7 +964,7 @@ class BoundedFlood(app_manager.RyuApp):
                 if (port.is_geneve or port.is_wireguard):
                     now = time.time()
                     if port.last_active_time + 3 * LinkCheckInterval >= now:
-                        pass #send req to remove tunnel to peer
+                        #send req to remove tunnel to peer
                         tunnel_ops.append((port.peer.node_id, "REMOVE"))
                     elif port.last_active_time + LinkCheckInterval >= now:
                         self.do_link_check(self.dpset.dps[dpid], port)

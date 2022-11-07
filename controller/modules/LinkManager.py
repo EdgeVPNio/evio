@@ -25,7 +25,7 @@ import types
 from collections import namedtuple
 import time
 from framework.ControllerModule import ControllerModule
-from .Tunnel import TunnelEvents, TunnelStates
+from .Tunnel import TunnelEvents, TunnelStates, DataplaneTypes
 
 LinkSetupTimeout = 120
 TapNamePrefix = ""
@@ -57,7 +57,7 @@ class Link():
 
 
 class Tunnel():
-    def __init__(self, tnlid, overlay_id, peer_id, tnl_state, state_timeout):
+    def __init__(self, tnlid, overlay_id, peer_id, tnl_state, state_timeout, dataplane):
         self.tnlid = tnlid
         self.overlay_id = overlay_id
         self.peer_id = peer_id
@@ -69,6 +69,7 @@ class Tunnel():
         self._tunnel_state = tnl_state
         self.creation_start_time = time.time()
         self.timeout = time.time() + state_timeout  # timeout for current phase
+        self.dataplane = dataplane
 
     def __repr__(self):
         items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
@@ -464,7 +465,8 @@ class LinkManager(ControllerModule):
             self._peers[olid][peer_id] = tnlid
             self._tunnels[tnlid] = Tunnel(tnlid, olid, peer_id,
                                           tnl_state=TunnelStates.AUTHORIZED,
-                                          state_timeout=self.config.get("LinkSetupTimeout", LinkSetupTimeout))
+                                          state_timeout=self.config.get("LinkSetupTimeout", LinkSetupTimeout),
+                                          dataplane=DataplaneTypes.TINCAN)
             self.log("LOG_DEBUG", "TunnelId:%s auth for Peer:%s completed",
                      tnlid[:7], peer_id[:7])
             cbt.set_response(
@@ -538,7 +540,8 @@ class LinkManager(ControllerModule):
         # index for quick peer->link lookup
         self._peers[olid][peer_id] = tnlid
         self._tunnels[tnlid] = Tunnel(tnlid, olid, peer_id, tnl_state=TunnelStates.CREATING,
-                                      state_timeout=self.config.get("LinkSetupTimeout", LinkSetupTimeout))
+                                      state_timeout=self.config.get("LinkSetupTimeout", LinkSetupTimeout),
+                                      dataplane=DataplaneTypes.TINCAN)
         self._assign_link_to_tunnel(tnlid, lnkid, 0xA1)
 
         self.logger.debug("Create Link:%s Phase 1/5 Node A - Peer: %s",
@@ -893,7 +896,8 @@ class LinkManager(ControllerModule):
                         "TunnelId": tnlid, "LinkId": lnkid, "ConnectedTimestamp": lts,
                         "TapName": self._tunnels[tnlid].tap_name,
                         "MAC": self._tunnels[tnlid].mac,
-                        "PeerMac": self._tunnels[tnlid].peer_mac}
+                        "PeerMac": self._tunnels[tnlid].peer_mac,
+                        "Dataplane": self._tunnels[tnlid].dataplane}
                     self._link_updates_publisher.post_update(param)
                 elif lnk_status == TunnelStates.QUERYING:
                     # Do not post a notification if the the connection state was being queried

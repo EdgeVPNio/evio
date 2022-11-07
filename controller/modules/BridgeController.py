@@ -524,7 +524,8 @@ class BridgeController(ControllerModule):
                     "ConnectedTimestamp": cbt.request.params["ConnectedTimestamp"],
                     "TapName": port_name,
                     "MAC": Modlib.delim_mac_str(cbt.request.params["MAC"]),
-                    "PeerMac": Modlib.delim_mac_str(cbt.request.params["PeerMac"])
+                    "PeerMac": Modlib.delim_mac_str(cbt.request.params["PeerMac"]),
+                    "Dataplane": cbt.request.params["Dataplane"]
                 }
                 br.add_port(port_name)
                 self.log("LOG_INFO", "Port %s added to bridge %s",

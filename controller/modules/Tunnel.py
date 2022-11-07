@@ -38,9 +38,14 @@ TUNNEL_STATES = namedtuple(
     defaults=["TNL_AUTHORIZED", "TNL_CREATING", "TNL_QUERYING", "TNL_ONLINE", "TNL_OFFLINE"])
 TunnelStates = TUNNEL_STATES()
 
+DATAPLANE_TYPES = namedtuple("DATAPLANE_TYPES",
+                          ["UNKNOWN", "PATCH", "TINCAN", "GENEVE", "WIREGUARD"],
+                          defaults=["DP_TYPES_UNKNOWN", "DP_TYPES_PATCH", "DP_TYPES_TINCAN", "DP_TYPES_GENEVE", "DP_TYPES_WIREGUARD"])
+DataplaneTypes = DATAPLANE_TYPES()
+
 ipr = IPRoute()
 class Tunnel():
-    def __init__(self, tnlid, overlay_id, peer_id, tnl_state, state_timeout, tap_name):
+    def __init__(self, tnlid, overlay_id, peer_id, tnl_state, state_timeout, tap_name, dataplane):
         self.tnlid = tnlid
         self.overlay_id = overlay_id
         self.peer_id = peer_id
@@ -52,7 +57,8 @@ class Tunnel():
         self.state = tnl_state
         self.creation_start_time = time.time()
         self.timeout = time.time() + state_timeout  # timeout for current phase
-
+        self.dataplane = dataplane
+        
     def __repr__(self):
         items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
         return "{{{}}}".format(", ".join(items))

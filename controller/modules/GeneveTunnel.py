@@ -24,7 +24,7 @@ from pyroute2 import IPRoute
 from pyroute2 import NDB
 from framework.Modlib import RemoteAction
 from framework.ControllerModule import ControllerModule
-from .Tunnel import TunnelEvents, TunnelStates, Tunnel
+from .Tunnel import TunnelEvents, TunnelStates, DataplaneTypes, Tunnel
 
 # class TunnelDescriptor():
 #     _REFLECT = set(
@@ -179,7 +179,7 @@ class GeneveTunnel(ControllerModule):
         else:
             tap_name = self.get_tap_name(peer_id, olid)
             self._tunnels[tnlid] = Tunnel(tnlid, olid, peer_id, TunnelStates.AUTHORIZED,
-                                          GeneveSetupTimeout, tap_name)
+                                          GeneveSetupTimeout, tap_name, DataplaneTypes.GENEVE)
             self._peers[olid][peer_id] = tnlid
             self.logger.debug("TunnelId:%s authorization for Peer:%s completed",
                               tnlid[:7], peer_id[:7])
@@ -204,7 +204,7 @@ class GeneveTunnel(ControllerModule):
             self.complete_cbt(cbt)
         else:
             self._tunnels[tnlid] = Tunnel(tnlid, olid, peer_id, TunnelStates.AUTHORIZED,
-                                          GeneveSetupTimeout, tap_name)
+                                          GeneveSetupTimeout, tap_name, DataplaneTypes.GENEVE)
             params = {
                     "OverlayId": olid, 
                     "NodeId": self.node_id,
@@ -256,7 +256,8 @@ class GeneveTunnel(ControllerModule):
             self.logger.info("Inside req_handler_exchnge_endpt")
             msg = {"EndPointAddress": self.config["Overlays"][olid]["EndPointAddress"],
                    "VNId": vnid, "NodeId": self.node_id, "TunnelId": tnlid, 
-                   "MAC": self._tunnels[tnlid].mac}
+                   "MAC": self._tunnels[tnlid].mac,
+                   "Dataplane": self._tunnels[tnlid].dataplane}
             cbt.set_response(msg, True)
             self.complete_cbt(cbt)
             event_param = {"UpdateType": TunnelEvents.Created, "OverlayId": olid,
@@ -276,13 +277,14 @@ class GeneveTunnel(ControllerModule):
         tnlid = params["TunnelId"]
         peer_id = params["NodeId"]
         self._tunnels[tnlid].peer_mac = params["MAC"]
-        # to be triggered when tunnel is connected
+        # tunnel connected is simulated here, BF module will check peer liveliness
         gnv_param = {
-                    "UpdateType": "LnkEvConnected", "OverlayId": olid, "PeerId": peer_id,
+                    "UpdateType": TunnelEvents.Connected, "OverlayId": olid, "PeerId": peer_id,
                     "TunnelId": tnlid, "ConnectedTimestamp": time.time(),
                     "TapName": self._tunnels[tnlid].tap_name,
                     "MAC": self._tunnels[tnlid].mac,
-                    "PeerMac": self._tunnels[tnlid].peer_mac}
+                    "PeerMac": self._tunnels[tnlid].peer_mac,
+                    "Dataplane": self._tunnels[tnlid].dataplane}
         self._gnv_updates_publisher.post_update(gnv_param)
         cbt.set_response("Peer MAC added", True)
         self.complete_cbt(cbt)
