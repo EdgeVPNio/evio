@@ -55,8 +55,9 @@ from ryu.lib import mac as mac_lib
 from ryu.topology import event
 from ryu.lib import addrconv
 from ryu.lib.packet import packet_utils
-from .Tunnel import DataplaneTypes
+import Tunnel
 
+DataplaneTypes = Tunnel.DataplaneTypes
 LogDir = "/var/log/evio/"
 LogFilename = "bf.log"
 LogLevel = "INFO"
@@ -252,13 +253,17 @@ class PortDescriptor():
         if tech == DataplaneTypes.TINCAN:
             self.is_activated = True
         self._dp_type = tech
-    
+
+    @property
+    def is_tincan_tunnel(self):
+        return self._dp_type == DataplaneTypes.TINCAN
+        
     @property
     def is_geneve_tunnel(self):
         return self._dp_type == DataplaneTypes.GENEVE
 
     @property
-    def is_geneve_tunnel(self):
+    def is_wireguard_tunnel(self):
         return self._dp_type == DataplaneTypes.WIREGUARD
     
 ###################################################################################################
@@ -431,7 +436,7 @@ class EvioSwitch(MutableMapping):
         port.rmt_nd_type = rmt_nd_type
         self._port_tbl[port.port_no] = port
         if tnl_data:
-            port.dp_type = tnl_data["TunnelType"]
+            port.dp_type = tnl_data["Dataplane"]
             pd = self._register_peer(peer_id=tnl_data["PeerId"],
                                      peer_hw_addr=tnl_data["PeerMac"],
                                      in_port=port.port_no, hop_count=1)
@@ -740,7 +745,8 @@ class BoundedFlood(app_manager.RyuApp):
             "StateLoggingInterval", StateLoggingInterval)
         self._setup_logger()
         self.evio_portal = EvioPortal(
-            (self.config.get("ProxyListenAddress", ProxyListenAddress), self.config.get("ProxyListenPort", ProxyListenPort)), self.logger)
+            (self.config.get("ProxyListenAddress", ProxyListenAddress), 
+             self.config.get("ProxyListenPort", ProxyListenPort)), self.logger)
         self.dpset = kwargs['dpset']
         self._lt = LearningTable(NodeId=self.config["NodeId"],
                                  Logger=self.logger)
@@ -925,7 +931,7 @@ class BoundedFlood(app_manager.RyuApp):
                                     tnl_data[op.olid])
                             for port in updated_prts:
                                 if port.is_peer:
-                                    if port.dp_type == DataplaneTypes.TINCAN:
+                                    if port.is_tincan_tunnel:
                                         self._update_port_flow_rules(self.dpset.dps[op.dpid],
                                                                     port.peer.node_id,
                                                                     port.port_no)

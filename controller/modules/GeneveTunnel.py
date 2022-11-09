@@ -63,7 +63,7 @@ class GeneveTunnel(ControllerModule):
         return "{{{}}}".format(", ".join(items))
 
     def initialize(self):
-        for olid in self.config["Overlays"]:
+        for olid in self.overlays:
             self._peers[olid] = dict()
 
         self._gnv_updates_publisher = \
@@ -359,11 +359,12 @@ class GeneveTunnel(ControllerModule):
                 
                 # to be triggered when tunnel is connected
                 gnv_param = {
-                            "UpdateType": "LnkEvConnected", "OverlayId": olid, "PeerId": peer_id,
+                            "UpdateType": TunnelEvents.Connected, "OverlayId": olid, "PeerId": peer_id,
                             "TunnelId": tnlid, "ConnectedTimestamp": time.time(),
                             "TapName": self._tunnels[tnlid].tap_name,
                             "MAC": self._tunnels[tnlid].mac,
-                            "PeerMac": self._tunnels[tnlid].peer_mac}
+                            "PeerMac": self._tunnels[tnlid].peer_mac,
+                            "Dataplane": self._tunnels[tnlid].dataplane}
                 self._gnv_updates_publisher.post_update(gnv_param)
                                 
                 # if not self._is_tunnel_connected(tap_name):
