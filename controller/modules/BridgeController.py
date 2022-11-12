@@ -518,13 +518,15 @@ class BridgeController(ControllerModule):
                     ["sysctl", "net.ipv6.conf.{}.disable_ipv6=1".format(port_name)])
                 Modlib.runshell([OvsBridge.iptool, "addr", "flush", port_name])
             elif cbt.request.params["UpdateType"] == TunnelEvents.Connected:
+                mac = cbt.request.params["MAC"]
+                peer_mac = cbt.request.params["PeerMac"]
                 self._tunnels[olid][port_name] = {
                     "PeerId": cbt.request.params["PeerId"],
                     "TunnelId": tnlid,
                     "ConnectedTimestamp": cbt.request.params["ConnectedTimestamp"],
                     "TapName": port_name,
-                    "MAC": Modlib.delim_mac_str(cbt.request.params["MAC"]),
-                    "PeerMac": Modlib.delim_mac_str(cbt.request.params["PeerMac"]),
+                    "MAC": mac if ":" in mac else Modlib.delim_mac_str(mac),
+                    "PeerMac": peer_mac if ":" in peer_mac else Modlib.delim_mac_str(peer_mac),
                     "Dataplane": cbt.request.params["Dataplane"]
                 }
                 br.add_port(port_name)

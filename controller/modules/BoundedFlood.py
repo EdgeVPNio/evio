@@ -64,7 +64,7 @@ LogLevel = "INFO"
 DemandThreshold = "10M"
 FlowIdleTimeout = 60
 FlowHardTimeout = 60
-LinkCheckInterval = 3
+LinkCheckInterval = 10
 MaxOnDemandEdges = 3
 TrafficAnalysisInterval = 10
 StateLoggingInterval = 60
@@ -213,11 +213,12 @@ class PortDescriptor():
         self.peer_data = None               # valid if ND_TYPE_PEER
         self._dp_type = DataplaneTypes.UNKNOWN
         self.is_activated = False
-        self.last_active_time = 0
+        self.last_active_time = time.time()
         
     def __repr__(self):
         msg = {"port_no": self.port_no, "name": self.name, "hw_addr": self.hw_addr,
                "rmt_nd_type": self.rmt_nd_type, "dp_type": self.dp_type,
+               "last_active_time": self.last_active_time,
                "peer_data": self.peer_data.__dict__ if self.peer_data else None}
         return json.dumps(msg, default=lambda o: list(o) if isinstance(o, set) else o)
 
@@ -295,7 +296,6 @@ class EvioSwitch(MutableMapping):
         #self._lock = threading.RLock()
         self._max_hops = 0
         self._ond_ops = []
-        self._lnk_chk_interval = kwargs.get("LinkCheckInterval", LinkCheckInterval)
         
     def __repr__(self):
         msg = {"EvioSwitch": {
@@ -644,8 +644,8 @@ class EvioSwitch(MutableMapping):
                 frb_hdr = FloodRouteBound(root_nid, bound_nid, hops, frb_type)
                 if frb_hdr:
                     prtno = self.port_no(peer1)
-                    # if prtno and prtno not in exclude_ports:
-                    out_bounds.append((prtno, frb_hdr))
+                    if prtno and prtno not in exclude_ports:
+                        out_bounds.append((prtno, frb_hdr))
             else:
                 if prev_frb.bound_nid == my_nid:
                     self.logger.warning("This frb should not have reached this node my_nid={0} prev_frb={1}"
@@ -743,6 +743,8 @@ class BoundedFlood(app_manager.RyuApp):
             "TrafficAnalysisInterval", TrafficAnalysisInterval)
         self._state_logging_interval = self.config.get(
             "StateLoggingInterval", StateLoggingInterval)
+        self._link_check_interval = self.config.get(
+            "LinkCheckInterval", LinkCheckInterval)        
         self._setup_logger()
         self.evio_portal = EvioPortal(
             (self.config.get("ProxyListenAddress", ProxyListenAddress), 
@@ -753,6 +755,7 @@ class BoundedFlood(app_manager.RyuApp):
         self._ev_bh_update = Queue.Queue()
         hub.spawn(self.monitor_flow_traffic)
         hub.spawn(self.update_tunnels)
+        hub.spawn(self.check_links)
         if self.config.get("StateTracingEnabled", StateTracingEnabled):
             hub.spawn(self.log_state)
         self.logger.info("BoundedFlood: Module loaded")
@@ -964,19 +967,30 @@ class BoundedFlood(app_manager.RyuApp):
         A link check is performed every LNK_CHK_INTERVAL. Receiving a LNK_CHK or
         LNK_ACK satifies the LNK_ACTIVE condition and resets the check interval
         """
-        for dpid, sw in self._lt.items():
-            tunnel_ops = []
-            for port in sw:
-                if (port.is_geneve or port.is_wireguard):
-                    now = time.time()
-                    if port.last_active_time + 3 * LinkCheckInterval >= now:
-                        #send req to remove tunnel to peer
-                        tunnel_ops.append((port.peer.node_id, "REMOVE"))
-                    elif port.last_active_time + LinkCheckInterval >= now:
-                        self.do_link_check(self.dpset.dps[dpid], port)
-            if tunnel_ops:
-                self._ev_bh_update.put(
-                            EvioOp(Opcode.OND_REQUEST, dpid, sw.overlay_id, tunnel_ops))
+        while not self._is_exit:
+            try:
+                while not self._is_exit:
+                    for dpid, sw in self._lt.items():
+                        tunnel_ops = []
+                        for port_no in sw.port_numbers:
+                            port = sw.port_descriptor(port_no)
+                            if (port.is_geneve_tunnel or port.is_wireguard_tunnel):
+                                now = time.time()
+                                if now >= port.last_active_time + 3 * self._link_check_interval:
+                                    #send req to remove tunnel to peer
+                                    self.logger.debug(f"Requesting removal of inactive port {port}")
+                                    tunnel_ops.append((port.peer.node_id, "REMOVE"))
+                                elif now >= port.last_active_time + self._link_check_interval:
+                                    self.logger.debug(f"performing link check on port {port}")
+                                    self.do_link_check(self.dpset.dps[dpid], port)
+                        if tunnel_ops:
+                            self._ev_bh_update.put(
+                                        EvioOp(Opcode.OND_REQUEST, dpid, sw.overlay_id, tunnel_ops))
+                    hub.sleep(self._link_check_interval)
+            except Exception:
+                self.logger.exception(
+                    "An exception occurred within check links")
+                hub.sleep(self._link_check_interval)
     ##################################################################################
     ##################################################################################
 
@@ -1257,7 +1271,7 @@ class BoundedFlood(app_manager.RyuApp):
             port_no = port.port_no
             peer_id = port.peer.node_id
             peer_mac = port.peer.hw_addr
-            src_mac = port.peer.hw_addr
+            src_mac = port.hw_addr
 
             bf_hdr = FloodRouteBound(
                 nid, nid, 0, FloodRouteBound.FRB_LNK_CHK)
@@ -1290,7 +1304,7 @@ class BoundedFlood(app_manager.RyuApp):
             port_no = port.port_no
             peer_id = port.peer.node_id
             peer_mac = port.peer.hw_addr
-            src_mac = port.peer.hw_addr
+            src_mac = port.hw_addr
 
             bf_hdr = FloodRouteBound(
                 nid, nid, 0, FloodRouteBound.FRB_LNK_ACK)
@@ -1361,7 +1375,7 @@ class BoundedFlood(app_manager.RyuApp):
             port_no = port.port_no
             peer_id = port.peer.node_id
             peer_mac = port.peer.hw_addr
-            src_mac = port.peer.hw_addr
+            src_mac = port.hw_addr
 
             bf_hdr = FloodRouteBound(
                 nid, nid, 0, FloodRouteBound.FRB_LEAF_TX, offset//6)
@@ -1405,7 +1419,7 @@ class BoundedFlood(app_manager.RyuApp):
             return
         port = self._lt[dpid].port_descriptor(in_port)
         if rcvd_frb.frb_type == FloodRouteBound.FRB_LNK_CHK:
-            self._do_link_ack()
+            self._do_link_ack(datapath, port)
             if not port.is_activated:
                 port.is_activated = True
                 self._update_port_flow_rules(datapath,
@@ -1418,6 +1432,7 @@ class BoundedFlood(app_manager.RyuApp):
                 self._update_port_flow_rules(datapath,
                                             port.peer.node_id,
                                             in_port)
+                self.logger.info(f"port {port} activated by {rcvd_frb}")
             return
         self._lt[dpid][src] = (in_port, rcvd_frb.root_nid)
         self._lt[dpid].peer(
