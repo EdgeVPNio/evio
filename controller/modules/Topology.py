@@ -196,10 +196,12 @@ class Topology(ControllerModule, CFX):
     def initialize(self):
         publishers = self.get_registered_publishers()
         if "Signal" not in publishers or "SIG_PEER_PRESENCE_NOTIFY" not in self.get_available_subscriptions("Signal"):
-            raise RuntimeError("The Signal PEER PRESENCE subscription is not available. Topology cannot continue.")
+            raise RuntimeError(
+                "The Signal PEER PRESENCE subscription is not available. Topology cannot continue.")
         self.start_subscription("Signal", "SIG_PEER_PRESENCE_NOTIFY")
         if "LinkManager" not in publishers or "LNK_TUNNEL_EVENTS" not in self.get_available_subscriptions("LinkManager"):
-            raise RuntimeError("The LinkManager TUNNEL EVENTS subscription is not available. Topology cannot continue.")
+            raise RuntimeError(
+                "The LinkManager TUNNEL EVENTS subscription is not available. Topology cannot continue.")
         self.start_subscription("LinkManager", "LNK_TUNNEL_EVENTS")
         if "GeneveTunnel" in publishers and "GNV_TUNNEL_EVENTS" in self.get_available_subscriptions("GeneveTunnel"):
             self.start_subscription("GeneveTunnel", "GNV_TUNNEL_EVENTS")
@@ -274,7 +276,7 @@ class Topology(ControllerModule, CFX):
             disc.presence()
             cbt.set_response(None, True)
             self.complete_cbt(cbt)
-            return            
+            return
         if not disc:
             disc = DiscoveredPeer(peer_id)
             self._net_ovls[olid].known_peers[peer_id] = disc
@@ -315,20 +317,18 @@ class Topology(ControllerModule, CFX):
             self.complete_cbt(cbt)
             self.log("LOG_WARNING", "Topology data not available %s",
                      cbt.response.data)
-
-    def req_handler_tunnl_update(self, cbt):
-        event = cbt.request.params
-        peer_id = event["PeerId"]
-        edge_id = event["TunnelId"]
-        overlay_id = event["OverlayId"]
+            
+    def _process_tnl_event(self, update):
+        event = update["UpdateType"]
+        peer_id = update["PeerId"]
+        overlay_id = update["OverlayId"]        
         ovl = self._net_ovls[overlay_id]
-
-        if event["UpdateType"] == TunnelEvents.Authorized:
+        if event == TunnelEvents.Authorized:
             """ Role B """
             ce = ovl.adjacency_list[peer_id]
             assert ce.edge_state == EdgeStates.PreAuth, f"Invalid edge state {ce}"
             ce.edge_state = EdgeStates.Authorized
-        elif event["UpdateType"] == TunnelEvents.AuthExpired:
+        elif event == TunnelEvents.AuthExpired:
             """ Role B """
             ce = ovl.adjacency_list[peer_id]
             assert ce.edge_state == EdgeStates.Authorized, f"Invalid edge state {ce}"
@@ -339,32 +339,33 @@ class Topology(ControllerModule, CFX):
             self.logger.debug("Excluding peer %s until %s", peer_id,
                               str(datetime.fromtimestamp(
                                   ovl.known_peers[peer_id].available_time)))
-        elif event["UpdateType"] == TunnelEvents.Created:
+        elif event == TunnelEvents.Created:
             """Roles A & B"""
             ce = ovl.adjacency_list[peer_id]
             assert ce.edge_state == EdgeStates.Authorized, f"Invalid edge state {ce}"
             ce.edge_state = EdgeStates.Created
-        elif event["UpdateType"] == TunnelEvents.Connected:
+        elif event == TunnelEvents.Connected:
             """Roles A & B"""
             ce = ovl.adjacency_list[peer_id]
             assert ce.edge_state == EdgeStates.Created, f"Invalid edge state {ce}"
             ce.edge_state = EdgeStates.Connected
-            ce.connected_time = event["ConnectedTimestamp"]
+            ce.connected_time = update["ConnectedTimestamp"]
             ovl.known_peers[peer_id].restore()
             if ce.edge_type in EdgeTypesOut:
                 ovl.release()
                 self._process_next_transition(ovl)
-        elif event["UpdateType"] == TunnelEvents.Disconnected:
+        elif event == TunnelEvents.Disconnected:
             ce = ovl.adjacency_list[peer_id]
-            assert ce.edge_state in (TunnelEvents.Created, EdgeStates.Connected), f"Invalid edge state {ce}"
+            assert ce.edge_state in (
+                EdgeStates.Created, EdgeStates.Connected), f"Invalid edge state {ce}"
             # the local topology did not request removal of the connection
             ce = ovl.adjacency_list[peer_id]
-            ce.edge_state = EdgeStates.Disconnected
-            if (ce.edge_state == TunnelEvents.Created) or \
-             (time.time() - ce.connected_time < Topology._EDGE_PROTECTION_AGE and peer_id in ovl.known_peers):
+            if (ce.edge_state == EdgeStates.Created) or \
+                    (time.time() - ce.connected_time < Topology._EDGE_PROTECTION_AGE and peer_id in ovl.known_peers):
                 ovl.known_peers[peer_id].exclude()
-            self._remove_tunnel(ovl, ce.tunnel_type, peer_id, edge_id)
-        elif event["UpdateType"] == TunnelEvents.Removed:
+            ce.edge_state = EdgeStates.Disconnected
+            self._remove_tunnel(ovl, ce.tunnel_type, peer_id, ce.edge_id)
+        elif event == TunnelEvents.Removed:
             """Roles A & B"""
             ce = ovl.adjacency_list.get(peer_id)
             del ovl.adjacency_list[peer_id]
@@ -374,9 +375,15 @@ class Topology(ControllerModule, CFX):
             elif ce is not None and ce.edge_state == EdgeStates.Disconnected:  # the peer disconnected
                 ce.edge_state = EdgeStates.Deleting
             else:
-                self.logger.error("Tunnel event remove is unexpected for conn edge %s", ce)
+                self.logger.error(
+                    "Tunnel event remove is unexpected for conn edge %s", ce)
         else:
-            self.logger.warning("Invalid UpdateType specified for event %s", event)
+            self.logger.warning(
+                "Invalid UpdateType specified for event %s", event)
+        
+    def req_handler_tunnl_update(self, cbt):
+        event = cbt.request.params
+        self._process_tnl_event(event)
         cbt.set_response(None, True)
         self.complete_cbt(cbt)
 
@@ -388,15 +395,28 @@ class Topology(ControllerModule, CFX):
         for op in cbt.request.params:
             olid = op["OverlayId"]
             peer_id = op["PeerId"]
-            if (olid in self._net_ovls and peer_id in self._net_ovls[olid].known_peers and
-                    self._net_ovls[olid].known_peers[peer_id].is_available):
-                self._net_ovls[olid].ond_peers.append(op)
-                self.log(
-                    "LOG_DEBUG", "Added on-demand tunnel request to queue %s", op)
+            if olid in self._net_ovls:
+                ovl = self._net_ovls[olid]
+                if (op["Operation"] == "REMOVE" or
+                    (op["Operation"] == "ADD" and
+                     peer_id in ovl.known_peers and
+                     ovl.known_peers[peer_id].is_available)):
+                    ovl.ond_peers.append(op)
+                    self.log(
+                        "LOG_DEBUG", "Added on-demand tunnel request to queue %s", op)
+                elif op["Operation"] == "DISCONN":
+                    if peer_id in ovl.adjacency_list:
+                        self._process_tnl_event({"UpdateType": TunnelEvents.Disconnected,
+                                                "OverlayId": olid, "PeerId": peer_id})
+                    else:
+                         self.logger.warning(
+                         "The requested OND_DISCONN edge does not exist, peer_id=%s",
+                         peer_id)
+                else:
+                    self.logger.warning("Invalid OND operation requested %s", op["Operation"])
             else:
-                self.log("LOG_WARNING",
-                         "Invalid on-demand tunnel request parameter, OverlayId=%s, PeerId=%s",
-                         olid, peer_id)
+                self.logger.warning("Invalid on-demand tunnel request parameter, OverlayId=%s",
+                                    olid)
 
     def req_handler_negotiate_edge(self, edge_cbt):
         """ Role B1, decide if the request for an incoming edge is accepted or rejected """
@@ -525,7 +545,7 @@ class Topology(ControllerModule, CFX):
                                     peer_id, cbt.response.data)
             else:
                 self.logger.warning("Failed to create topology edge to %s. %s",
-                                peer_id, cbt.response.data)
+                                    peer_id, cbt.response.data)
                 ovl.known_peers[peer_id].exclude()
                 del ovl.adjacency_list[peer_id]
                 ovl.release()
@@ -606,7 +626,8 @@ class Topology(ControllerModule, CFX):
                 elif tns.operation == OpType.Update:
                     suspend = self._update_edge(net_ovl, tns.conn_edge)
                 else:
-                    self.logger.error("Unexpected transition operation encountered %s", tns.operation)
+                    self.logger.error(
+                        "Unexpected transition operation encountered %s", tns.operation)
                 net_ovl.transformation.pop()
 ###################################################################################################
 
@@ -692,8 +713,9 @@ class Topology(ControllerModule, CFX):
                 del net_ovl.adjacency_list[ce.peer_id]
                 return
             ce.edge_state = EdgeStates.Authorized
+            ce.tunnel_type = edge_nego.tunnel_type
             self._create_tunnel(
-                net_ovl, edge_nego.tunnel_type, peer_id, edge_id)
+                net_ovl, ce.tunnel_type, peer_id, edge_id)
 
     def _resolve_request_collision(self, net_ovl, edge_req, conn_edge):
         """ An connection edge was already initiated by this node so resolve the collision """

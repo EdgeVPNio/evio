@@ -23,18 +23,18 @@
 from collections import namedtuple
 import json
 from typing import List
+from eventlet.green import time
 from eventlet.green import socket
 from eventlet.green import Queue
+from eventlet.green import subprocess
+from datetime import datetime
 import struct
 import uuid
 from distutils import spawn
 import os
-from eventlet.green import subprocess
 import logging
 from collections.abc import MutableSet
 import random
-from eventlet.green import time
-import types
 import math
 import hashlib
 import logging.handlers as lh
@@ -79,14 +79,15 @@ BF_STATE_DIGEST = hashlib.sha256("".encode("utf-8")).hexdigest()
 INTERNAL_PORT_NUM = 4294967294
 KNOWN_LEAF_PORTS = {INTERNAL_PORT_NUM, 1}
 NODE_TYPES = namedtuple("NODE_TYPES",
-                          ["UNKNOWN", "LEAF", "EVIO_LEAF", "PEER"],
-                          defaults=["ND_TYPE_UNKNOWN", "ND_TYPE_LEAF", "ND_TYPE_EVIO_LEAF", "ND_TYPE_PEER"])
+                        ["UNKNOWN", "LEAF", "EVIO_LEAF", "PEER"],
+                        defaults=["ND_TYPE_UNKNOWN", "ND_TYPE_LEAF", "ND_TYPE_EVIO_LEAF", "ND_TYPE_PEER"])
 NodeTypes = NODE_TYPES()
 
 OPCODE = namedtuple("OPCODE",
                     ["UPDATE_TUNNELS", "OND_REQUEST"],
                     defaults=["UPDATE_TUNNELS", "OND_REQUEST"])
 Opcode = OPCODE()
+
 
 def runcmd(cmd):
     """ Run a shell command. if fails, raise an exception. """
@@ -202,6 +203,7 @@ class PeerData():
 
 ###################################################################################################
 
+
 class PortDescriptor():
 
     def __init__(self, port_no: int, name: str, hw_addr: str):
@@ -214,11 +216,12 @@ class PortDescriptor():
         self._dp_type = DataplaneTypes.UNKNOWN
         self.is_activated = False
         self.last_active_time = time.time()
-        
+
     def __repr__(self):
         msg = {"port_no": self.port_no, "name": self.name, "hw_addr": self.hw_addr,
                "rmt_nd_type": self.rmt_nd_type, "dp_type": self.dp_type,
-               "last_active_time": self.last_active_time,
+               "last_active_time": str(datetime.fromtimestamp(self.last_active_time)),
+               "is_activated": self.is_activated,
                "peer_data": self.peer_data.__dict__ if self.peer_data else None}
         return json.dumps(msg, default=lambda o: list(o) if isinstance(o, set) else o)
 
@@ -248,7 +251,7 @@ class PortDescriptor():
     @property
     def dp_type(self):
         return self._dp_type
-    
+
     @dp_type.setter
     def dp_type(self, tech):
         if tech == DataplaneTypes.TINCAN:
@@ -258,7 +261,7 @@ class PortDescriptor():
     @property
     def is_tincan_tunnel(self):
         return self._dp_type == DataplaneTypes.TINCAN
-        
+
     @property
     def is_geneve_tunnel(self):
         return self._dp_type == DataplaneTypes.GENEVE
@@ -266,7 +269,7 @@ class PortDescriptor():
     @property
     def is_wireguard_tunnel(self):
         return self._dp_type == DataplaneTypes.WIREGUARD
-    
+
 ###################################################################################################
 
 
@@ -296,7 +299,7 @@ class EvioSwitch(MutableMapping):
         #self._lock = threading.RLock()
         self._max_hops = 0
         self._ond_ops = []
-        
+
     def __repr__(self):
         msg = {"EvioSwitch": {
             "overlay_id": self._overlay_id, "node_id": self._node_id,
@@ -380,11 +383,12 @@ class EvioSwitch(MutableMapping):
 
     @property
     def peer_list(self) -> list:
-        pl = []
-        # with self._lock:
-        for port_no in self._link_prts:
-            pl.append(self._port_tbl[port_no].peer_data.node_id)
-        return pl
+        return [*self._peer_tbl.keys()]
+        # pl = []
+        # # with self._lock:
+        # for port_no in self._link_prts:
+        #     pl.append(self._port_tbl[port_no].peer_data.node_id)
+        # return pl
 
     def peer(self, peer_id) -> PeerData:
         return self._peer_tbl[peer_id]
@@ -406,8 +410,8 @@ class EvioSwitch(MutableMapping):
         return bool(self._port_tbl[port_no].is_categorized)
 
     def is_port_activated(self, port_no) -> bool:
-        return  self._port_tbl[port_no].is_activated
-    
+        return self._port_tbl[port_no].is_activated
+
     def is_update_pending(self) -> bool:
         with self._lock:
             return bool(self._uncategorized_ports)
@@ -425,7 +429,7 @@ class EvioSwitch(MutableMapping):
                 pd.rmt_nd_type = NodeTypes.LEAF
                 pd.dp_type = DataplaneTypes.PATCH
             else:
-                self._uncategorized_ports.add(pd)
+                self._uncategorized_ports.add(port_no)
             self._port_tbl[port_no] = pd
 
     def _categorize_port(self,  port, rmt_nd_type, tnl_data=None):
@@ -444,17 +448,17 @@ class EvioSwitch(MutableMapping):
         else:
             port.dp_type = DataplaneTypes.PATCH
         self.logger.info("Categorized port %s %s",
-                          self.name, self._port_tbl[port.port_no])
+                         self.name, self._port_tbl[port.port_no])
 
     def activate_port(self, port_no):
         self._port_tbl[port_no].is_activated = True
-        
+
     def add_port(self, ofpport):
         port = PortDescriptor(
             ofpport.port_no, ofpport.name.decode("utf-8"), ofpport.hw_addr)
         # with self._lock:
         self._port_tbl[port.port_no] = port
-        self._uncategorized_ports.add(port)
+        self._uncategorized_ports.add(port.port_no)
         self.logger.debug("Added uncategorized port_no: %s/%i",
                           self.name, ofpport.port_no)
 
@@ -479,10 +483,8 @@ class EvioSwitch(MutableMapping):
             for mac_entry in tbr:  # remove these mac entries from the ingress table
                 self._ingress_tbl.pop(mac_entry, None)
 
-        for port in self._uncategorized_ports:
-            if port.port_no == port_no:
-                self._uncategorized_ports.remove(port)
-                break
+        if port_no in self._uncategorized_ports:
+            self._uncategorized_ports.remove(port_no)
 
     def update_port_data(self, tnl_data, ports=None) -> list:
         updated = []
@@ -494,7 +496,8 @@ class EvioSwitch(MutableMapping):
         if tnl_data["seq"] >= self._topo_seq:
             uncat = self._uncategorized_ports
             self._uncategorized_ports = set()
-            for port in uncat:
+            for port_no in uncat:
+                port = self._port_tbl[port_no]
                 if port.name in tnl_data["snapshot"]:
                     self._categorize_port(
                         port, "ND_TYPE_PEER", tnl_data["snapshot"][port.name])
@@ -505,7 +508,7 @@ class EvioSwitch(MutableMapping):
                     self._leaf_prts.add(port.port_no)
                     updated.append(port)
                 else:
-                    self._uncategorized_ports.add(port)
+                    self._uncategorized_ports.add(port_no)
             self._topo_seq = tnl_data["seq"]
             if (self._uncategorized_ports):
                 self.logger.info("No data was available to categorize the "
@@ -744,10 +747,10 @@ class BoundedFlood(app_manager.RyuApp):
         self._state_logging_interval = self.config.get(
             "StateLoggingInterval", StateLoggingInterval)
         self._link_check_interval = self.config.get(
-            "LinkCheckInterval", LinkCheckInterval)        
+            "LinkCheckInterval", LinkCheckInterval)
         self._setup_logger()
         self.evio_portal = EvioPortal(
-            (self.config.get("ProxyListenAddress", ProxyListenAddress), 
+            (self.config.get("ProxyListenAddress", ProxyListenAddress),
              self.config.get("ProxyListenPort", ProxyListenPort)), self.logger)
         self.dpset = kwargs['dpset']
         self._lt = LearningTable(NodeId=self.config["NodeId"],
@@ -772,7 +775,7 @@ class BoundedFlood(app_manager.RyuApp):
             br_name = datapath.ports[INTERNAL_PORT_NUM].name.decode("utf-8")
             if datapath.id in self._lt:
                 self.logger.warning(f"Datapath {datapath.id} is already in learning table, "
-                                 "reinitializing")
+                                    "reinitializing")
                 self._lt.pop(datapath.id)
             if br_name not in self.config:
                 self.logger.warning(f"Bridge {br_name} is not specified in the BoundedFlood config, "
@@ -936,10 +939,11 @@ class BoundedFlood(app_manager.RyuApp):
                                 if port.is_peer:
                                     if port.is_tincan_tunnel:
                                         self._update_port_flow_rules(self.dpset.dps[op.dpid],
-                                                                    port.peer.node_id,
-                                                                    port.port_no)
+                                                                     port.peer.node_id,
+                                                                     port.port_no)
                                     elif port.dp_type in (DataplaneTypes.GENEVE, DataplaneTypes.WIREGUARD):
-                                        self.do_link_check(self.dpset.dps[op.dpid], port)
+                                        self.do_link_check(
+                                            self.dpset.dps[op.dpid], port)
                     elif op.code == Opcode.OND_REQUEST:
                         self._request_ond_tnl_ops(op.olid, op.data)
                     self._ev_bh_update.task_done()
@@ -977,15 +981,20 @@ class BoundedFlood(app_manager.RyuApp):
                             if (port.is_geneve_tunnel or port.is_wireguard_tunnel):
                                 now = time.time()
                                 if now >= port.last_active_time + 3 * self._link_check_interval:
-                                    #send req to remove tunnel to peer
-                                    self.logger.debug(f"Requesting removal of inactive port {port}")
-                                    tunnel_ops.append((port.peer.node_id, "REMOVE"))
+                                    # send req to remove tunnel to peer
+                                    self.logger.debug(
+                                        f"Requesting removal of inactive port {port}")
+                                    tunnel_ops.append(
+                                        (port.peer.node_id, "DISCONN"))
+                                    sw.delete_port(port_no)
                                 elif now >= port.last_active_time + self._link_check_interval:
-                                    self.logger.debug(f"performing link check on port {port}")
-                                    self.do_link_check(self.dpset.dps[dpid], port)
+                                    self.logger.debug(
+                                        f"Performing link check on port {port}")
+                                    self.do_link_check(
+                                        self.dpset.dps[dpid], port)
                         if tunnel_ops:
                             self._ev_bh_update.put(
-                                        EvioOp(Opcode.OND_REQUEST, dpid, sw.overlay_id, tunnel_ops))
+                                EvioOp(Opcode.OND_REQUEST, dpid, sw.overlay_id, tunnel_ops))
                     hub.sleep(self._link_check_interval)
             except Exception:
                 self.logger.exception(
@@ -1047,7 +1056,7 @@ class BoundedFlood(app_manager.RyuApp):
         new_digest = hashlib.sha256(state.encode("utf-8")).hexdigest()
         if BF_STATE_DIGEST != new_digest:
             BF_STATE_DIGEST = new_digest
-            self.logger.info(f"{{\"BoundedFlood\": {state}}}\n")
+            self.logger.info(f"{{\"BF State\": {state}}}\n")
 
     def _collect_counters(self, dpid, counter_vals: dict):
         total_hops = 0
@@ -1289,13 +1298,13 @@ class BoundedFlood(app_manager.RyuApp):
             resp = datapath.send_msg(pkt_out)
             if resp:
                 self.logger.debug("Sent link activate, %s/%s %s",
-                                 self._lt[datapath.id].name, port_no, peer_id)
+                                  self._lt[datapath.id].name, port_no, peer_id)
             else:
                 self.logger.warning(
                     "Failed to send link activate FRB, OFPPacketOut=%s", pkt_out)
         else:
             self.logger.info("Link CHK attempted but remote is not a peer")
-    
+
     def _do_link_ack(self, datapath, port):
 
         sw: EvioSwitch = self._lt[datapath.id]
@@ -1322,13 +1331,13 @@ class BoundedFlood(app_manager.RyuApp):
             resp = datapath.send_msg(pkt_out)
             if resp:
                 self.logger.debug("Sent link activate, %s/%s %s",
-                                 self._lt[datapath.id].name, port_no, peer_id)
+                                  self._lt[datapath.id].name, port_no, peer_id)
             else:
                 self.logger.warning(
                     "Failed to send link activate FRB, OFPPacketOut=%s", pkt_out)
         else:
             self.logger.info("Link ACK attempted but remote is not a peer")
-    
+
     ###############################################################################################
     def do_bounded_flood(self, datapath, ingress, tx_bounds, src_mac, payload):
         """
@@ -1394,7 +1403,7 @@ class BoundedFlood(app_manager.RyuApp):
             resp = datapath.send_msg(pkt_out)
             if resp:
                 self.logger.debug("FRB local leaf transfer completed, %s/%s %s %s",
-                                 self._lt[datapath.id].name, port_no, peer_id, payload)
+                                  self._lt[datapath.id].name, port_no, peer_id, payload)
             else:
                 self.logger.warning(
                     "FRB leaf exchange failed, OFPPacketOut=%s", pkt_out)
@@ -1423,16 +1432,16 @@ class BoundedFlood(app_manager.RyuApp):
             if not port.is_activated:
                 port.is_activated = True
                 self._update_port_flow_rules(datapath,
-                                            port.peer.node_id,
-                                            in_port)
+                                             port.peer.node_id,
+                                             in_port)
             return
         if rcvd_frb.frb_type == FloodRouteBound.FRB_LNK_ACK:
+            self.logger.debug("Received link check ack %s/%s %s", self._lt[dpid].name, in_port, rcvd_frb)
             if not port.is_activated:
                 port.is_activated = True
                 self._update_port_flow_rules(datapath,
-                                            port.peer.node_id,
-                                            in_port)
-                self.logger.info(f"port {port} activated by {rcvd_frb}")
+                                             port.peer.node_id,
+                                             in_port)
             return
         self._lt[dpid][src] = (in_port, rcvd_frb.root_nid)
         self._lt[dpid].peer(
@@ -1492,7 +1501,7 @@ class BoundedFlood(app_manager.RyuApp):
         out_bounds = self._lt[dpid].get_flooding_bounds(
             frb_type, None, [in_port])
         self.logger.debug("Generated FRB(s)=%s/%s",
-                         self._lt[dpid].name, out_bounds)
+                          self._lt[dpid].name, out_bounds)
         # fwd frame on every port wrapped with an FRB
         if out_bounds:
             self.do_bounded_flood(
@@ -1520,7 +1529,7 @@ class FloodRouteBound(packet_base.PacketBase):
     FRB_FWD = 2
     FRB_LNK_CHK = 3
     FRB_LNK_ACK = 4
-    
+
     def __init__(self, root_nid, bound_nid, hop_count, frb_type=0, pl_count=0):
         super(FloodRouteBound, self).__init__()
         self.root_nid = root_nid

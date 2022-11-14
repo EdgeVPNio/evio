@@ -187,8 +187,8 @@ def mac_b2a(bin_mac):
     return "".join("%02x" % int.from_bytes(bin_mac[i:i + 1], byteorder="big") + ":"
                    for i in range(0, 6, 1))[:-1]
 
-def delim_mac_str(mac_str, delim=":"):
-    if not mac_str:
+def delim_mac_str(mac_str:str, delim=":"):
+    if not mac_str or len(mac_str) != 12 or delim in mac_str:
         return None
     return str(mac_str[:2] + delim + mac_str[2:4] + delim + mac_str[4:6] + delim + mac_str[6:8] +
                delim + mac_str[8:10] + delim + mac_str[10:12]).lower()

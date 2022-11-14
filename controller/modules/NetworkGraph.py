@@ -89,7 +89,7 @@ class ConnectionEdge():
     """ A discriptor of the edge/link between two peers."""
     _PACK_STR = '!16s16sff18s19s?'
 
-    def __init__(self, peer_id=None, edge_id=None, edge_type="CETypeUnknown", tunnel_type = "Tincan"):
+    def __init__(self, peer_id=None, edge_id=None, edge_type="CETypeUnknown", tunnel_type=None):
         self.peer_id = peer_id
         self.edge_id = edge_id
         if not self.edge_id:
@@ -166,7 +166,7 @@ class ConnectionEdge():
 
 
 class ConnEdgeAdjacenctList(MutableMapping):
-    """ A series of ConnectionEdges that are incident on the local node"""
+    """ A collection of ConnectionEdges that are incident on the local node"""
 
     def __init__(self, overlay_id, node_id, min_succ=1, max_ldl=1, max_ond=1):
         self._overlay_id = overlay_id
