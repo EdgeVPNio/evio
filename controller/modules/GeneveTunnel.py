@@ -99,6 +99,7 @@ class GeneveTunnel(ControllerModule):
                     self.complete_cbt(parent_cbt)
 
     def timer_method(self):
+        # TODO: Cleanup expired auth requests
         pass
 
     def terminate(self):
@@ -179,7 +180,7 @@ class GeneveTunnel(ControllerModule):
         else:
             tap_name = self.get_tap_name(peer_id, olid)
             self._tunnels[tnlid] = Tunnel(tnlid, olid, peer_id, TunnelStates.AUTHORIZED,
-                                          GeneveSetupTimeout, tap_name, DataplaneTypes.GENEVE)
+                                          GeneveSetupTimeout, tap_name, DataplaneTypes.Geneve)
             self._peers[olid][peer_id] = tnlid
             self.logger.debug("TunnelId:%s authorization for Peer:%s completed",
                               tnlid[:7], peer_id[:7])
@@ -204,7 +205,7 @@ class GeneveTunnel(ControllerModule):
             self.complete_cbt(cbt)
         else:
             self._tunnels[tnlid] = Tunnel(tnlid, olid, peer_id, TunnelStates.AUTHORIZED,
-                                          GeneveSetupTimeout, tap_name, DataplaneTypes.GENEVE)
+                                          GeneveSetupTimeout, tap_name, DataplaneTypes.Geneve)
             params = {
                     "OverlayId": olid, 
                     "NodeId": self.node_id,
@@ -253,7 +254,6 @@ class GeneveTunnel(ControllerModule):
         try:
             tap_name = self._tunnels[tnlid].tap_name
             self._create_geneve_tunnel(tap_name, vnid, endpnt_address)
-            self.logger.info("Inside req_handler_exchnge_endpt")
             msg = {"EndPointAddress": self.config["Overlays"][olid]["EndPointAddress"],
                    "VNId": vnid, "NodeId": self.node_id, "TunnelId": tnlid, 
                    "MAC": self._tunnels[tnlid].mac,
@@ -293,13 +293,13 @@ class GeneveTunnel(ControllerModule):
         peer_id = cbt.request.params["PeerId"]
         olid = cbt.request.params["OverlayId"]
         tnlid = cbt.request.params["TunnelId"]
-        tap_name = self.get_tap_name(peer_id, olid)
+        tap_name = self._tunnels[tnlid].tap_name
  
         if self._is_tunnel_exist(tap_name):
             self._remove_geneve_tunnel(tap_name)
             gnv_param = {
                 "UpdateType": TunnelEvents.Removed, "OverlayId": olid, "PeerId": peer_id,
-                "TunnelId": tnlid}
+                "TunnelId": tnlid, "TapName": tap_name}
             self._gnv_updates_publisher.post_update(gnv_param)            
             cbt.set_response(
                 data=f"Tunnel {tap_name} deleted", status=True)
@@ -314,13 +314,16 @@ class GeneveTunnel(ControllerModule):
         resp_data = cbt.response.data
         if not cbt.response.status:
             self.free_cbt(cbt)
-            parent_cbt.set_response(resp_data, False)
-            self.complete_cbt(parent_cbt)
+            if parent_cbt:
+                parent_cbt.set_response(resp_data, False)
+                self.complete_cbt(parent_cbt)
         else:
             rem_act = RemoteAction.response(cbt)
             
             if rem_act.action == "GNV_UPDATE_MAC":
                 self.free_cbt(cbt)
+                parent_cbt.set_response("Geneve tunnel created", True)
+                self.complete_cbt(parent_cbt)
             elif rem_act.action == "GNV_EXCHANGE_ENDPT":
                 olid = rem_act.overlay_id
                 peer_id = rem_act.data["NodeId"]
@@ -354,10 +357,7 @@ class GeneveTunnel(ControllerModule):
                                         recipient_cm="GeneveTunnel",
                                         action="GNV_UPDATE_MAC",
                                         params=params)
-                # Send the message via SIG server to peer
-                remote_act.submit_remote_act(self)
-                
-                # to be triggered when tunnel is connected
+                remote_act.submit_remote_act(self, parent_cbt)
                 gnv_param = {
                             "UpdateType": TunnelEvents.Connected, "OverlayId": olid, "PeerId": peer_id,
                             "TunnelId": tnlid, "ConnectedTimestamp": time.time(),
@@ -366,15 +366,7 @@ class GeneveTunnel(ControllerModule):
                             "PeerMac": self._tunnels[tnlid].peer_mac,
                             "Dataplane": self._tunnels[tnlid].dataplane}
                 self._gnv_updates_publisher.post_update(gnv_param)
-                                
-                # if not self._is_tunnel_connected(tap_name):
-                #     self._is_tunnel_connected_async(tap_name)
-                # else:
-                #     # send message to bridge controller
-                #     pass
                 self.free_cbt(cbt)
-                parent_cbt.set_response("Geneve tunnel created", True)
-                self.complete_cbt(parent_cbt)
 
     def get_tap_name(self, peer_id, olid):
         tap_name_prefix = self.config["Overlays"][olid].get(

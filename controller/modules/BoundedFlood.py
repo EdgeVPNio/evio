@@ -213,7 +213,7 @@ class PortDescriptor():
         # is the remote device a peer switch or leaf
         self.rmt_nd_type = NodeTypes.UNKNOWN
         self.peer_data = None               # valid if ND_TYPE_PEER
-        self._dp_type = DataplaneTypes.UNKNOWN
+        self._dp_type = DataplaneTypes.Unknown
         self.is_activated = False
         self.last_active_time = time.time()
 
@@ -254,21 +254,21 @@ class PortDescriptor():
 
     @dp_type.setter
     def dp_type(self, tech):
-        if tech == DataplaneTypes.TINCAN:
+        if tech == DataplaneTypes.Tincan:
             self.is_activated = True
         self._dp_type = tech
 
     @property
     def is_tincan_tunnel(self):
-        return self._dp_type == DataplaneTypes.TINCAN
+        return self._dp_type == DataplaneTypes.Tincan
 
     @property
     def is_geneve_tunnel(self):
-        return self._dp_type == DataplaneTypes.GENEVE
+        return self._dp_type == DataplaneTypes.Geneve
 
     @property
     def is_wireguard_tunnel(self):
-        return self._dp_type == DataplaneTypes.WIREGUARD
+        return self._dp_type == DataplaneTypes.Wireguard
 
 ###################################################################################################
 
@@ -427,7 +427,7 @@ class EvioSwitch(MutableMapping):
                 port_no, prt.name.decode("utf-8"), prt.hw_addr)
             if port_no == INTERNAL_PORT_NUM:
                 pd.rmt_nd_type = NodeTypes.LEAF
-                pd.dp_type = DataplaneTypes.PATCH
+                pd.dp_type = DataplaneTypes.Patch
             else:
                 self._uncategorized_ports.add(port_no)
             self._port_tbl[port_no] = pd
@@ -446,7 +446,7 @@ class EvioSwitch(MutableMapping):
                                      in_port=port.port_no, hop_count=1)
             self._port_tbl[port.port_no].peer_data = pd
         else:
-            port.dp_type = DataplaneTypes.PATCH
+            port.dp_type = DataplaneTypes.Patch
         self.logger.info("Categorized port %s %s",
                          self.name, self._port_tbl[port.port_no])
 
@@ -941,7 +941,7 @@ class BoundedFlood(app_manager.RyuApp):
                                         self._update_port_flow_rules(self.dpset.dps[op.dpid],
                                                                      port.peer.node_id,
                                                                      port.port_no)
-                                    elif port.dp_type in (DataplaneTypes.GENEVE, DataplaneTypes.WIREGUARD):
+                                    elif port.dp_type in (DataplaneTypes.Geneve, DataplaneTypes.Wireguard):
                                         self.do_link_check(
                                             self.dpset.dps[op.dpid], port)
                     elif op.code == Opcode.OND_REQUEST:

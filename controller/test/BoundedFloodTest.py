@@ -27,16 +27,25 @@ import unittest
 import logging
 import logging.handlers as lh
 
-from modules.BoundedFlood import EvioPortal
+from modules.BoundedFlood import EvioPortal, BoundedFlood, PortDescriptor, EvioSwitch
+from modules.Tunnel import DataplaneTypes
 
-class BoundedFloodTestCase(unittest.TestCase):
+class BoundedFloodTest(unittest.TestCase):
+    def __init__(self, *args, **kwargs):
+        super(BoundedFloodTest, self).__init__(*args, **kwargs)
+        self.bf: BoundedFlood = None
 
-    def setUp(self):
-        # Console logging
-        logging.basicConfig(format="[%(asctime)s.%(msecs)03d] %(levelname)s: %(message)s",
-                            datefmt="%H:%M:%S",
-                            level=logging.DEBUG)
-        self.logger = logging.getLogger("BoundedFloodTest console logger")
+    @classmethod
+    def setUpClass(self):
+        # _logger = logging.getLogger()
+        # _logger.setLevel(logging.DEBUG)
+        # # Console Logger
+        # console_handler = logging.StreamHandler()
+        # console_log_formatter = logging.Formatter(
+        #     "[%(asctime)s.%(msecs)03d] %(levelname)s:%(name)s: %(message)s",
+        #     datefmt="%H:%M:%S")
+        # console_handler.setFormatter(console_log_formatter)
+        # _logger.addHandler(console_handler)
         self.config = {
                     "NodeId": "a100019ffffffffffffffffffffff019",
                     "LogDir": "/var/log/evio/",
@@ -53,7 +62,8 @@ class BoundedFloodTestCase(unittest.TestCase):
                         "FlowIdleTimeout": 60,
                         "FlowHardTimeout": 60,
                         "MulticastBroadcastInterval": 60,
-                        "MaxOnDemandEdges": 3
+                        "MaxOnDemandEdges": 3,
+                        "TrafficAnalysisInterval": 5
                     },
                     "eviTB214": {
                         "OverlayId": "TB214",
@@ -72,11 +82,15 @@ class BoundedFloodTestCase(unittest.TestCase):
                     }
         }
 
-    def tearDown(self):
-        del self.logger
-        self.logger = None
-        del self.config
+    @classmethod
+    def tearDownClass(self):
         self.config = None
+                
+    def setUp(self):
+        pass
+
+    def tearDown(self):
+        self.bf = None
 
     def setup_vars_mocks(self):
         """
@@ -89,7 +103,7 @@ class BoundedFloodTestCase(unittest.TestCase):
 
     def testevio_portal_send_recv(self):
         """
-        Test to check the connect to server of the transport instance of the signal class.
+        Test data exchange with BF proxy.
         """
         evio_portal = self.setup_vars_mocks()
         req = dict(Request=dict(Action="GetTunnels", Params=dict(OverlayId=self.config["evioT022221"]["OverlayId"])))
@@ -99,6 +113,26 @@ class BoundedFloodTestCase(unittest.TestCase):
         #self.assert (not resp["Response"]["Data"] is None)
         print("Passed : testevio_portal_send_recv")
 
+    def test_port_descriptor(self):
+        pd = PortDescriptor(2, "test_port", "d8:cb:8a:db:5c:d9")
+        self.assertFalse(pd.is_peer)
+        self.assertFalse(pd.is_categorized)
+        self.assertFalse(pd.is_activated)
+        self.assertFalse(pd.is_tincan_tunnel)
+        self.assertFalse(pd.is_wireguard_tunnel)
+        pd.dp_type = DataplaneTypes.Geneve
+        self.assertTrue(pd.is_geneve_tunnel)
+        
+    def test_eviosw_update_port_data(self):
+        pass
 
 if __name__ == '__main__':
-    unittest.main()
+    suite = unittest.TestSuite()
+    suite.addTest(BoundedFloodTest("test_port_descriptor"))
+    # suite.addTest(BridgeControllerTest("test_req_handler_"))
+    # suite.addTest(BridgeControllerTest("test_req_handler_"))
+    # suite.addTest(BridgeControllerTest("test_req_handler_"))
+    # suite.addTest(BridgeControllerTest("test_resp_handler_"))
+    
+    runner = unittest.TextTestRunner()
+    runner.run(suite)  

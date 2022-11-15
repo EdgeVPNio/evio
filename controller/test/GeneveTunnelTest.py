@@ -166,7 +166,7 @@ if __name__ == '__main__':
     suite.addTest(GeneveTunnelTest("test_req_handler_create_tunnel"))
     suite.addTest(GeneveTunnelTest("test_req_handler_remove_tunnel"))
     suite.addTest(GeneveTunnelTest("test_resp_handler_remote_action"))
-    suite.addTest(GeneveTunnelTest("test_create_geneve_tunnel"))
+    # suite.addTest(GeneveTunnelTest("test_create_geneve_tunnel"))
     
     runner = unittest.TextTestRunner()
     runner.run(suite)        

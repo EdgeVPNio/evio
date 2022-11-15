@@ -39,8 +39,8 @@ TUNNEL_STATES = namedtuple(
 TunnelStates = TUNNEL_STATES()
 
 DATAPLANE_TYPES = namedtuple("DATAPLANE_TYPES",
-                          ["UNKNOWN", "PATCH", "TINCAN", "GENEVE", "WIREGUARD"],
-                          defaults=["DP_TYPES_UNKNOWN", "DP_TYPES_PATCH", "DP_TYPES_TINCAN", "DP_TYPES_GENEVE", "DP_TYPES_WIREGUARD"])
+                          ["Unknown", "Patch", "Tincan", "Geneve", "Wireguard"],
+                          defaults=["DptUnknown", "DptPatch", "DptTincan", "DptGeneve", "DptWireguard"])
 DataplaneTypes = DATAPLANE_TYPES()
 
 ipr = IPRoute()

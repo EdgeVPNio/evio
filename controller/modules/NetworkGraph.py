@@ -89,7 +89,7 @@ class ConnectionEdge():
     """ A discriptor of the edge/link between two peers."""
     _PACK_STR = '!16s16sff18s19s?'
 
-    def __init__(self, peer_id=None, edge_id=None, edge_type="CETypeUnknown", tunnel_type=None):
+    def __init__(self, peer_id=None, edge_id=None, edge_type="CETypeUnknown", dataplane=None):
         self.peer_id = peer_id
         self.edge_id = edge_id
         if not self.edge_id:
@@ -98,8 +98,7 @@ class ConnectionEdge():
         self.connected_time = None
         self.edge_state = EdgeStates.Initialized
         self.edge_type = edge_type
-        self.tunnel_type = tunnel_type
-        # self.marked_for_delete = False
+        self.dataplane = dataplane
 
     def __key__(self):
         return int(self.peer_id, 16)

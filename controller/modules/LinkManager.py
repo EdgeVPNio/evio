@@ -466,7 +466,7 @@ class LinkManager(ControllerModule):
             self._tunnels[tnlid] = Tunnel(tnlid, olid, peer_id,
                                           tnl_state=TunnelStates.AUTHORIZED,
                                           state_timeout=self.config.get("LinkSetupTimeout", LinkSetupTimeout),
-                                          dataplane=DataplaneTypes.TINCAN)
+                                          dataplane=DataplaneTypes.Tincan)
             self.log("LOG_DEBUG", "TunnelId:%s auth for Peer:%s completed",
                      tnlid[:7], peer_id[:7])
             cbt.set_response(
@@ -541,7 +541,7 @@ class LinkManager(ControllerModule):
         self._peers[olid][peer_id] = tnlid
         self._tunnels[tnlid] = Tunnel(tnlid, olid, peer_id, tnl_state=TunnelStates.CREATING,
                                       state_timeout=self.config.get("LinkSetupTimeout", LinkSetupTimeout),
-                                      dataplane=DataplaneTypes.TINCAN)
+                                      dataplane=DataplaneTypes.Tincan)
         self._assign_link_to_tunnel(tnlid, lnkid, 0xA1)
 
         self.logger.debug("Create Link:%s Phase 1/5 Node A - Peer: %s",

@@ -27,7 +27,8 @@ import unittest
 from unittest.mock import MagicMock, Mock, patch
 
 from framework.CBT import CBT
-from modules.Topology import DiscoveredPeer, SupportedTunnels, Topology, EdgeRequest, EdgeNegotiate
+from modules.Tunnel import DataplaneTypes
+from modules.Topology import DiscoveredPeer, Topology, EdgeRequest, EdgeNegotiate
 from modules.NetworkGraph import ConnectionEdge, ConnEdgeAdjacenctList, EdgeStates, EdgeTypesOut, EdgeTypesIn
 from modules.NetworkGraph import GraphTransformation, UpdatePriority
 from modules.Topology import StaleInterval
@@ -268,7 +269,7 @@ class TopologyTest(unittest.TestCase):
                                capability=TunnelCapabilities)
         ovl = self.top._net_ovls[overlay_id]
         tunnel_type = self.top._select_tunnel_type(ovl, edge_req)
-        self.assertEqual(SupportedTunnels.Geneve, tunnel_type)
+        self.assertEqual(DataplaneTypes.Geneve, tunnel_type)
 
         edge_req = EdgeRequest(overlay_id=overlay_id, edge_id=uuid.uuid4().hex,
                                edge_type=EdgeTypesOut.Static, recipient_id=self.top.node_id,
@@ -276,7 +277,7 @@ class TopologyTest(unittest.TestCase):
                                location_id=67890,
                                capability=TunnelCapabilities)        
         tunnel_type = self.top._select_tunnel_type(ovl, edge_req)
-        self.assertEqual(SupportedTunnels.Tincan, tunnel_type)
+        self.assertEqual(DataplaneTypes.Tincan, tunnel_type)
         print("passed: test_select_tunnel_type")
 
     def test_select_tunnel_type_wireguard(self):
@@ -292,7 +293,7 @@ class TopologyTest(unittest.TestCase):
         ovl = self.top._net_ovls[overlay_id]
 
         tunnel_type = self.top._select_tunnel_type(ovl, edge_req)
-        self.assertEqual(SupportedTunnels.WireGuard, tunnel_type)
+        self.assertEqual(DataplaneTypes.WireGuard, tunnel_type)
 
         edge_req = EdgeRequest(overlay_id=overlay_id, edge_id=uuid.uuid4().hex,
                                edge_type=EdgeTypesOut.Static, recipient_id=self.top.node_id,
@@ -300,7 +301,7 @@ class TopologyTest(unittest.TestCase):
                                location_id=67890,
                                capability=TunnelCapabilities)        
         tunnel_type = self.top._select_tunnel_type(ovl, edge_req)
-        self.assertEqual(SupportedTunnels.Tincan, tunnel_type)
+        self.assertEqual(DataplaneTypes.Tincan, tunnel_type)
         print("passed: test_select_tunnel_type_wireguard")
 
     def test_authorize_incoming_tunnel_geneve(self):
@@ -308,7 +309,7 @@ class TopologyTest(unittest.TestCase):
         self.top.initialize()
         cbt = CBT("Signal", "Topology", "TOP_NEGOTIATE_EDGE", {})
         ovl = self.top._net_ovls[overlay_id]
-        self.top._authorize_incoming_tunnel(ovl, "128", uuid.uuid4().hex, SupportedTunnels.Geneve, cbt)
+        self.top._authorize_incoming_tunnel(ovl, "128", uuid.uuid4().hex, DataplaneTypes.Geneve, cbt)
         print("passed: test_authorize_incoming_tunnel_geneve")
     
     def test_authorize_incoming_tunnel_wireguard(self):
@@ -316,7 +317,7 @@ class TopologyTest(unittest.TestCase):
         self.top.initialize()
         cbt = CBT("Signal", "Topology", "TOP_NEGOTIATE_EDGE", {})
         ovl = self.top._net_ovls[overlay_id]
-        self.top._authorize_incoming_tunnel(ovl, "128", uuid.uuid4().hex, SupportedTunnels.WireGuard, cbt)
+        self.top._authorize_incoming_tunnel(ovl, "128", uuid.uuid4().hex, DataplaneTypes.WireGuard, cbt)
         print("passed: test_authorize_incoming_tunnel_wireguard")
     
     def test_authorize_incoming_tunnel_tincan(self):
@@ -324,7 +325,7 @@ class TopologyTest(unittest.TestCase):
         self.top.initialize()
         cbt = CBT("Signal", "Topology", "TOP_NEGOTIATE_EDGE", {})
         ovl = self.top._net_ovls[overlay_id]
-        self.top._authorize_incoming_tunnel(ovl, "128", uuid.uuid4().hex, SupportedTunnels.Tincan, cbt)
+        self.top._authorize_incoming_tunnel(ovl, "128", uuid.uuid4().hex, DataplaneTypes.Tincan, cbt)
         print("passed: test_authorize_incoming_tunnel_tincan")
             
     def test_negotiate_incoming_edge_request(self):
@@ -393,7 +394,7 @@ class TopologyTest(unittest.TestCase):
                           recipient_id=ce.peer_id, initiator_id=self.top.node_id,
                           location_id=self.top.config["Overlays"][overlay_id]["LocationId"],
                           capability=TunnelCapabilities, is_accepted=True, message="Edge Accepted",
-                          tunnel_type=SupportedTunnels.Tincan)
+                          tunnel_type=DataplaneTypes.Tincan)
         self.top._complete_negotiate_edge(ovl, en)
         self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeStates.Authorized)
         print("passed: test_complete_negotiate_edge")
@@ -413,7 +414,7 @@ class TopologyTest(unittest.TestCase):
                            recipient_id=ce.peer_id, initiator_id=ovl.adjacency_list.node_id,
                            location_id=self.top.config["Overlays"][overlay_id]["LocationId"],
                            capability=TunnelCapabilities, is_accepted=True, message="Edge Accepted",
-                           tunnel_type=SupportedTunnels.Geneve)
+                           tunnel_type=DataplaneTypes.Geneve)
         self.top._complete_negotiate_edge(ovl, en)
         self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeStates.Authorized)
         print("passed: test_complete_negotiate_edge_accept_collision")        
@@ -432,7 +433,7 @@ class TopologyTest(unittest.TestCase):
                          recipient_id=ce.peer_id, initiator_id=ovl.adjacency_list.node_id,
                          location_id=self.top.config["Overlays"][overlay_id]["LocationId"],
                          capability=TunnelCapabilities,
-                         is_accepted=False, message=msg, tunnel_type=SupportedTunnels.Tincan)
+                         is_accepted=False, message=msg, tunnel_type=DataplaneTypes.Tincan)
         ovl.acquire()
         self.top._complete_negotiate_edge(ovl, en)
         self.assertEqual(ovl.adjacency_list[peer_id].edge_state, EdgeStates.PreAuth)
@@ -452,7 +453,7 @@ class TopologyTest(unittest.TestCase):
                          location_id=self.top.config["Overlays"][overlay_id]["LocationId"],
                          capability=TunnelCapabilities,
                          is_accepted=False, message="E5 - Too many existing edges.",
-                         tunnel_type=SupportedTunnels.Tincan)
+                         tunnel_type=DataplaneTypes.Tincan)
         ovl.acquire() # increase the ref count to indicate an operation has been started
         self.top._complete_negotiate_edge(ovl, en)
         self.assertEqual(ce.edge_state, EdgeStates.Deleting)
