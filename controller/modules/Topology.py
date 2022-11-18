@@ -682,7 +682,6 @@ class Topology(ControllerModule, CFX):
             if not edge_nego.message[:2] in ("E1", "E2"):
                 ce.edge_state = EdgeStates.Deleting
                 del net_ovl.adjacency_list[ce.peer_id]
-            # ToDo: if peer_id in net_ovl.known_peers:
             net_ovl.known_peers[peer_id].exclude()
             net_ovl.release()  # release on explicit negotiate fail
             self._process_next_transition(net_ovl)
@@ -694,8 +693,6 @@ class Topology(ControllerModule, CFX):
                                     "ce=%s, edge_nego=%s", ce, edge_nego)
                 return
             if ce.edge_id != edge_nego.edge_id:
-
-
                 return
             ce.edge_state = EdgeStates.Authorized
             if (net_ovl.is_encr_required and 
@@ -741,6 +738,7 @@ class Topology(ControllerModule, CFX):
         elif edge_state == EdgeStates.PreAuth and self.node_id > edge_req.initiator_id:
             conn_edge.edge_type = transpose_edge_type(edge_req.edge_type)
             conn_edge.edge_id = edge_req.edge_id
+            conn_edge.dataplane = dp_type
             msg = f"E0 - Node {self.node_id} accepts edge collision override."
             " CE:{conn_edge.edge_id[:7]} remapped -> edge:{edge_req.edge_id[:7]}"
             edge_resp = EdgeResponse(
@@ -826,8 +824,9 @@ class Topology(ControllerModule, CFX):
         elif dataplane == DataplaneTypes.Tincan:
             self.register_cbt("LinkManager", "LNK_REMOVE_TUNNEL", params)
         else:
-            self.logger.warning(
-                f"Remove tunnel request failed, due to invalid tunnel type {dataplane}")
+            msg = f"Remove tunnel {tunnel_id} failed, invalid dataplane type {dataplane}"
+            self.logger.error(msg)
+            raise RuntimeError(msg)
 
     def _update_edge(self, net_ovl, new_conn_edge):
         if not new_conn_edge.peer_id in net_ovl.adjacency_list:
