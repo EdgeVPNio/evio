@@ -135,17 +135,18 @@ class ConnectionEdge():
         yield("connected_time", self.connected_time)
         yield("edge_state", self.edge_state)
         yield("edge_type", self.edge_type)
+        yield("dataplane", self.dataplane)
         # yield("marked_for_delete", self.marked_for_delete)
 
     def serialize(self):
         return struct.pack(ConnectionEdge._PACK_STR, self.peer_id, self.edge_id, self.created_time,
-                           self.connected_time, self.edge_state, self.edge_type)
+                           self.connected_time, self.edge_state, self.edge_type, self.dataplane)
 
     @classmethod
     def from_bytes(cls, data):
         ce = cls()
         (ce.peer_id, ce.edge_id, ce.created_time, ce.connected_time, ce.edge_state,
-         ce.edge_type) = struct.unpack_from(cls._PACK_STR, data)
+         ce.edge_type, ce.dataplane) = struct.unpack_from(cls._PACK_STR, data)
         return ce
 
     def to_json(self):
@@ -161,6 +162,7 @@ class ConnectionEdge():
         ce.connected_time = jce["connected_time"]
         ce.edge_state = jce["edge_state"]
         ce.edge_type = jce["edge_type"]
+        ce.dataplane = jce["dataplane"]
         return ce
 
 
