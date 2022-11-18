@@ -39,7 +39,7 @@ TUNNEL_STATES = namedtuple(
 TunnelStates = TUNNEL_STATES()
 
 DATAPLANE_TYPES = namedtuple("DATAPLANE_TYPES",
-                          ["Unknown", "Patch", "Tincan", "Geneve", "Wireguard"],
+                          ["Unknown", "Patch", "Tincan", "Geneve", "WireGuard"],
                           defaults=["DptUnknown", "DptPatch", "DptTincan", "DptGeneve", "DptWireguard"])
 DataplaneTypes = DATAPLANE_TYPES()
 

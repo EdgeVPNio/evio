@@ -268,7 +268,7 @@ class PortDescriptor():
 
     @property
     def is_wireguard_tunnel(self):
-        return self._dp_type == DataplaneTypes.Wireguard
+        return self._dp_type == DataplaneTypes.WireGuard
 
 ###################################################################################################
 
@@ -541,9 +541,9 @@ class EvioSwitch(MutableMapping):
     def local_leaf_macs(self):
         return self._leaf_macs
 
-    def leaf_macs(self, node_id=None):
+    def leaf_macs(self, node_id):
         if node_id is None:
-            return self._leaf_macs
+            return None
         return self._peer_tbl[node_id].leaf_macs
 
     def clear_leaf_macs(self, node_id):
@@ -941,7 +941,7 @@ class BoundedFlood(app_manager.RyuApp):
                                         self._update_port_flow_rules(self.dpset.dps[op.dpid],
                                                                      port.peer.node_id,
                                                                      port.port_no)
-                                    elif port.dp_type in (DataplaneTypes.Geneve, DataplaneTypes.Wireguard):
+                                    elif port.dp_type in (DataplaneTypes.Geneve, DataplaneTypes.WireGuard):
                                         self.do_link_check(
                                             self.dpset.dps[op.dpid], port)
                     elif op.code == Opcode.OND_REQUEST:
@@ -988,8 +988,6 @@ class BoundedFlood(app_manager.RyuApp):
                                         (port.peer.node_id, "DISCONN"))
                                     sw.delete_port(port_no)
                                 elif now >= port.last_active_time + self._link_check_interval:
-                                    self.logger.debug(
-                                        f"Performing link check on port {port}")
                                     self.do_link_check(
                                         self.dpset.dps[dpid], port)
                         if tunnel_ops:
@@ -1296,12 +1294,11 @@ class BoundedFlood(app_manager.RyuApp):
             pkt_out = parser.OFPPacketOut(datapath=datapath, buffer_id=ofproto.OFP_NO_BUFFER,
                                           actions=acts, data=p.data, in_port=ofproto.OFPP_LOCAL)
             resp = datapath.send_msg(pkt_out)
-            if resp:
-                self.logger.debug("Sent link activate, %s/%s %s",
-                                  self._lt[datapath.id].name, port_no, peer_id)
-            else:
+            if self.logger.isEnabledFor(logging.DEBUG):
+                self.logger.debug("Sending link check %s/%s %s", self._lt[datapath.id].name, port_no, peer_id)
+            if not resp:
                 self.logger.warning(
-                    "Failed to send link activate FRB, OFPPacketOut=%s", pkt_out)
+                    "Failed to send link chk FRB, OFPPacketOut=%s", pkt_out)
         else:
             self.logger.info("Link CHK attempted but remote is not a peer")
 
@@ -1329,12 +1326,12 @@ class BoundedFlood(app_manager.RyuApp):
             pkt_out = parser.OFPPacketOut(datapath=datapath, buffer_id=ofproto.OFP_NO_BUFFER,
                                           actions=acts, data=p.data, in_port=ofproto.OFPP_LOCAL)
             resp = datapath.send_msg(pkt_out)
-            if resp:
-                self.logger.debug("Sent link activate, %s/%s %s",
+            if self.logger.isEnabledFor(logging.DEBUG):
+                self.logger.debug("Sending link ack, %s/%s %s",
                                   self._lt[datapath.id].name, port_no, peer_id)
-            else:
+            if not resp:
                 self.logger.warning(
-                    "Failed to send link activate FRB, OFPPacketOut=%s", pkt_out)
+                    "Failed to send link ack FRB, OFPPacketOut=%s", pkt_out)
         else:
             self.logger.info("Link ACK attempted but remote is not a peer")
 
@@ -1436,7 +1433,8 @@ class BoundedFlood(app_manager.RyuApp):
                                              in_port)
             return
         if rcvd_frb.frb_type == FloodRouteBound.FRB_LNK_ACK:
-            self.logger.debug("Received link check ack %s/%s %s", self._lt[dpid].name, in_port, rcvd_frb)
+            if self.logger.isEnabledFor(logging.DEBUG):
+                self.logger.debug("Received link ack %s/%s %s", self._lt[dpid].name, in_port, rcvd_frb)
             if not port.is_activated:
                 port.is_activated = True
                 self._update_port_flow_rules(datapath,

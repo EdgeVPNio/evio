@@ -244,14 +244,7 @@ class Topology(ControllerModule, CFX):
                 elif cbt.request.action in ("LNK_REMOVE_TUNNEL", "GNV_REMOVE_TUNNEL"):
                     self.resp_handler_remove_tnl(cbt)
                 else:
-                    self.logger.debug("No action matched for CBT response")
-                    parent_cbt = cbt.parent
-                    cbt_data = cbt.response.data
-                    cbt_status = cbt.response.status
-                    self.free_cbt(cbt)
-                    if (parent_cbt is not None and parent_cbt.child_count == 1):
-                        parent_cbt.set_response(cbt_data, cbt_status)
-                        self.complete_cbt(parent_cbt)
+                    self.req_handler_default(cbt)
 
     def timer_method(self):
         with self._lock:
@@ -333,15 +326,16 @@ class Topology(ControllerModule, CFX):
             self.logger.debug("Excluding peer %s until %s", peer_id,
                               str(datetime.fromtimestamp(
                                   ovl.known_peers[peer_id].available_time)))
-        elif event == TunnelEvents.Created:
-            """Roles A & B"""
-            ce = ovl.adjacency_list[peer_id]
-            assert ce.edge_state == EdgeStates.Authorized, f"Invalid edge state {ce}"
-            ce.edge_state = EdgeStates.Created
+        # elif event == TunnelEvents.Created:
+        #     """Roles A & B"""
+        #     ce = ovl.adjacency_list[peer_id]
+        #     assert ce.edge_state == EdgeStates.Authorized, f"Invalid edge state {ce}"
+        #     ce.edge_state = EdgeStates.Created
         elif event == TunnelEvents.Connected:
             """Roles A & B"""
             ce = ovl.adjacency_list[peer_id]
-            assert ce.edge_state == EdgeStates.Created, f"Invalid edge state {ce}"
+            # assert ce.edge_state == EdgeStates.Created, f"Invalid edge state {ce}"
+            assert ce.edge_state == EdgeStates.Authorized, f"Invalid edge state {ce}"
             ce.edge_state = EdgeStates.Connected
             ce.connected_time = update["ConnectedTimestamp"]
             ovl.known_peers[peer_id].restore()
@@ -732,7 +726,7 @@ class Topology(ControllerModule, CFX):
                     is_accepted=False, message=msg, dataplane=None)
             else:
                 msg = (f"E7 - An existing {conn_edge.edge_state} edge with a different id"
-                       f"{conn_edge.edge_id[:7]} alread exist")
+                       f"{conn_edge.edge_id[:7]} already exist")
                 edge_resp = EdgeResponse(
                     is_accepted=False, message=msg, dataplane=None)
         elif edge_state == EdgeStates.Initialized:
@@ -743,7 +737,7 @@ class Topology(ControllerModule, CFX):
             msg = f"E2 - Node {self.node_id} superceeds edge request due to collision, "
             "edge={net_ovl.adjacency_list[peer_id].edge_id[:7]}"
             edge_resp = EdgeResponse(
-                is_accepted=False, message=msg, dataplane=None)
+                is_accepted=False, message=msg, dataplane=dp_type)
         elif edge_state == EdgeStates.PreAuth and self.node_id > edge_req.initiator_id:
             conn_edge.edge_type = transpose_edge_type(edge_req.edge_type)
             conn_edge.edge_id = edge_req.edge_id

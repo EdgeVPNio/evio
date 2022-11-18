@@ -91,20 +91,29 @@ class GeneveTunnel(ControllerModule):
                 # response - call create tunnel command on node A
                 self.resp_handler_remote_action(cbt) # extracts fields from rem action
             else:    
-                parent_cbt = cbt.parent
-                cbt_data = cbt.response.data
-                cbt_status = cbt.response.status
-                if (parent_cbt is not None and parent_cbt.child_count == 1):
-                    parent_cbt.set_response(cbt_data, cbt_status)
-                    self.complete_cbt(parent_cbt)
+                self.resp_handler_default(cbt)
 
     def timer_method(self):
-        # TODO: Cleanup expired auth requests
-        pass
+        deauth = []
+        for tnl in self._tunnels.values():
+            if tnl.tunnel_state in (TunnelStates.AUTHORIZED, TunnelStates.ONLINE) and time.time() > tnl.timeout:
+                deauth.append(tnl)
+        self._deauth_tnls(deauth)        
 
     def terminate(self):
         for tnl in self._tunnels.values():
             self._remove_geneve_tunnel(tnl.tap_name)
+    
+    def _deauth_tnls(self, tnls: list):
+        for tnl in tnls:
+            self.logger.info("Deauthorizing tunnel %s", tnl.tnlid)
+            param = {
+                "UpdateType": TunnelEvents.AuthExpired, "OverlayId": tnl.overlay_id,
+                "PeerId": tnl.peer_id, "TunnelId": tnl.tnlid, "TapName": tnl.tap_name}
+            self._gnv_updates_publisher.post_update(param)
+            self._peers[tnl.overlay_id].pop(tnl.peer_id, None)
+            self._tunnels.pop(tnl.tnlid, None)
+            self._remove_geneve_tunnel(tnl.tap_name)           
 
     def _create_geneve_tunnel(self, tap_name, vnid, remote_addr):
         try:
@@ -138,39 +147,22 @@ class GeneveTunnel(ControllerModule):
         return False
 
     def _is_tunnel_authorized(self, tunnel_id):
-        tun = self._tunnels.get(tunnel_id)
-        # if tun is not None and tun.state in (TunnelStates.AUTHORIZED, TunnelStates.ONLINE, TunnelStates.OFFLINE):
-        if tun is not None and tun.state == TunnelStates.AUTHORIZED:
+        tnl = self._tunnels.get(tunnel_id)
+        if tnl and tnl.state == TunnelStates.AUTHORIZED:
             return True
         return False
     
-    def _is_tunnel_connected(self, tap_name):
-        # get link info of our tunnel, parse it to extract data
-        eth = self._ipr.link("get", index=self._ipr.link_lookup(ifname=tap_name)[0])
-        state = eth[0]['state']
-        oper_state = eth[0]['attrs'][2][1]
-        if state=="up" and oper_state in ['UP', 'UNKNOWN']:
-            return True # Connected
-        return False # Disconnected
-
-    def _is_tunnel_connected_async(self, tap_name):
-        eth = self._ipr.link("get", index=self._ipr.link_lookup(ifname=tap_name)[0])
-        oper_state = eth[0]['attrs'][2][1]
-        if oper_state == 'UP':
-            return True
-        if oper_state == 'UNKNOWN':
-            self._ipr.bind()
-            for message in self._ipr.get():
-                state = message['state']
-                oper_state = message['attrs'][2][1]
-                if state=="up" and oper_state in ['UP']:
-                    return True # Connected
-                return False # Disconnected
-            self._ipr.close()
-        if oper_state == 'DOWN':
-            return False
+    # def _is_tunnel_connected(self, tap_name):
+    #     # get link info of our tunnel, parse it to extract data
+    #     eth = self._ipr.link("get", index=self._ipr.link_lookup(ifname=tap_name)[0])
+    #     state = eth[0]['state']
+    #     oper_state = eth[0]['attrs'][2][1]
+    #     if state=="up" and oper_state in ['UP', 'UNKNOWN']:
+    #         return True # Connected
+    #     return False # Disconnected
 
     def req_handler_auth_tunnel(self, cbt):
+        """Node B"""
         olid = cbt.request.params["OverlayId"]
         peer_id = cbt.request.params["PeerId"]
         tnlid = cbt.request.params["TunnelId"]
@@ -253,6 +245,7 @@ class GeneveTunnel(ControllerModule):
         # Send request to create tunnel
         try:
             tap_name = self._tunnels[tnlid].tap_name
+            # self._tunnels[tnlid].tunnel_state = TunnelStates.CREATING
             self._create_geneve_tunnel(tap_name, vnid, endpnt_address)
             msg = {"EndPointAddress": self.config["Overlays"][olid]["EndPointAddress"],
                    "VNId": vnid, "NodeId": self.node_id, "TunnelId": tnlid, 
@@ -260,10 +253,10 @@ class GeneveTunnel(ControllerModule):
                    "Dataplane": self._tunnels[tnlid].dataplane}
             cbt.set_response(msg, True)
             self.complete_cbt(cbt)
-            event_param = {"UpdateType": TunnelEvents.Created, "OverlayId": olid,
-                "PeerId": peer_id, "TunnelId": tnlid,
-                "TapName": self._tunnels[tnlid].tap_name}
-            self._gnv_updates_publisher.post_update(event_param)
+            # event_param = {"UpdateType": TunnelEvents.Created, "OverlayId": olid,
+            #     "PeerId": peer_id, "TunnelId": tnlid,
+            #     "TapName": self._tunnels[tnlid].tap_name}
+            # self._gnv_updates_publisher.post_update(event_param)
         except Exception as e:
             msg = str("Creation of geneve tunnel failed. Error={0}".format(e))
             self.logger.warning(msg)
@@ -276,8 +269,14 @@ class GeneveTunnel(ControllerModule):
         olid = params["OverlayId"]
         tnlid = params["TunnelId"]
         peer_id = params["NodeId"]
+        if not self._is_tunnel_authorized:
+            # the in progress tunnel was removed in the deauth method
+            cbt.set_response("The request expired and was cancelled", False)
+            self.complete_cbt(cbt)
+            return
         self._tunnels[tnlid].peer_mac = params["MAC"]
         # tunnel connected is simulated here, BF module will check peer liveliness
+        self._tunnels[tnlid].tunnel_state = TunnelStates.ONLINE
         gnv_param = {
                     "UpdateType": TunnelEvents.Connected, "OverlayId": olid, "PeerId": peer_id,
                     "TunnelId": tnlid, "ConnectedTimestamp": time.time(),
@@ -296,6 +295,8 @@ class GeneveTunnel(ControllerModule):
         tap_name = self._tunnels[tnlid].tap_name
  
         if self._is_tunnel_exist(tap_name):
+            assert self._tunnels[tnlid].tunnel_state == TunnelStates.ONLINE, f"Invalid Tunnel state for removal request {self._tunnels[tnlid]}"
+            self._tunnels[tnlid].tunnel_state = TunnelStates.OFFLINE
             self._remove_geneve_tunnel(tap_name)
             gnv_param = {
                 "UpdateType": TunnelEvents.Removed, "OverlayId": olid, "PeerId": peer_id,
@@ -312,61 +313,76 @@ class GeneveTunnel(ControllerModule):
         """Role A"""
         parent_cbt = cbt.parent
         resp_data = cbt.response.data
+        rem_act = RemoteAction.request(cbt)
+        tnlid = rem_act.params["TunnelId"]
         if not cbt.response.status:
+            if self._is_tunnel_authorized(tnlid):
+                self._deauth_tnls([self._tunnels[tnlid]])
             self.free_cbt(cbt)
-            if parent_cbt:
+            if parent_cbt:                
                 parent_cbt.set_response(resp_data, False)
                 self.complete_cbt(parent_cbt)
-        else:
+        elif not self._is_tunnel_authorized(tnlid):
+            # the request expired and has already been removed
+            self.free_cbt(cbt)
+            if parent_cbt:                
+                parent_cbt.set_response("The request expired and was cancelled", False)
+                self.complete_cbt(parent_cbt)                
+            return
+        elif rem_act.action == "GNV_UPDATE_MAC":
             rem_act = RemoteAction.response(cbt)
-            
-            if rem_act.action == "GNV_UPDATE_MAC":
-                self.free_cbt(cbt)
-                parent_cbt.set_response("Geneve tunnel created", True)
+            olid = rem_act.overlay_id
+            peer_id = rem_act.recipient_id
+            tnlid = rem_act.params["TunnelId"]
+            self._tunnels[tnlid].tunnel_state = TunnelStates.ONLINE
+            gnv_param = {
+                        "UpdateType": TunnelEvents.Connected, "OverlayId": olid, "PeerId": peer_id,
+                        "TunnelId": tnlid, "ConnectedTimestamp": time.time(),
+                        "TapName": self._tunnels[tnlid].tap_name,
+                        "MAC": self._tunnels[tnlid].mac,
+                        "PeerMac": self._tunnels[tnlid].peer_mac,
+                        "Dataplane": self._tunnels[tnlid].dataplane}
+            self._gnv_updates_publisher.post_update(gnv_param)
+            self.free_cbt(cbt)
+            parent_cbt.set_response("Geneve tunnel created", True)
+            self.complete_cbt(parent_cbt)
+        elif rem_act.action == "GNV_EXCHANGE_ENDPT":
+            rem_act = RemoteAction.response(cbt)
+            olid = rem_act.overlay_id
+            peer_id = rem_act.data["NodeId"]
+            tnlid = rem_act.data["TunnelId"]
+            vnid = rem_act.data["VNId"]
+            self._tunnels[tnlid].peer_mac = rem_act.data["MAC"]
+            endpnt_address = rem_act.data["EndPointAddress"]
+            tap_name = self.get_tap_name(peer_id, olid)
+            if vnid is None:
+                msg = str("The VNID is NULL. Tunnel cannot be created. "
+                "TunnelId={0}, PeerId={1}".format(tnlid, peer_id))
+                self.logger.warning(msg)
+                parent_cbt.set_response(msg, False)
                 self.complete_cbt(parent_cbt)
-            elif rem_act.action == "GNV_EXCHANGE_ENDPT":
-                olid = rem_act.overlay_id
-                peer_id = rem_act.data["NodeId"]
-                tnlid = rem_act.data["TunnelId"]
-                vnid = rem_act.data["VNId"]
-                self._tunnels[tnlid].peer_mac = rem_act.data["MAC"]
-                endpnt_address = rem_act.data["EndPointAddress"]
-                tap_name = self.get_tap_name(peer_id, olid)
-                if vnid is None:
-                    msg = str("The VNID is NULL. Tunnel cannot be created. "
-                    "TunnelId={0}, PeerId={1}".format(tnlid, peer_id))
-                    self.logger.warning(msg)
-                    parent_cbt.set_response(msg, False)
-                    self.complete_cbt(parent_cbt)
-                    return
-                self._create_geneve_tunnel(tap_name, vnid, endpnt_address)
+                return
+            # self._tunnels[tnlid].tunnel_state = TunnelStates.CREATING
+            self._create_geneve_tunnel(tap_name, vnid, endpnt_address)
 
-                event_param = {"UpdateType": TunnelEvents.Created, "OverlayId": olid,
-                               "PeerId": peer_id, "TunnelId": tnlid,
-                               "TapName": self._tunnels[tnlid].tap_name}
-                self._gnv_updates_publisher.post_update(event_param)
-                # send node A mac address to node B
-                params = {
-                        "OverlayId": olid, 
-                        "NodeId": self.node_id,
-                        "TunnelId": tnlid, 
-                        "MAC": self._tunnels[tnlid].mac
-                    }
-                remote_act = RemoteAction(overlay_id=olid,
-                                        recipient_id=peer_id,
-                                        recipient_cm="GeneveTunnel",
-                                        action="GNV_UPDATE_MAC",
-                                        params=params)
-                remote_act.submit_remote_act(self, parent_cbt)
-                gnv_param = {
-                            "UpdateType": TunnelEvents.Connected, "OverlayId": olid, "PeerId": peer_id,
-                            "TunnelId": tnlid, "ConnectedTimestamp": time.time(),
-                            "TapName": self._tunnels[tnlid].tap_name,
-                            "MAC": self._tunnels[tnlid].mac,
-                            "PeerMac": self._tunnels[tnlid].peer_mac,
-                            "Dataplane": self._tunnels[tnlid].dataplane}
-                self._gnv_updates_publisher.post_update(gnv_param)
-                self.free_cbt(cbt)
+            # event_param = {"UpdateType": TunnelEvents.Created, "OverlayId": olid,
+            #                "PeerId": peer_id, "TunnelId": tnlid,
+            #                "TapName": self._tunnels[tnlid].tap_name}
+            # self._gnv_updates_publisher.post_update(event_param)
+            # send node A mac address to node B
+            params = {
+                    "OverlayId": olid, 
+                    "NodeId": self.node_id,
+                    "TunnelId": tnlid, 
+                    "MAC": self._tunnels[tnlid].mac
+                }
+            remote_act = RemoteAction(overlay_id=olid,
+                                    recipient_id=peer_id,
+                                    recipient_cm="GeneveTunnel",
+                                    action="GNV_UPDATE_MAC",
+                                    params=params)
+            remote_act.submit_remote_act(self, parent_cbt)
+            self.free_cbt(cbt)
 
     def get_tap_name(self, peer_id, olid):
         tap_name_prefix = self.config["Overlays"][olid].get(
