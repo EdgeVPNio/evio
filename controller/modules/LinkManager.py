@@ -572,9 +572,9 @@ class LinkManager(ControllerModule):
         overlay_id = cbt.request.params["OverlayId"]  # config overlay id
         self.logger.debug("Create Link:%s Phase 2/5 Node A", lnkid[:7])
         self._update_tunnel_descriptor(resp_data, tnlid)
-        lnkupd_param = {"UpdateType": TunnelEvents.Created, "OverlayId": overlay_id, "PeerId": peer_id,
-                        "TunnelId": tnlid, "LinkId": lnkid, "TapName": tap_name}
-        self._link_updates_publisher.post_update(lnkupd_param)
+        # lnkupd_param = {"UpdateType": TunnelEvents.Created, "OverlayId": overlay_id, "PeerId": peer_id,
+        #                 "TunnelId": tnlid, "LinkId": lnkid, "TapName": tap_name}
+        # self._link_updates_publisher.post_update(lnkupd_param)
         # create and send remote action to request endpoint from peer
         params = {"OverlayId": overlay_id, "TunnelId": tnlid, "LinkId": lnkid}
         self._request_peer_endpoint(params, parent_cbt)
@@ -652,7 +652,7 @@ class LinkManager(ControllerModule):
         if not cbt.response.status:
             self.free_cbt(cbt)
             parent_cbt.set_response(resp_data, False)
-            if parent_cbt.child_count == 1:
+            if parent_cbt and parent_cbt.child_count == 0:
                 self.complete_cbt(parent_cbt)
             self.logger.warning(
                 "Failed to create connection endpoint for request link: %s. Response data= %s",
@@ -668,9 +668,9 @@ class LinkManager(ControllerModule):
         self._tunnels[tnlid].peer_mac = node_data["MAC"]
         self._tunnels[tnlid].link.creation_state = 0xB2
         tap_name = cbt.request.params["TapName"]
-        lnkupd_param = {"UpdateType": TunnelEvents.Created, "OverlayId": cbt.request.params["OverlayId"],
-                        "PeerId": peer_id, "TunnelId": tnlid, "LinkId": lnkid, "TapName": tap_name}
-        self._link_updates_publisher.post_update(lnkupd_param)
+        # lnkupd_param = {"UpdateType": TunnelEvents.Created, "OverlayId": cbt.request.params["OverlayId"],
+        #                 "PeerId": peer_id, "TunnelId": tnlid, "LinkId": lnkid, "TapName": tap_name}
+        # self._link_updates_publisher.post_update(lnkupd_param)
         # respond with this nodes connection parameters
         node_data = {
             "MAC": resp_data["MAC"],
@@ -978,13 +978,7 @@ class LinkManager(ControllerModule):
                     self.resp_handler_remove_tunnel(cbt)
 
                 else:
-                    parent_cbt = cbt.parent
-                    cbt_data = cbt.response.data
-                    cbt_status = cbt.response.status
-                    self.free_cbt(cbt)
-                    if (parent_cbt is not None and parent_cbt.child_count == 1):
-                        parent_cbt.set_response(cbt_data, cbt_status)
-                        self.complete_cbt(parent_cbt)
+                    self.resp_handler_default(cbt)
 
     def _deauth_tnl(self, tnl):
         self.logger.info("Deauthorizing tunnel %s", tnl.tnlid)
