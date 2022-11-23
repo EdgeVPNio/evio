@@ -102,7 +102,9 @@ class TincanInterface(ControllerModule):
         self.send_control(json.dumps(ctl))
 
     def resp_handler_create_control_link(self, cbt):
-        if cbt.response.status == "False":
+        status = cbt.response.status
+        self.free_cbt(cbt)
+        if status == "False":
             msg = "Failed to create Tincan response link: CBT={0}".format(cbt)
             raise RuntimeError(msg)
 
@@ -114,11 +116,13 @@ class TincanInterface(ControllerModule):
             ctl["EVIO"]["Request"].update(log_cfg)
         self._cfx_handle._pending_cbts[cbt.tag] = cbt
         self.send_control(json.dumps(ctl))
+        self.free_cbt(cbt)
 
     def resp_handler_configure_tincan_logging(self, cbt):
         if cbt.response.status == "False":
             self.logger.warning("Failed to configure Tincan logging: CBT=%s", cbt)
-
+        self.free_cbt(cbt)
+        
     def req_handler_create_link(self, cbt):
         msg = cbt.request.params
         ctl = modlib.CTL_CREATE_LINK
@@ -235,7 +239,8 @@ class TincanInterface(ControllerModule):
             elif cbt.request.action == "TCI_CONFIGURE_LOGGING":
                 self.resp_handler_configure_tincan_logging(cbt)
 
-            self.free_cbt(cbt)
+            else:    
+                self.resp_handler_default(cbt)
 
     def send_control(self, msg):
         return self._sock.sendto(bytes(msg.encode("utf-8")), self._dest)

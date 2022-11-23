@@ -37,7 +37,7 @@ class ControllerModule():
         self._cm_config = module_config
         self._module_name = module_name
         self._state_digest = None
-        self.logger = logging.getLogger(self._module_name)
+        self.logger = logging.getLogger("Evio."+self._module_name)
 
     def __repr__(self):
         items = set()
@@ -91,11 +91,12 @@ class ControllerModule():
         self.complete_cbt(cbt)
 
     def resp_handler_default(self, cbt):
+        self.logger.debug("Using CBT default response handler %s", cbt)
         parent_cbt = cbt.parent
         cbt_data = cbt.response.data
         cbt_status = cbt.response.status
         self.free_cbt(cbt)
-        if (parent_cbt is not None and parent_cbt.child_count == 1):
+        if (parent_cbt and parent_cbt.child_count == 0):
             parent_cbt.set_response(cbt_data, cbt_status)
             self.complete_cbt(parent_cbt)
 

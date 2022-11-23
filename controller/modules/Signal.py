@@ -500,13 +500,7 @@ class Signal(ControllerModule):
                 if cbt.tag in self._remote_acts:
                     self.resp_handler_remote_action(cbt)
                 else:
-                    parent_cbt = cbt.parent
-                    cbt_data = cbt.response.data
-                    cbt_status = cbt.response.status
-                    self.free_cbt(cbt)
-                    if (parent_cbt is not None and parent_cbt.child_count == 1):
-                        parent_cbt.set_response(cbt_data, cbt_status)
-                        self.complete_cbt(parent_cbt)
+                    self.resp_handler_default(cbt)
 
     def timer_method(self):
         with self._lock:

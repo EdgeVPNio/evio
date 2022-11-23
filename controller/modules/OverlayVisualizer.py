@@ -82,14 +82,7 @@ class OverlayVisualizer(ControllerModule):
                                 ]
                 self.free_cbt(cbt)
             else:
-                parent_cbt = cbt.parent
-                cbt_data = cbt.response.data
-                cbt_status = cbt.response.status
-                self.free_cbt(cbt)
-                if parent_cbt is not None and parent_cbt.child_count == 1:
-                    parent_cbt.set_response(cbt_data, cbt_status)
-                    self.complete_cbt(parent_cbt)
-
+                self.req_handler_default(cbt)
         else:
             self.req_handler_default(cbt)
 

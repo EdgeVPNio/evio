@@ -557,13 +557,7 @@ class BridgeController(ControllerModule):
             else:
                 self.req_handler_default(cbt)
         elif cbt.op_type == "Response":
-            parent_cbt = cbt.parent
-            cbt_data = cbt.response.data
-            cbt_status = cbt.response.status
-            self.free_cbt(cbt)
-            if (parent_cbt is not None and parent_cbt.child_count == 1):
-                parent_cbt.set_response(cbt_data, cbt_status)
-                self.complete_cbt(parent_cbt)
+            self.resp_handler_default(cbt)
 
     def terminate(self):
         try:
