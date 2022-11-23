@@ -80,7 +80,7 @@ class CFX():
             self._cfx_handle_dict[module_name].initialize()
 
         # start all the worker and timer threads
-        for module_name in self._cfx_handle_dict:
+        for module_name in self._load_order:
             self._cfx_handle_dict[module_name]._cm_thread.start()
             if self._cfx_handle_dict[module_name]._timer_thread:
                 self._cfx_handle_dict[module_name]._timer_thread.start()
@@ -235,14 +235,14 @@ class CFX():
             signal.pause()
 
     def terminate(self):
-        for module_name in self._cfx_handle_dict:
+        for module_name in reversed(self._load_order):
             if self._cfx_handle_dict[module_name]._timer_thread:
                 self._cfx_handle_dict[module_name]._exit_event.set()
             self._cfx_handle_dict[module_name]._cm_queue.put(None)
 
         # wait for the threads to process their current CBTs and exit
         print("waiting for threads to exit ...")
-        for module_name in self._cfx_handle_dict:
+        for module_name in reversed(self._load_order):
             self._cfx_handle_dict[module_name]._cm_thread.join()
             print("{0} exited".format(self._cfx_handle_dict[module_name]._cm_thread.name))
             if self._cfx_handle_dict[module_name]._timer_thread:
