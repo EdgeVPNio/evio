@@ -80,8 +80,8 @@ class DiscoveredPeer():
         self.successive_fails = 0
 
     def presence(self):
-        self.available_time = time.time()
-        self.last_checkin = self.available_time
+        self.last_checkin = time.time()
+        self.available_time = self.last_checkin
         if self.is_banned and self.successive_fails <= 0:
             self.restore()
         elif self.is_banned and self.successive_fails > 0:
@@ -476,6 +476,7 @@ class Topology(ControllerModule, CFX):
                 peer_id)
         else:
             self._net_ovls[olid].pending_auth_conn_edges.pop(peer_id, None)
+            self._net_ovls[olid].pending_auth_conn_edges.pop(peer_id, None)
             edge_resp = EdgeResponse(False,
                                      f"E4 - Failed to negotiate tunnel: {cbt.response.data}",
                                      None)
@@ -722,7 +723,7 @@ class Topology(ControllerModule, CFX):
                 edge_resp = EdgeResponse(
                     is_accepted=False, message=msg, dataplane=None)
             else:
-                msg = (f"E7 - An existing {conn_edge.edge_state} edge with a different id"
+                msg = (f"E7 - An existing {conn_edge.edge_state} edge with a different id "
                        f"{conn_edge.edge_id[:7]} already exist")
                 edge_resp = EdgeResponse(
                     is_accepted=False, message=msg, dataplane=None)

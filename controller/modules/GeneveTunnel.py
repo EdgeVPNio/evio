@@ -45,14 +45,14 @@ from .Tunnel import TunnelEvents, TunnelStates, DataplaneTypes, Tunnel
 GeneveSetupTimeout = 120
 class GeneveTunnel(ControllerModule):
     TAPNAME_MAXLEN = 15
-    _REFLECT = set(["_peers", "_tunnels"])
+    _REFLECT = set(["_tunnels"])
 
     def __init__(self, cfx_handle, module_config, module_name):
         super(GeneveTunnel, self).__init__(
             cfx_handle, module_config, module_name)
         self._ipr = IPRoute()
         # self.ndb = NDB()
-        self._peers = {}        
+        # self._peers = {}        
         self._tunnels = {} # tunnel id -> TunnelDescriptor 
         self._gnv_updates_publisher = None
     
@@ -63,8 +63,8 @@ class GeneveTunnel(ControllerModule):
         return "{{{}}}".format(", ".join(items))
 
     def initialize(self):
-        for olid in self.overlays:
-            self._peers[olid] = dict()
+        # for olid in self.overlays:
+        #     self._peers[olid] = dict()
 
         self._gnv_updates_publisher = \
             self.publish_subscription("GNV_TUNNEL_EVENTS")
@@ -96,14 +96,16 @@ class GeneveTunnel(ControllerModule):
     def timer_method(self):
         deauth = []
         for tnl in self._tunnels.values():
-            if tnl.tunnel_state in (TunnelStates.AUTHORIZED, TunnelStates.ONLINE) and time.time() > tnl.timeout:
+            if tnl.state == TunnelStates.AUTHORIZED and time.time() > tnl.timeout:
                 deauth.append(tnl)
         self._deauth_tnls(deauth)        
 
     def terminate(self):
         for tnl in self._tunnels.values():
             self._remove_geneve_tunnel(tnl.tap_name)
-    
+            # self._peers[tnl.overlay_id].pop(tnl.peer_id, None)
+        self._tunnels.clear()
+        
     def _deauth_tnls(self, tnls: list):
         for tnl in tnls:
             self.logger.info("Deauthorizing tunnel %s", tnl.tnlid)
@@ -111,7 +113,7 @@ class GeneveTunnel(ControllerModule):
                 "UpdateType": TunnelEvents.AuthExpired, "OverlayId": tnl.overlay_id,
                 "PeerId": tnl.peer_id, "TunnelId": tnl.tnlid, "TapName": tnl.tap_name}
             self._gnv_updates_publisher.post_update(param)
-            self._peers[tnl.overlay_id].pop(tnl.peer_id, None)
+            # self._peers[tnl.overlay_id].pop(tnl.peer_id, None)
             self._tunnels.pop(tnl.tnlid, None)
             self._remove_geneve_tunnel(tnl.tap_name)           
 
@@ -166,14 +168,15 @@ class GeneveTunnel(ControllerModule):
         olid = cbt.request.params["OverlayId"]
         peer_id = cbt.request.params["PeerId"]
         tnlid = cbt.request.params["TunnelId"]
-        if peer_id in self._peers[olid] or tnlid in self._tunnels:
+        # if peer_id in self._peers[olid] or tnlid in self._tunnels:
+        if tnlid in self._tunnels:
             cbt.set_response("Geneve tunnel authorization failed, resource already exist for peer:tunnel {0}:{1}"
-                             .format(peer_id, tnlid[:7]), False)
+                             .format(peer_id[:7], tnlid[:7]), False)
         else:
             tap_name = self.get_tap_name(peer_id, olid)
             self._tunnels[tnlid] = Tunnel(tnlid, olid, peer_id, TunnelStates.AUTHORIZED,
                                           GeneveSetupTimeout, tap_name, DataplaneTypes.Geneve)
-            self._peers[olid][peer_id] = tnlid
+            # self._peers[olid][peer_id] = tnlid
             self.logger.debug("TunnelId:%s authorization for Peer:%s completed",
                               tnlid[:7], peer_id[:7])
             cbt.set_response(
@@ -245,7 +248,7 @@ class GeneveTunnel(ControllerModule):
         # Send request to create tunnel
         try:
             tap_name = self._tunnels[tnlid].tap_name
-            # self._tunnels[tnlid].tunnel_state = TunnelStates.CREATING
+            # self._tunnels[tnlid].state = TunnelStates.CREATING
             self._create_geneve_tunnel(tap_name, vnid, endpnt_address)
             msg = {"EndPointAddress": self.config["Overlays"][olid]["EndPointAddress"],
                    "VNId": vnid, "NodeId": self.node_id, "TunnelId": tnlid, 
@@ -276,7 +279,7 @@ class GeneveTunnel(ControllerModule):
             return
         self._tunnels[tnlid].peer_mac = params["MAC"]
         # tunnel connected is simulated here, BF module will check peer liveliness
-        self._tunnels[tnlid].tunnel_state = TunnelStates.ONLINE
+        self._tunnels[tnlid].state = TunnelStates.ONLINE
         gnv_param = {
                     "UpdateType": TunnelEvents.Connected, "OverlayId": olid, "PeerId": peer_id,
                     "TunnelId": tnlid, "ConnectedTimestamp": time.time(),
@@ -295,9 +298,11 @@ class GeneveTunnel(ControllerModule):
         tap_name = self._tunnels[tnlid].tap_name
  
         if self._is_tunnel_exist(tap_name):
-            assert self._tunnels[tnlid].tunnel_state == TunnelStates.ONLINE, f"Invalid Tunnel state for removal request {self._tunnels[tnlid]}"
-            self._tunnels[tnlid].tunnel_state = TunnelStates.OFFLINE
+            assert self._tunnels[tnlid].state == TunnelStates.ONLINE, f"Invalid Tunnel state for removal request {self._tunnels[tnlid]}"
+            self._tunnels[tnlid].state = TunnelStates.OFFLINE
             self._remove_geneve_tunnel(tap_name)
+            self._tunnels.pop(tnlid)
+            # self._peers[olid].pop(peer_id)
             gnv_param = {
                 "UpdateType": TunnelEvents.Removed, "OverlayId": olid, "PeerId": peer_id,
                 "TunnelId": tnlid, "TapName": tap_name}
@@ -334,7 +339,7 @@ class GeneveTunnel(ControllerModule):
             olid = rem_act.overlay_id
             peer_id = rem_act.recipient_id
             tnlid = rem_act.params["TunnelId"]
-            self._tunnels[tnlid].tunnel_state = TunnelStates.ONLINE
+            self._tunnels[tnlid].state = TunnelStates.ONLINE
             gnv_param = {
                         "UpdateType": TunnelEvents.Connected, "OverlayId": olid, "PeerId": peer_id,
                         "TunnelId": tnlid, "ConnectedTimestamp": time.time(),
@@ -362,7 +367,7 @@ class GeneveTunnel(ControllerModule):
                 parent_cbt.set_response(msg, False)
                 self.complete_cbt(parent_cbt)
                 return
-            # self._tunnels[tnlid].tunnel_state = TunnelStates.CREATING
+            # self._tunnels[tnlid].state = TunnelStates.CREATING
             self._create_geneve_tunnel(tap_name, vnid, endpnt_address)
 
             # event_param = {"UpdateType": TunnelEvents.Created, "OverlayId": olid,
