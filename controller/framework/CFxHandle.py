@@ -106,8 +106,8 @@ class CFxHandle():
             cbt = self._cm_queue.get()
             # Terminate when CBT is None
             if cbt is None:
-                self._cm_queue.task_done()
                 self._cm_instance.terminate()
+                self._cm_queue.task_done()
                 break
             else:
                 try:
@@ -135,6 +135,7 @@ class CFxHandle():
             except Exception as err:
                 self._cm_instance.logger.warning(
                     f"Timer Method exception:{err}\n{traceback.format_exc()}")
+        self._cm_instance.timer_method(True)
                 
     def query_param(self, param_name=""):
         pv = self.__cfx_object.query_param(param_name)

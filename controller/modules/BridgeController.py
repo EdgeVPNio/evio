@@ -543,8 +543,9 @@ class BridgeController(ControllerModule):
         cbt.set_response(None, True)
         self.complete_cbt(cbt)
 
-    def timer_method(self):
-        self.trace_state()
+    def timer_method(self, is_exiting=False):
+        if is_exiting:
+            return
         for olid in self._tunnels:
             self._tunnels[olid].trim()
 
@@ -575,7 +576,8 @@ class BridgeController(ControllerModule):
                         for port in br.ports:
                             br.del_port(port)
         except RuntimeError as err:
-            self.register_cbt("Logger", "LOG_WARNING", str(err))
+            self.logger.warning(str(err))
+        self.logger.info("Module Terminating")
 
     def req_handler_vis_data(self, cbt):
         br_data = dict()

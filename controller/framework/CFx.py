@@ -28,21 +28,54 @@ import threading
 import time
 import importlib
 import uuid
+import logging
+import logging.handlers as lh
+import queue
 import framework.Fxlib as fxlib
 from .CBT import CBT
 from .CFxHandle import CFxHandle
 from .CFxSubscription import CFxSubscription
 
-# pylint: disable=protected-access
+RootLogLevel = "INFO"
+LogLevel = "INFO"
+Directory = "/var/log/evio/"
+CFxLogFileName = "cfx.log"
+CtrlLogFileName = "ctrl.log"
+TincanLogFileName = "tincan_log"
+MaxFileSize = 10000000   # 10MB sized log files
+MaxArchives = 5
+ConsoleLevel = None
+Device = "File"
+
 class CFX():
+    @staticmethod
+    def detect_cyclic_dependency(graph):
+        # test if the directed graph g has a cycle
+        path = set()
+        def visit(vertex):
+            path.add(vertex)
+            for neighbour in graph.get(vertex, ()):
+                if (neighbour in path) or visit(neighbour):
+                    return True
+            path.remove(vertex)
+            return False
+
+        return any(visit(v) for v in graph)
+
+    @staticmethod
+    def __handler(signum=None, frame=None):
+        # pylint: disable=unused-argument
+        print("Signal handler called with signal", signum)
 
     def __init__(self):
         self._config = dict()
         self.parse_config()
+        self._setup_logging()
         """
         CFxHandleDict is a dict containing the references to CFxHandles of all
         CMs. The key is the module name and value as the CFxHandle reference
         """
+        self._handle_lock = threading.Lock()
         self._cfx_handle_dict = {}
         self.model = self._config["CFx"]["Model"]
         self._event = None
@@ -50,15 +83,103 @@ class CFX():
         self._node_id = self._set_node_id()
         self._load_order = []
 
-    def submit_cbt(self, cbt: CBT):
-        recipient = cbt.request.recipient
-        initiator = cbt.request.initiator
-        if cbt.op_type == "Response":
-            recipient = cbt.response.recipient
-            initiator = cbt.response.initiator
-        self._cfx_handle_dict[recipient]._cm_queue.put(cbt)
+    def __enter__(self):
+        self.initialize()
+        return self
+    
+    def __exit__(self, type, value, traceback):
+        return self.terminate()
+        
+    def parse_config(self):
+        self._config = fxlib.CONFIG
+        self._set_nid_file_name()
+        parser = argparse.ArgumentParser(description="Starts the EVIO Controller")
+        parser.add_argument("-c", help="load configuration from a file",
+                            dest="config_file", metavar="config_file")
+        parser.add_argument("-s", help="configuration as json string"
+                            " (overrides configuration from file)",
+                            dest="config_string", metavar="config_string")
+        # parser.add_argument("-p", help="load remote ip configuration file",
+        #                     dest="ip_config", metavar="ip_config")
+        args = parser.parse_args()
+        if args.config_file:
+            while not os.path.isfile(args.config_file):
+                self.logger.info("Waiting on config file %s", args.config_file)
+                time.sleep(10)
+            # load the configuration file
+            with open(args.config_file) as f:
+                cfg = json.load(f)
+                for key in cfg:
+                    if self._config.get(key, False):
+                        self._config[key].update(cfg[key])
+                    else:
+                        self._config[key] = cfg[key]
+        if args.config_string:
+            cfg = json.loads(args.config_string)
+            for key in cfg:
+                if self._config.get(key, None):
+                    self._config[key].update(cfg[key])
+                else:
+                    self._config[key] = cfg[key]
 
-    def initialize(self,):
+    def _setup_logging(self):
+            # Extracts the filepath else sets logs to current working directory
+            filepath = self._config["CFx"].get("Directory", Directory)
+            fqname = os.path.join(filepath,
+                                  self._config["CFx"].get("CFxLogFileName", "cfx.log"))
+            if not os.path.exists(filepath):
+                os.makedirs(filepath, exist_ok=True)
+            if os.path.isfile(fqname):
+                os.remove(fqname)
+            # setup root logger
+            formatter = logging.Formatter(
+                "[%(asctime)s.%(msecs)03d] %(levelname)s:%(name)s: %(message)s", datefmt="%Y%m%d %H:%M:%S")
+            root_handler = lh.RotatingFileHandler(filename=fqname,
+                                             maxBytes=self._config["CFx"].get(
+                                                 "MaxFileSize", MaxFileSize),
+                                             backupCount=self._config["CFx"].get("MaxArchives", MaxArchives))
+            root_handler.setFormatter(formatter)
+            que = queue.Queue(-1)  # no limit on size
+            queue_handler = lh.QueueHandler(que)            
+            self._rlistener = lh.QueueListener(que, root_handler, respect_handler_level=True)
+            self.logger = logging.getLogger()
+            level = getattr(logging, self._config["CFx"].get("RootLogLevel", RootLogLevel))
+            self.logger.setLevel(level)
+            self.logger.addHandler(queue_handler)            
+            self._rlistener.start()
+            
+            # setup CM logging, each module adds their own logger
+            fqname = os.path.join(filepath,
+                                  self._config["CFx"].get("CtrlLogFileName", CtrlLogFileName))
+            if not os.path.exists(filepath):
+                os.makedirs(filepath, exist_ok=True)
+            if os.path.isfile(fqname):
+                os.remove(fqname)
+                            
+            cm_logger = logging.getLogger("Evio")
+           
+            rf_handler = lh.RotatingFileHandler(filename=fqname,
+                                             maxBytes=self._config["CFx"].get(
+                                                 "MaxFileSize", MaxFileSize),
+                                             backupCount=self._config["CFx"].get("MaxArchives", MaxArchives))
+            # formatter = logging.Formatter(
+            #     "[%(asctime)s.%(msecs)03d] %(levelname)s:%(name)s: %(message)s", datefmt="%Y%m%d %H:%M:%S")
+            rf_handler.setFormatter(formatter)
+            level = getattr(logging, self._config["CFx"].get("LogLevel", LogLevel))
+            cm_logger.setLevel(level)
+            # setup console logging to record errors in the system journal
+            console_handler = logging.StreamHandler()
+            console_log_formatter = logging.Formatter("%(levelname)s:%(name)s: %(message)s")
+            console_handler.setFormatter(console_log_formatter)
+            console_handler.setLevel(logging.ERROR)
+            # use queue handler/listenter since AsyncIO is used in this process
+            que = queue.Queue(-1)
+            queue_handler = lh.QueueHandler(que)
+            self._cm_listener = lh.QueueListener(que, console_handler, rf_handler, respect_handler_level=True)
+            cm_logger.addHandler(queue_handler)
+            self._cm_listener.start()            
+
+    def initialize(self):
         # check for circular dependencies in the configuration file
         dependency_graph = {}
         for key in self._config:
@@ -80,11 +201,12 @@ class CFX():
             self._cfx_handle_dict[module_name].initialize()
 
         # start all the worker and timer threads
-        for module_name in self._load_order:
-            self._cfx_handle_dict[module_name]._cm_thread.start()
-            if self._cfx_handle_dict[module_name]._timer_thread:
-                self._cfx_handle_dict[module_name]._timer_thread.start()
-
+        with self._handle_lock:
+            for module_name in self._load_order:
+                self._cfx_handle_dict[module_name]._cm_thread.start()
+                if self._cfx_handle_dict[module_name]._timer_thread:
+                    self._cfx_handle_dict[module_name]._timer_thread.start()
+        
     def load_module(self, module_name):
         """
         Dynamically load the modules specified in the config file. Allow model
@@ -134,57 +256,6 @@ class CFX():
         except KeyError:
             pass
 
-    @staticmethod
-    def detect_cyclic_dependency(graph):
-        # test if the directed graph g has a cycle
-        path = set()
-        def visit(vertex):
-            path.add(vertex)
-            for neighbour in graph.get(vertex, ()):
-                if (neighbour in path) or visit(neighbour):
-                    return True
-            path.remove(vertex)
-            return False
-
-        return any(visit(v) for v in graph)
-
-    @staticmethod
-    def __handler(signum=None, frame=None):
-        # pylint: disable=unused-argument
-        print("Signal handler called with signal ", signum)
-
-    def parse_config(self):
-        self._config = fxlib.CONFIG
-        self._set_nid_file_name()
-        parser = argparse.ArgumentParser(description="Starts the EVIO Controller")
-        parser.add_argument("-c", help="load configuration from a file",
-                            dest="config_file", metavar="config_file")
-        parser.add_argument("-s", help="configuration as json string"
-                            " (overrides configuration from file)",
-                            dest="config_string", metavar="config_string")
-        # parser.add_argument("-p", help="load remote ip configuration file",
-        #                     dest="ip_config", metavar="ip_config")
-        args = parser.parse_args()
-        if args.config_file:
-            while not os.path.isfile(args.config_file):
-                print("Waiting on config file {}".format(args.config_file))
-                time.sleep(10)
-            # load the configuration file
-            with open(args.config_file) as f:
-                cfg = json.load(f)
-                for key in cfg:
-                    if self._config.get(key, False):
-                        self._config[key].update(cfg[key])
-                    else:
-                        self._config[key] = cfg[key]
-        if args.config_string:
-            cfg = json.loads(args.config_string)
-            for key in cfg:
-                if self._config.get(key, None):
-                    self._config[key].update(cfg[key])
-                else:
-                    self._config[key] = cfg[key]
-
     def _set_node_id(self,):
         config = self._config["CFx"]
         # if NodeId is not specified in Config file, generate NodeId
@@ -212,7 +283,7 @@ class CFX():
             DIRNAME_PREFIX = "."
         self._config["CFx"]["NidFileName"] = os.path.join(DIRNAME_PREFIX, NID_FILENAME)
 
-    def wait_for_shutdown_event(self):
+    def run(self):
         self._event = threading.Event()
 
         # Since signal.pause() is not avaialble on windows, use event.wait()
@@ -225,29 +296,31 @@ class CFX():
                 try:
                     self._event.wait(1)
                 except (KeyboardInterrupt, SystemExit) as e:
-                    print("Controller shutdown event: {0}".format(str(e)))
+                    self.logger.info("Controller shutdown event: %s", str(e))
                     break
         else:
             for sig in [signal.SIGINT, signal.SIGTERM]:
                 signal.signal(sig, CFX.__handler)
             # sleeps until signal is received
-            # pylint: disable=no-member
             signal.pause()
 
     def terminate(self):
-        for module_name in reversed(self._load_order):
-            if self._cfx_handle_dict[module_name]._timer_thread:
-                self._cfx_handle_dict[module_name]._exit_event.set()
-            self._cfx_handle_dict[module_name]._cm_queue.put(None)
-
-        # wait for the threads to process their current CBTs and exit
-        print("waiting for threads to exit ...")
-        for module_name in reversed(self._load_order):
-            self._cfx_handle_dict[module_name]._cm_thread.join()
-            print("{0} exited".format(self._cfx_handle_dict[module_name]._cm_thread.name))
-            if self._cfx_handle_dict[module_name]._timer_thread:
-                self._cfx_handle_dict[module_name]._timer_thread.join()
-                print("{0} exited".format(self._cfx_handle_dict[module_name]._timer_thread.name))
+        with self._handle_lock:
+            for module_name in reversed(self._load_order):
+                if self._cfx_handle_dict[module_name]._timer_thread:
+                    tn = self._cfx_handle_dict[module_name]._timer_thread.name
+                    self._cfx_handle_dict[module_name]._exit_event.set()
+                    self._cfx_handle_dict[module_name]._timer_thread.join()
+                    self.logger.info("%s exited", tn)
+                    print("exited:", tn)
+                wn =self._cfx_handle_dict[module_name]._cm_thread.name
+                self._cfx_handle_dict[module_name]._cm_queue.put(None)
+                self._cfx_handle_dict[module_name]._cm_thread.join()
+                self.logger.info("%s exited", wn)
+                print("exited:", wn)
+        # self._rlistener.stop()
+        # logging.shutdown()
+        return True
 
     def query_param(self, param_name=""):
         val = None
@@ -264,11 +337,29 @@ class CFX():
                 val = self._config["CFx"].get("DebugCBTs", False)
             elif param_name == "RequestTimeout":
                 val = self._config["CFx"]["RequestTimeout"]
+            elif param_name == "LogConfig":
+                val = {
+                        "Level": self._config["CFx"].get("LogLevel", LogLevel),
+                        "Device": self._config["CFx"].get("Device", Device),
+                        "Directory": self._config["CFx"].get("Directory", Directory),
+                        "Filename": self._config["CFx"].get("TincanLogFileName", TincanLogFileName),
+                        "MaxArchives": self._config["CFx"].get("MaxArchives", MaxArchives),
+                        "MaxFileSize": self._config["CFx"].get("MaxFileSize", MaxFileSize),
+                        "ConsoleLevel": self._config["CFx"].get("ConsoleLevel", ConsoleLevel)
+                    }
         except KeyError as err:
-            print("Exception occurred while querying paramater:{0}, key:{1}"
-                  .format(param_name, str(err)))
+            self.logger.warning("Exception occurred while querying paramater:%s, %s", param_name, str(err))
         return val
 
+    def submit_cbt(self, cbt: CBT):
+        recipient = cbt.request.recipient
+        initiator = cbt.request.initiator
+        if cbt.op_type == "Response":
+            recipient = cbt.response.recipient
+            initiator = cbt.response.initiator
+        with self._handle_lock:
+            self._cfx_handle_dict[recipient]._cm_queue.put(cbt)
+        
     # Caller is the subscription source
     def publish_subscription(self, publisher_name, subscription_name, publisher):
         sub = CFxSubscription(publisher_name, subscription_name)

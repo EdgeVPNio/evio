@@ -51,11 +51,13 @@ class UsageReport(ControllerModule):
             else:
                 self.resp_handler_default(cbt)
 
-    def timer_method(self):
+    def timer_method(self, is_exiting=False):
+        if is_exiting:
+            return
         self.register_cbt("Topology", "TOP_QUERY_KNOWN_PEERS", None)
 
     def terminate(self):
-        pass
+        self.logger.info("Module Terminating")
 
     def create_report(self, data):
         self._report["ReportId"] = self._report_id

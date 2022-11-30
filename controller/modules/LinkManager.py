@@ -119,7 +119,7 @@ class LinkManager(ControllerModule):
                 for ign_inf in ol_cfg["IgnoredNetInterfaces"]:
                     self._ignored_net_interfaces[olid].add(ign_inf)
 
-        self.log("LOG_INFO", "Module Loaded")
+        self.logger.info("Module Loaded")
 
     def _get_ignored_tap_names(self, overlay_id, new_inf_name=None):
         ign_tap_names = set()
@@ -214,7 +214,7 @@ class LinkManager(ControllerModule):
         self._tunnels[tnlid].mac = tnl_desc["MAC"]
         self._tunnels[tnlid].tap_name = tnl_desc["TapName"]
         self._tunnels[tnlid].fpr = tnl_desc["FPR"]
-        self.log("LOG_DEBUG", "Updated tunnels:%s", self._tunnels[tnlid])
+        self.logger.debug("Updated tunnels:%s", self._tunnels[tnlid])
 
     def _query_link_stats(self):
         """Query the status of links that have completed creation process"""
@@ -229,8 +229,8 @@ class LinkManager(ControllerModule):
 
     def resp_handler_query_link_stats(self, cbt):
         if not cbt.response.status:
-            self.log("LOG_WARNING", "Link stats update error: %s",
-                     cbt.response.data)
+            self.logger.warning("Link stats update error: %s",
+                                cbt.response.data)
             self.free_cbt(cbt)
             return
         if not cbt.response.data:
@@ -336,8 +336,8 @@ class LinkManager(ControllerModule):
         if parent_cbt:
             parent_cbt.set_response("Tunnel removed", True)
             self.complete_cbt(parent_cbt)
-        self.log("LOG_INFO", "Tunnel %s removed: %s:%s<->%s",
-                 tnlid[:7], olid[:7], self.node_id[:7], peer_id[:7])
+        self.logger.info("Tunnel %s removed: %s:%s<->%s",
+                         tnlid[:7], olid[:7], self.node_id[:7], peer_id[:7])
 
     # def resp_handler_remove_link(self, rmv_tnl_cbt):
     #     parent_cbt = rmv_tnl_cbt.parent
@@ -357,7 +357,7 @@ class LinkManager(ControllerModule):
     #     if parent_cbt:
     #         parent_cbt.set_response("Link removed", True)
     #         self.complete_cbt(parent_cbt)
-    #     self.log("LOG_INFO", "Link %s from Tunnel %s removed: %s:%s<->%s",
+    #     self.logger.info("Link %s from Tunnel %s removed: %s:%s<->%s",
     #              lnkid[:7], tnlid[:7], olid[:7], self.node_id[:7], peer_id[:7])
 
     def req_handler_query_tunnels_info(self, cbt):
@@ -382,9 +382,7 @@ class LinkManager(ControllerModule):
             "TapNamePrefix", TapNamePrefix)
         end_i = self.TAPNAME_MAXLEN - len(tap_name_prefix)
         tap_name = tap_name_prefix + str(peer_id[:end_i])
-        if os.name == "nt":
-            tap_name = self.config["Overlays"][overlay_id]["TapName"]
-        self.log("LOG_DEBUG", "IgnoredNetInterfaces: %s",
+        self.logger.debug("IgnoredNetInterfaces: %s",
                  self._get_ignored_tap_names(overlay_id, tap_name))
         create_tnl_params = {
             "OverlayId": overlay_id,
@@ -449,9 +447,9 @@ class LinkManager(ControllerModule):
                       "TunnelId": tnlid, "LinkId": lnkid}
             self.register_cbt("TincanInterface", "TCI_REMOVE_TUNNEL", params)
 
-            self.log("LOG_INFO", "Initiated removal of incomplete link: "
-                     "PeerId:{2}, LinkId:{0}, CreateState:{1}"
-                     .format(tnlid[:7], format(creation_state, "02X"), peer_id[:7]))
+            self.logger.info("Initiated removal of incomplete link: "
+                     "PeerId: %s, LinkId: %s, CreateState: %s",
+                     peer_id[:7], tnlid[:7], format(creation_state, "02X"))
 
     def req_handler_auth_tunnel(self, cbt):
         """Node B"""
@@ -467,10 +465,10 @@ class LinkManager(ControllerModule):
                                           tnl_state=TunnelStates.AUTHORIZED,
                                           state_timeout=self.config.get("LinkSetupTimeout", LinkSetupTimeout),
                                           dataplane=DataplaneTypes.Tincan)
-            self.log("LOG_DEBUG", "TunnelId:%s auth for Peer:%s completed",
+            self.logger.debug("TunnelId:%s auth for peer:%s completed",
                      tnlid[:7], peer_id[:7])
             cbt.set_response(
-                "Auth completed, TunnelId:{0}".format(tnlid[:7]), True)
+                "Authorization completed, TunnelId:{0}".format(tnlid[:7]), True)
             lnkupd_param = {
                 "UpdateType": TunnelEvents.Authorized, "OverlayId": olid, "PeerId": peer_id,
                 "TunnelId": tnlid}
@@ -609,8 +607,7 @@ class LinkManager(ControllerModule):
             return
         lnkid = tnlid
         self._tunnels[tnlid].tunnel_state = TunnelStates.CREATING
-        self._tunnels[tnlid].timeout = time.time(
-        ) + self.config.get("LinkSetupTimeout", LinkSetupTimeout)
+        self._tunnels[tnlid].timeout = time.time() + self.config.get("LinkSetupTimeout", LinkSetupTimeout)
         self._assign_link_to_tunnel(tnlid, lnkid, 0xB1)
         self.logger.debug("Create Link:%s Phase 1/4 Node B", lnkid[:7])
         # Send request to Tincan
@@ -618,8 +615,8 @@ class LinkManager(ControllerModule):
             :3]
         end_i = self.TAPNAME_MAXLEN - len(tap_name_prefix)
         tap_name = tap_name_prefix + str(peer_id[:end_i])
-        self.log("LOG_DEBUG", "IgnoredNetInterfaces: %s",
-                 self._get_ignored_tap_names(olid, tap_name))
+        self.logger.debug("IgnoredNetInterfaces: %s",
+                          self._get_ignored_tap_names(olid, tap_name))
         create_link_params = {
             "OverlayId": olid,
             # overlay params
@@ -661,16 +658,12 @@ class LinkManager(ControllerModule):
             return
         self.logger.debug(
             "Create Link:%s Phase 2/4 Node B - Peer: %s", lnkid[:7], peer_id[:7])
+        self._tunnels[tnlid].link.creation_state = 0xB2
         # store the overlay data
         self._update_tunnel_descriptor(resp_data, tnlid)
         # add the peer MAC to the tunnel descr
         node_data = cbt.request.params["NodeData"]
         self._tunnels[tnlid].peer_mac = node_data["MAC"]
-        self._tunnels[tnlid].link.creation_state = 0xB2
-        tap_name = cbt.request.params["TapName"]
-        # lnkupd_param = {"UpdateType": TunnelEvents.Created, "OverlayId": cbt.request.params["OverlayId"],
-        #                 "PeerId": peer_id, "TunnelId": tnlid, "LinkId": lnkid, "TapName": tap_name}
-        # self._link_updates_publisher.post_update(lnkupd_param)
         # respond with this nodes connection parameters
         node_data = {
             "MAC": resp_data["MAC"],
@@ -879,7 +872,7 @@ class LinkManager(ControllerModule):
             tnlid = cbt.request.params["TunnelId"]
             if (cbt.request.params["Data"] == "LINK_STATE_DOWN") and \
                     (self._tunnels[tnlid].tunnel_state != TunnelStates.QUERYING):
-                self.log("LOG_DEBUG", "LINK %s STATE is DOWN cbt=%s", tnlid, cbt)
+                self.logger.debug("LINK %s STATE is DOWN cbt=%s", tnlid, cbt)
                 # issue a link state check only if it not already being done
                 self._tunnels[tnlid].tunnel_state = TunnelStates.QUERYING
                 self.register_cbt("TincanInterface",
@@ -1003,13 +996,15 @@ class LinkManager(ControllerModule):
             self.logger.debug("Removing expired link operation %s", tnlid)
             self._rollback_link_creation_changes(tnlid)
 
-    def timer_method(self):
+    def timer_method(self, is_exiting=False):
+        if is_exiting:
+            return
         with self._lock:
             self._cleanup_expired_incomplete_links()
             self._query_link_stats()
 
     def terminate(self):
-        pass
+        self.logger.info("Module Terminating")
 
     def req_handler_query_viz_data(self, cbt):
         tnls = dict()
@@ -1053,7 +1048,7 @@ Events
 descriptor is created and TunnelEvents.Authorized is fired. 
 (2) TunnelEvents.AuthExpired - If no action is taken on the tunnel within LinkSetupTimeout LM will
 fire TunnelEvents.AuthExpired and remove the associated tunnel descriptor.
-(3) TunnelEvents.Created - On both nodes A & B, on a successful completion of CBT TCI_CREATE_TUNNEL,
+(3) ##REMOVED## TunnelEvents.Created - On both nodes A & B, on a successful completion of CBT TCI_CREATE_TUNNEL,
 the TAP device exists and TunnelEvents.Created is fired.
 (4) TunnelEvents.Connected - After Tincan delivers the online event to LM TunnelEvents.Connected
 is fired.

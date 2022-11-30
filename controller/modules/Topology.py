@@ -109,6 +109,7 @@ class NetworkOverlay():
         self._max_concurrent_edits = kwargs.get(
             "MaxConcurrentOps", MaxConcurrentOps)
         self._refc = self._max_concurrent_edits
+        self._reflk = threading.Lock()
         self.node_id = node_id
         self.overlay_id = overlay_id
         self.logger = kwargs["Logger"]
@@ -156,17 +157,22 @@ class NetworkOverlay():
             self.adjacency_list.max_ondemand = new_transformation.max_ondemand
 
     def acquire(self):
-        assert self._refc > 0, "Reference count at zero, cannot acquire"
-        self._refc -= 1
-
+        with self._reflk:
+            if self._refc == 0:
+                raise ValueError("Reference count at zero, no more graph edits can be initiated.")            
+            self._refc -= 1
     def release(self):
-        assert self._refc < self._max_concurrent_edits, "Reference count at maximum, invalid attempt to release"
-        self._refc += 1
+        with self._reflk:
+            if self._refc > self._max_concurrent_edits:
+                raise ValueError("Reference count at maximum, invalid attempt to complete graph edit.")
+            self._refc += 1
 
     @property
     def is_idle(self):
         """Is the current transition operation completed"""
-        assert self._refc >= 0 or self._refc <= self._max_concurrent_edits, f"Invalid reference count {self._refc}"
+        with self._reflk:
+            if not (self._refc >= 0 or self._refc._value <= self._max_concurrent_edits):
+                raise ValueError(f"Invalid reference count {self._refc._value}")
         return self._refc == self._max_concurrent_edits
 
     def get_adj_list(self):
@@ -182,7 +188,6 @@ class Topology(ControllerModule, CFX):
     def __init__(self, cfx_handle, module_config, module_name):
         super(Topology, self).__init__(cfx_handle, module_config, module_name)
         self._net_ovls = {}
-        self._lock = threading.Lock()
         self._last_trim_time = time.time()
         self._trim_check_interval = self.config.get(
             "TrimCheckInterval", TrimCheckInterval)
@@ -215,40 +220,44 @@ class Topology(ControllerModule, CFX):
         self.logger.info("Module loaded")
 
     def terminate(self):
-        pass
+        self.logger.info("Module Terminating")
 
     def process_cbt(self, cbt):
-        with self._lock:
-            if cbt.op_type == "Request":
-                if cbt.request.action == "SIG_PEER_PRESENCE_NOTIFY":
-                    self.req_handler_peer_presence(cbt)
-                elif cbt.request.action == "VIS_DATA_REQ":
-                    self.req_handler_vis_data(cbt)
-                elif cbt.request.action in ("LNK_TUNNEL_EVENTS", "GNV_TUNNEL_EVENTS"):
-                    self.req_handler_tunnl_update(cbt)
-                elif cbt.request.action == "TOP_REQUEST_OND_TUNNEL":
-                    self.req_handler_req_ond_tunnels(cbt)
-                elif cbt.request.action == "TOP_NEGOTIATE_EDGE":
-                    self.req_handler_negotiate_edge(cbt)
-                elif cbt.request.action == "TOP_QUERY_KNOWN_PEERS":
-                    self.req_handler_query_known_peers(cbt)
-                else:
-                    self.req_handler_default(cbt)
-            elif cbt.op_type == "Response":
-                if cbt.request.action == "SIG_REMOTE_ACTION":
-                    self.resp_handler_remote_action(cbt)
-                elif cbt.request.action in ("LNK_AUTH_TUNNEL", "GNV_AUTH_TUNNEL"):
-                    self.resp_handler_auth_tunnel(cbt)
-                elif cbt.request.action in ("LNK_CREATE_TUNNEL", "GNV_CREATE_TUNNEL"):
-                    self.resp_handler_create_tnl(cbt)
-                elif cbt.request.action in ("LNK_REMOVE_TUNNEL", "GNV_REMOVE_TUNNEL"):
-                    self.resp_handler_remove_tnl(cbt)
-                else:
-                    self.req_handler_default(cbt)
+        # with self._lock:
+        if cbt.op_type == "Request":
+            if cbt.request.action == "SIG_PEER_PRESENCE_NOTIFY":
+                self.req_handler_peer_presence(cbt)
+            elif cbt.request.action == "VIS_DATA_REQ":
+                self.req_handler_vis_data(cbt)
+            elif cbt.request.action in ("LNK_TUNNEL_EVENTS", "GNV_TUNNEL_EVENTS"):
+                self.req_handler_tunnl_update(cbt)
+            elif cbt.request.action == "TOP_REQUEST_OND_TUNNEL":
+                self.req_handler_req_ond_tunnels(cbt)
+            elif cbt.request.action == "TOP_NEGOTIATE_EDGE":
+                self.req_handler_negotiate_edge(cbt)
+            elif cbt.request.action == "TOP_QUERY_KNOWN_PEERS":
+                self.req_handler_query_known_peers(cbt)
+            elif cbt.request.action == "_TOPOLOGY_UPDATE_":
+                self._req_handler_manage_topology(cbt)
+            else:
+                self.req_handler_default(cbt)
+        elif cbt.op_type == "Response":
+            if cbt.request.action == "SIG_REMOTE_ACTION":
+                self.resp_handler_remote_action(cbt)
+            elif cbt.request.action in ("LNK_AUTH_TUNNEL", "GNV_AUTH_TUNNEL"):
+                self.resp_handler_auth_tunnel(cbt)
+            elif cbt.request.action in ("LNK_CREATE_TUNNEL", "GNV_CREATE_TUNNEL"):
+                self.resp_handler_create_tnl(cbt)
+            elif cbt.request.action in ("LNK_REMOVE_TUNNEL", "GNV_REMOVE_TUNNEL"):
+                self.resp_handler_remove_tnl(cbt)
+            else:
+                self.resp_handler_default(cbt)
 
-    def timer_method(self):
-        with self._lock:
-            self._manage_topology()
+    def timer_method(self, is_exiting=False):
+        if is_exiting:
+            return
+        self.register_internal_cbt("_TOPOLOGY_UPDATE_")
+
 
     def req_handler_peer_presence(self, cbt):
         """
@@ -326,11 +335,6 @@ class Topology(ControllerModule, CFX):
             self.logger.debug("Excluding peer %s until %s", peer_id,
                               str(datetime.fromtimestamp(
                                   ovl.known_peers[peer_id].available_time)))
-        # elif event == TunnelEvents.Created:
-        #     """Roles A & B"""
-        #     ce = ovl.adjacency_list[peer_id]
-        #     assert ce.edge_state == EdgeStates.Authorized, f"Invalid edge state {ce}"
-        #     ce.edge_state = EdgeStates.Created
         elif event == TunnelEvents.Connected:
             """Roles A & B"""
             ce = ovl.adjacency_list[peer_id]
@@ -553,14 +557,16 @@ class Topology(ControllerModule, CFX):
         self.free_cbt(cbt)
 ###################################################################################################
 
-    def _manage_topology(self):
+    def _req_handler_manage_topology(self, cbt=None):
         # Periodically refresh the topology, making sure desired links exist and exipred
         # ones are removed.
         for olid in self._net_ovls:
             if (time.time() - self._last_trim_time) >= self._trim_check_interval:
                 self._trim_inactive_peers(olid)
             self._update_overlay(olid)
-
+        cbt.set_response(None, True)
+        self.complete_cbt(cbt)
+            
     def _trim_inactive_peers(self, olid):
         rmv = []
         for peer_id, peer in self._net_ovls[olid].known_peers.items():

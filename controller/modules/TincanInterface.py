@@ -62,7 +62,7 @@ class TincanInterface(ControllerModule):
         self._tincan_listener_thread.start()
         self.create_control_link()
         self._tci_publisher = self.publish_subscription("TCI_TINCAN_MSG_NOTIFY")
-        self.register_cbt("Logger", "LOG_QUERY_CONFIG")
+        self.configure_tincan_logging(self.log_config, False)                    
         self.logger.info("Module loaded")
 
     def __tincan_listener(self):
@@ -229,11 +229,7 @@ class TincanInterface(ControllerModule):
             else:
                 self.req_handler_default(cbt)
         elif cbt.op_type == "Response":
-            if cbt.request.action == "LOG_QUERY_CONFIG":
-                self.configure_tincan_logging(cbt.response.data,
-                                              not cbt.response.status)
-
-            elif cbt.request.action == "TCI_CREATE_CTRL_LINK":
+            if cbt.request.action == "TCI_CREATE_CTRL_LINK":
                 self.resp_handler_create_control_link(cbt)
 
             elif cbt.request.action == "TCI_CONFIGURE_LOGGING":
@@ -245,8 +241,8 @@ class TincanInterface(ControllerModule):
     def send_control(self, msg):
         return self._sock.sendto(bytes(msg.encode("utf-8")), self._dest)
 
-    def timer_method(self):
+    def timer_method(self, is_exiting=False):
         pass
 
     def terminate(self):
-        pass
+        self.logger.info("Module Terminating")

@@ -40,10 +40,8 @@ def main():
         print("Waiting on Tincan to start...")
         time.sleep(10)
     # Create CFX object that initializes internal data structure of all the controller modules
-    cfx = CFX()
-    cfx.initialize()
-    cfx.wait_for_shutdown_event()
-    cfx.terminate()
+    with CFX() as cfx:
+        cfx.run()
 
 if __name__ == "__main__":
     main()

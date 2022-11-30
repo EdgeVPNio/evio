@@ -93,8 +93,10 @@ class GeneveTunnel(ControllerModule):
             else:    
                 self.resp_handler_default(cbt)
 
-    def timer_method(self):
+    def timer_method(self, is_exiting=False):
         deauth = []
+        if is_exiting:
+            return
         for tnl in self._tunnels.values():
             if tnl.state == TunnelStates.AUTHORIZED and time.time() > tnl.timeout:
                 deauth.append(tnl)
@@ -105,6 +107,7 @@ class GeneveTunnel(ControllerModule):
             self._remove_geneve_tunnel(tnl.tap_name)
             # self._peers[tnl.overlay_id].pop(tnl.peer_id, None)
         self._tunnels.clear()
+        self.logger.info("Module Terminating")
         
     def _deauth_tnls(self, tnls: list):
         for tnl in tnls:

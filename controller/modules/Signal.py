@@ -178,13 +178,12 @@ class XmppTransport(slixmpp.ClientXMPP):
         self._sig.logger.error("XMPP authentication failure. Verify credentials for overlay %s and restart EVIO", self._overlay_id)
 
     def handle_disconnect_event(self, reason):
-        self._sig.logger.info("XMPP disconnected event triggered, reason=%s. "
-                      "Stopping event loop", reason)
+        self._sig.logger.debug("XMPP disconnected, reason=%s.", reason)
         self.loop.stop()
         
     def handle_start_event(self, event):
         """Registers custom event handlers at the start of XMPP session"""
-        self._sig.logger.info("XMPP Signalling started for overlay: %s",
+        self._sig.logger.debug("XMPP Signalling started for overlay: %s",
                       self._overlay_id)
         try:
            # Register evio message with the server
@@ -267,7 +266,7 @@ class XmppTransport(slixmpp.ClientXMPP):
             elif msg_type == "announce":
                 peer_jid, peer_id = msg_payload.split("#")
                 if peer_id == self._node_id:
-                    self._sig.logger.info("UID Announce msg returned to self msg=%s", msg)
+                    self._sig.logger.debug("UID Announce msg returned to self msg=%s", msg)
                     return
                 # a notification of a peers node id to jid mapping
                 pts = self._jid_cache.add_entry(node_id=peer_id, jid=peer_jid)
@@ -311,7 +310,6 @@ class XmppTransport(slixmpp.ClientXMPP):
         try:
             self.connect(address=(self._host, int(self._port)))
             self.process(forever=True)
-            self._sig.logger.debug("Attempting graceful shutdown of XMPP overlay=%s", self._overlay_id)
             # Do not show `asyncio.CancelledError` exceptions during shutdown
             def shutdown_exception_handler(loop, context):
                 if "exception" not in context \
@@ -333,6 +331,7 @@ class XmppTransport(slixmpp.ClientXMPP):
             self._sig.logger.debug("Event loop closed on XMPP overlay=%s", self._overlay_id)
 
     def shutdown(self,):
+        self._sig.logger.debug("Initiating shutdown of XMPP overlay=%s", self._overlay_id)
         self.loop.call_soon_threadsafe(self.disconnect(reason="controller shutdown"))        
 
 class Signal(ControllerModule):
@@ -502,7 +501,9 @@ class Signal(ControllerModule):
                 else:
                     self.resp_handler_default(cbt)
 
-    def timer_method(self):
+    def timer_method(self, is_exiting=False):
+        if is_exiting:
+            return
         with self._lock:
             for overlay_id in self._circles:
                 if "Transport" not in self._circles[overlay_id]: 
@@ -529,7 +530,8 @@ class Signal(ControllerModule):
     def terminate(self):
         for overlay_id in self._circles:
             self._circles[overlay_id]["Transport"].shutdown()
-            self._circles[overlay_id]["TransportThread"].join(0.2)
+            self._circles[overlay_id]["TransportThread"].join(1.0)
+        self.logger.info("Module Terminating")
 
     def scavenge_pending_cbts(self):
         scavenge_list = []

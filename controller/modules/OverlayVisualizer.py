@@ -121,7 +121,9 @@ class OverlayVisualizer(ControllerModule):
             ds["VizData"][olid].pop("Topology", None)
         return ds
 
-    def timer_method(self):
+    def timer_method(self, is_exiting=False):
+        if is_exiting:
+            return
         viz_ds = None
         with self._vis_ds_lock:
             viz_ds = self._vis_ds
@@ -131,4 +133,4 @@ class OverlayVisualizer(ControllerModule):
         self._vis_req_publisher.post_update(None)
 
     def terminate(self):
-        pass
+        self.logger.info("Module Terminating")

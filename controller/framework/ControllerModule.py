@@ -37,7 +37,7 @@ class ControllerModule():
         self._cm_config = module_config
         self._module_name = module_name
         self._state_digest = None
-        self.logger = logging.getLogger("Evio."+self._module_name)
+        self.logger = logging.getLogger("Evio." + self._module_name)
 
     def __repr__(self):
         items = set()
@@ -55,7 +55,7 @@ class ControllerModule():
         pass
 
     @abstractmethod
-    def timer_method(self):
+    def timer_method(self, is_exiting=False):
         pass
 
     @abstractmethod
@@ -86,6 +86,10 @@ class ControllerModule():
     def overlay_names(self):
         return self._cfx_handle.query_param("Overlays")
 
+    @property
+    def log_config(self):
+        return self._cfx_handle.query_param("LogConfig")
+    
     def req_handler_default(self, cbt):
         self.logger.warning(f"Unsupported CBT action {cbt}")
         self.complete_cbt(cbt)
@@ -130,6 +134,16 @@ class ControllerModule():
         self._cfx_handle.submit_cbt(cbt)
         return cbt
 
+    def register_internal_cbt(self, _action, _params=None):
+        cbt = self._cfx_handle.create_cbt(
+            initiator=self._module_name,
+            recipient=self._module_name,
+            action=_action,
+            params=_params
+        )
+        self._cfx_handle.submit_cbt(cbt)
+        return cbt
+    
     def create_cbt(self, initiator, recipient, action, params=None):
         return self._cfx_handle.create_cbt(initiator, recipient, action, params)
 
