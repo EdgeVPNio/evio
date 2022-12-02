@@ -530,8 +530,7 @@ class BridgeController(ControllerModule):
                     "Dataplane": cbt.request.params["Dataplane"]
                 }
                 br.add_port(port_name)
-                self.log("LOG_INFO", "Port %s added to bridge %s",
-                         port_name, str(br))
+                self.logger.info("Port %s added to bridge %s", port_name, str(br))
             elif cbt.request.params["UpdateType"] == TunnelEvents.Removed:
                 self._tunnels[olid].pop(port_name, None)
                 if br.bridge_type == OvsBridge.bridge_type:
@@ -539,7 +538,7 @@ class BridgeController(ControllerModule):
                     self.log(
                         "LOG_INFO", "Port %s removed from bridge %s", port_name, str(br))
         except RuntimeError as err:
-            self.log("LOG_WARNING", str(err))
+            self.logger.warning(str(err))
         cbt.set_response(None, True)
         self.complete_cbt(cbt)
 

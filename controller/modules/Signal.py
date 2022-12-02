@@ -378,7 +378,7 @@ class Signal(ControllerModule):
         self._lock.acquire()
         for overlay_id in self.overlays:
             self._setup_circle(overlay_id)
-        self.log("LOG_INFO", "Module loaded")
+        self.logger.info("Module loaded")
 
     def req_handler_query_reporting_data(self, cbt):
         rpt = {}
@@ -392,8 +392,7 @@ class Signal(ControllerModule):
 
     def handle_remote_action(self, overlay_id, rem_act, act_type):
         if not overlay_id == rem_act["overlay_id"]:
-            self.log("LOG_WARNING", "The Overlay ID in the rcvd remote action conflicts "
-                     "with the local configuration. It was discarded: %s", rem_act)
+            self.logger.warning("The remote action overlay ID is invalid and has been discarded: %s", rem_act)
             return
         if act_type == "invk":
             self.invoke_remote_action_on_target(rem_act)
@@ -405,8 +404,8 @@ class Signal(ControllerModule):
         # if the intended recipient is offline the XMPP server broadcasts the msg to all
         # matching ejabber ids. Verify recipient using Node ID and discard if mismatch
         if rem_act["recipient_id"] != self.node_id:
-            self.log("LOG_WARNING", "A mis-delivered remote action was discarded: %s",
-                         rem_act)
+            self.logger.warning("A mis-delivered remote action was discarded: %s", 
+                                rem_act)
             return
         n_cbt = self.create_cbt(self._module_name, rem_act["recipient_cm"],
                                 rem_act["action"], rem_act["params"])
@@ -420,8 +419,8 @@ class Signal(ControllerModule):
         # if the intended recipient is offline the XMPP server broadcasts the msg to all
         # matching ejabber ids. Verify recipient using Node ID and discard if mismatch
         if rem_act["initiator_id"] != self.node_id:
-            self.log("LOG_WARNING", "A mis-delivered remote action was discarded: %s",
-                         rem_act)
+            self.logger.warning("A mis-delivered remote action was discarded: %s",
+                                rem_act)
             return
         tag = rem_act["action_tag"]
         cbt_status = rem_act["status"]
@@ -483,8 +482,8 @@ class Signal(ControllerModule):
         else:
             payload = json.dumps(rem_act)
             transport.send_msg(str(target_jid), act_type, payload)
-            self.log("LOG_DEBUG", "Sent remote act to peer ID: %s\n Payload: %s",
-                         peer_id, payload)
+            self.logger.debug("Sent remote act to peer ID: %s\n Payload: %s",
+                              peer_id, payload)
 
     def process_cbt(self, cbt):
         with self._lock:
@@ -511,9 +510,8 @@ class Signal(ControllerModule):
                     continue
                 self._circles[overlay_id]["Transport"].wait_until_initialized()
                 if not self._circles[overlay_id]["Transport"].is_connected():
-                    self.log("LOG_WARNING", "ThreadId=%d, OverlayID %s is disconnected; "
-                            "attempting to recreate session",
-                            self._circles[overlay_id]["TransportThread"].ident, overlay_id)
+                    self.logger.warning("Attempting to connect XMPP session for overlay %s on thread %s",
+                                        overlay_id, self._circles[overlay_id]["TransportThread"].ident)
                     self._circles[overlay_id]["TransportThread"].join()
                     self._setup_circle(overlay_id)
                     continue
@@ -554,8 +552,8 @@ class Signal(ControllerModule):
             remact_descr = outgoing_rem_acts[peer_id].queue[0] # peek at the first/oldest entry
             if time.time() - remact_descr[2] >= self._request_timeout:
                 peer_ids.append(peer_id)
-                self.log("LOG_DEBUG", "Remote acts scavenged for removal peer id %s qlength %d",
-                             peer_id, peer_qlen)
+                self.logger.debug("Remote acts scavenged for removal peer id %s qlength %d",
+                                  peer_id, peer_qlen)
         for peer_id in peer_ids:
             rem_act_que = outgoing_rem_acts.pop(peer_id, Queue())
             while not rem_act_que.empty():

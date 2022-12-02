@@ -40,7 +40,7 @@ class UsageReport(ControllerModule):
                         "NodeId": hashlib.sha256(self.node_id.encode("utf-8")).hexdigest()}
 
     def initialize(self):
-        self.log("LOG_INFO", "Module loaded")
+        self.logger.info("Module loaded")
 
     def process_cbt(self, cbt):
         if cbt.op_type == "Request":
@@ -73,7 +73,7 @@ class UsageReport(ControllerModule):
                     self._report[olid_hash].append(peer_id_hash)
 
     def submit_report(self, rpt_data):
-        self.log("LOG_DEBUG", "report data= %s", rpt_data)
+        self.logger.debug("report data= %s", rpt_data)
         url = None
         try:
             url = self.config["WebService"]
@@ -81,12 +81,12 @@ class UsageReport(ControllerModule):
             req.add_header("Content-Type", "application/json")
             res = urllib2.urlopen(req)
             if res.getcode() != 200:
-                self.log("LOG_WARNING", "Usage report server indicated error: %s",
-                         res.getcode())
+                self.logger.warning("Usage report server indicated error: %s",
+                                    res.getcode())
         except (urllib2.HTTPError, urllib2.URLError) as error:
             log = "Usage report submission failed to server {0}. " \
                   "Error: {1}".format(url, error)
-            self.log("LOG_WARNING", log)
+            self.logger.warning(log)
 
     def resp_handler_query_known_peers(self, cbt):
         if cbt.response.status:

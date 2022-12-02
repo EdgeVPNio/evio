@@ -54,7 +54,7 @@ class OverlayVisualizer(ControllerModule):
         self._vis_ds = self.init_viz_data()
         self._vis_req_publisher = self.publish_subscription("VIS_DATA_REQ")
 
-        self.log("LOG_INFO", "Module loaded")
+        self.logger.info("Module loaded")
         self.post_viz_data(self.init_viz_data())
 
     def init_viz_data(self, boot_time=None):
@@ -89,7 +89,7 @@ class OverlayVisualizer(ControllerModule):
     def post_viz_data(self, viz_data):
         try:
             viz_data = json.dumps(viz_data).encode("utf-8")
-            self.log("LOG_DEBUG", "Posting viz data: %s", viz_data)
+            self.logger.debug("Posting viz data: %s", viz_data)
             resp = requests.put(
                 self._req_url,
                 data=zlib.compress(viz_data),
@@ -104,7 +104,7 @@ class OverlayVisualizer(ControllerModule):
                 "Failed to send data to the collector webservice"
                 " ({0}). Exception: {1}".format(self._req_url, str(err))
             )
-            self.log("LOG_WARNING", err_msg)
+            self.logger.warning(err_msg)
 
     def build_tunnel_data(self, ds):
         for olid in ds["VizData"]:
