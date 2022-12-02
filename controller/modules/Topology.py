@@ -174,6 +174,10 @@ class NetworkOverlay():
             if not (self._refc >= 0 or self._refc._value <= self._max_concurrent_edits):
                 raise ValueError(f"Invalid reference count {self._refc._value}")
         return self._refc == self._max_concurrent_edits
+    
+    @property
+    def can_acquire(self):
+        return bool(self._refc > 0)
 
     def get_adj_list(self):
         return deepcopy(self.adjacency_list)
@@ -211,7 +215,9 @@ class Topology(ControllerModule, CFX):
                                                   Logger=self.logger,
                                                   LocationId=self.config["Overlays"][olid].get(
                                                       "LocationId"),
-                                                  EncryptionRequired=self.config["Overlays"][olid].get("EncryptionRequired"))
+                                                  EncryptionRequired=self.config["Overlays"][olid].get("EncryptionRequired"),
+                                                  MaxConcurrentOps=self.config.get("MaxConcurrentOps", MaxConcurrentOps))
+                                                  
         # Subscribe for data request notifications from OverlayVisualizer
         if "OverlayVisualizer" in publishers and "VIS_DATA_REQ" in self.get_available_subscriptions("OverlayVisualizer"):
             self.start_subscription("OverlayVisualizer", "VIS_DATA_REQ")
@@ -311,8 +317,8 @@ class Topology(ControllerModule, CFX):
         except KeyError:
             cbt.set_response(data=None, status=False)
             self.complete_cbt(cbt)
-            self.log("LOG_WARNING", "Topology data not available %s",
-                     cbt.response.data)
+            self.logger("Topology data not available %s",
+                        cbt.response.data)
             
     def _process_tnl_event(self, update):
         event = update["UpdateType"]
@@ -414,9 +420,7 @@ class Topology(ControllerModule, CFX):
         edge_req = EdgeRequest(**edge_cbt.request.params)
         olid = edge_req.overlay_id
         if olid not in self.config["Overlays"]:
-            self.log("LOG_WARNING",
-                     "The requested overlay is not specified in "
-                     "local config, the edge request is discarded")
+            self.logger.warning("The edge request was refused as [%s] is not a valid overlay ID", olid)
             edge_cbt.set_response(
                 "Unknown overlay id specified in edge request", False)
             self.complete_cbt(edge_cbt)
@@ -427,8 +431,7 @@ class Topology(ControllerModule, CFX):
             self._net_ovls[olid].known_peers[peer_id] = DiscoveredPeer(
                 peer_id)
         if self.config["Overlays"][olid].get("Role", DefaultRole).casefold() == "leaf".casefold():
-            self.log("LOG_INFO", "Rejected edge negotiation, "
-                     "this leaf device is not accepting edge requests")
+            self.logger.info("The edge request was refused as this is a pendant device.")
             edge_cbt.set_response(
                 "E6 - Not accepting incoming connections, leaf device", False)
             self.complete_cbt(edge_cbt)
@@ -507,17 +510,20 @@ class Topology(ControllerModule, CFX):
         rem_act = RemoteAction.response(cbt)
         olid = rem_act.overlay_id
         ovl = self._net_ovls[olid]
-        if olid not in self.config["Overlays"]:
-            self.log("LOG_WARNING", "The specified overlay is not in the"
-                     "local config, the rem act response is discarded")
-            self.free_cbt(cbt)
-            return
-
         if rem_act.action == "TOP_NEGOTIATE_EDGE":
-            edge_nego = EdgeNegotiate(**rem_act.params,
-                                      **rem_act.data)
-            self._complete_negotiate_edge(ovl, edge_nego)
-            self.free_cbt(cbt)
+            try:
+                edge_nego = EdgeNegotiate(**rem_act.params,
+                                        **rem_act.data)
+                self._complete_negotiate_edge(ovl, edge_nego)
+            except TypeError as excp:
+                self.logger.warning("Invalid EdgeNegotiate %s.", excp)
+                peer_id = rem_act.recipient_id
+                ce = ovl.adjacency_list.get(peer_id)
+                if ce and ce.edge_state == EdgeStates.PreAuth:
+                    ovl.adjacency_list.pop(peer_id)
+                ovl.release()
+            finally:
+                self.free_cbt(cbt)
         else:
             self.logger.warning("Unrecognized remote action %s",
                                 rem_act.action)
@@ -606,22 +612,24 @@ class Topology(ControllerModule, CFX):
         self._process_next_transition(ovl)
 
     def _process_next_transition(self, net_ovl):
-        suspend = False
-        while not suspend:  # was the edit discarded?
-            suspend = True
-            if net_ovl.transformation and net_ovl.is_idle:  # start a new op
+        while net_ovl.transformation and net_ovl.can_acquire:
+            # start a new op
+            try:
                 tns = net_ovl.transformation.head()
                 if tns.operation == OpType.Add:
-                    suspend = self._initiate_negotiate_edge(
+                    self._initiate_negotiate_edge(
                         net_ovl, tns.conn_edge)
                 elif tns.operation == OpType.Remove:
-                    suspend = self._initiate_remove_edge(
+                    self._initiate_remove_edge(
                         net_ovl, tns.conn_edge.peer_id)
                 elif tns.operation == OpType.Update:
-                    suspend = self._update_edge(net_ovl, tns.conn_edge)
+                    self._update_edge(net_ovl, tns.conn_edge)
                 else:
                     self.logger.error(
                         "Unexpected transition operation encountered %s", tns.operation)
+            except Exception as excp:
+                self.log.warning(str(excp))
+            finally:
                 net_ovl.transformation.pop()
 ###################################################################################################
 
@@ -654,24 +662,6 @@ class Topology(ControllerModule, CFX):
             return True
         return False
 
-    def _authorize_incoming_tunnel(self, net_ovl, peer_id, edge_id, dataplane, neg_edge_cbt):
-
-        self.logger.info("Authorizing peer edge %s from %s:%s->%s",
-                         edge_id, net_ovl.overlay_id, peer_id[:7], self.node_id[:7])
-        params = {"OverlayId": net_ovl.overlay_id,
-                  "PeerId": peer_id, "TunnelId": edge_id}
-        cbt = self.create_linked_cbt(neg_edge_cbt)
-        if dataplane == DataplaneTypes.Geneve:
-            cbt.set_request(self.module_name, "GeneveTunnel",
-                            "GNV_AUTH_TUNNEL", params)
-        elif dataplane == DataplaneTypes.WireGuard:
-            cbt.set_request(self.module_name, "WireGuard",
-                            "WGD_AUTH_TUNNEL", params)
-        else:
-            cbt.set_request(self.module_name, "LinkManager",
-                            "LNK_AUTH_TUNNEL", params)
-        self.submit_cbt(cbt)
-
     def _complete_negotiate_edge(self, net_ovl, edge_nego):
         """ Role A2 """
         self.logger.debug("Completing %s", str(edge_nego))
@@ -699,8 +689,6 @@ class Topology(ControllerModule, CFX):
                                     "operation. The request has been discarded. "
                                     "ce=%s, edge_nego=%s", ce, edge_nego)
                 return
-            if ce.edge_id != edge_nego.edge_id:
-                return
             ce.edge_state = EdgeStates.Authorized
             if (net_ovl.is_encr_required and 
                 edge_nego.dataplane not in [DataplaneTypes.WireGuard, DataplaneTypes.Tincan]):
@@ -715,6 +703,24 @@ class Topology(ControllerModule, CFX):
             ce.dataplane = edge_nego.dataplane
             self._create_tunnel(
                 net_ovl, ce.dataplane, peer_id, edge_id)
+
+    def _authorize_incoming_tunnel(self, net_ovl, peer_id, edge_id, dataplane, neg_edge_cbt):
+        """->Role B1"""
+        self.logger.info("Authorizing peer edge %s from %s:%s->%s",
+                         edge_id, net_ovl.overlay_id, peer_id[:7], self.node_id[:7])
+        params = {"OverlayId": net_ovl.overlay_id,
+                  "PeerId": peer_id, "TunnelId": edge_id}
+        cbt = self.create_linked_cbt(neg_edge_cbt)
+        if dataplane == DataplaneTypes.Geneve:
+            cbt.set_request(self.module_name, "GeneveTunnel",
+                            "GNV_AUTH_TUNNEL", params)
+        elif dataplane == DataplaneTypes.WireGuard:
+            cbt.set_request(self.module_name, "WireGuard",
+                            "WGD_AUTH_TUNNEL", params)
+        else:
+            cbt.set_request(self.module_name, "LinkManager",
+                            "LNK_AUTH_TUNNEL", params)
+        self.submit_cbt(cbt)
 
     def _resolve_request_collision(self, net_ovl, edge_req, conn_edge):
         """ An connection edge was already initiated by this node so resolve the collision """
