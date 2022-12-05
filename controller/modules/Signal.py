@@ -34,6 +34,7 @@ import socket
 import slixmpp
 from slixmpp import ElementBase, register_stanza_plugin, Message, Callback, StanzaPath, JID
 from framework.ControllerModule import ControllerModule
+from framework.CBT import CBT
 
 CacheExpiry = 30
 PresenceInterval = 30
@@ -89,17 +90,15 @@ class JidCache:
 
 class XmppTransport(slixmpp.ClientXMPP):
     _REFLECT = set(
-        ["_overlay_id", "_node_id", "_cbt_to_action_tag"])
+        ["_overlay_id", "_node_id"])
 
     def __init__(self, jid, password, sasl_mech):
         slixmpp.ClientXMPP.__init__(self, jid, password, sasl_mech=sasl_mech)
         self._overlay_id = None
-        self._sig = None
+        self._sig:Signal = None
         self._node_id = None
         self._presence_publisher = None
         self._jid_cache = None
-        self._outgoing_rem_acts = None
-        self._cbt_to_action_tag = {}  # maps remote action tags to cbt tags
         self._host = None
         self._port = None
         # TLS enabled by default.
@@ -118,8 +117,7 @@ class XmppTransport(slixmpp.ClientXMPP):
         return self._host
 
     @staticmethod
-    def factory(overlay_id, overlay_descr, cm_mod, presence_publisher, jid_cache,
-                outgoing_rem_acts):
+    def factory(overlay_id, overlay_descr, cm_mod, presence_publisher, jid_cache):
         keyring = None
         try:
             import keyring
@@ -166,7 +164,6 @@ class XmppTransport(slixmpp.ClientXMPP):
         transport._node_id = cm_mod.config["NodeId"]
         transport._presence_publisher = presence_publisher
         transport._jid_cache = jid_cache
-        transport._outgoing_rem_acts = outgoing_rem_acts
         # register event handlers of interest
         transport.add_event_handler("session_start", transport.handle_start_event)
         transport.add_event_handler("failed_auth", transport.handle_failed_auth_event)      
@@ -220,6 +217,7 @@ class XmppTransport(slixmpp.ClientXMPP):
                             return
                         # a notification of a peer's node id to jid mapping
                         pts = self._jid_cache.add_entry(node_id=peer_id, jid=presence_sender)
+                        self._sig.peer_jid_updated(self._overlay_id, peer_id, presence_sender)
                         self._presence_publisher.post_update(
                             dict(PeerId=peer_id, OverlayId=self._overlay_id,
                                  PresenceTimestamp=pts))
@@ -256,13 +254,7 @@ class XmppTransport(slixmpp.ClientXMPP):
                 match_jid, matched_nid = msg_payload.split("#")
                 # put the learned JID in cache
                 self._jid_cache.add_entry(matched_nid, match_jid)
-                # send the remote actions that are waiting on JID refresh
-                rm_que = self._outgoing_rem_acts.get(matched_nid, Queue())
-                while not rm_que.empty():
-                    entry = rm_que.get()
-                    msg_type, msg_data = entry[0], entry[1]
-                    self.send_msg(match_jid, msg_type, json.dumps(msg_data))
-                    self._sig.logger.debug("Sent buffered remote action: %s", msg_data)
+                self._sig.peer_jid_updated(self._overlay_id, matched_nid, match_jid)
             elif msg_type == "announce":
                 peer_jid, peer_id = msg_payload.split("#")
                 if peer_id == self._node_id:
@@ -355,11 +347,8 @@ class Signal(ControllerModule):
         asyncio.set_event_loop(asyncio.new_event_loop())
         xport = XmppTransport.factory(overlay_id, self.overlays[overlay_id],
                                       self, self._presence_publisher,
-                                      self._circles[overlay_id]["JidCache"],
-                                      self._circles[overlay_id]["OutgoingRemoteActs"])
+                                      self._circles[overlay_id]["JidCache"])
         self._circles[overlay_id]["Transport"] = xport
-        # waiting to release the lock here prevents other threads from attempting to use the transport object before its has been created.
-        self._lock.release() 
         xport.run()
 
     def _setup_circle(self, overlay_id):
@@ -375,12 +364,12 @@ class Signal(ControllerModule):
 
     def initialize(self):
         self._presence_publisher = self.publish_subscription("SIG_PEER_PRESENCE_NOTIFY")
-        self._lock.acquire()
-        for overlay_id in self.overlays:
-            self._setup_circle(overlay_id)
+        with self._lock:
+            for overlay_id in self.overlays:
+                self._setup_circle(overlay_id)
         self.logger.info("Module loaded")
 
-    def req_handler_query_reporting_data(self, cbt):
+    def req_handler_query_reporting_data(self, cbt: CBT):
         rpt = {}
         for overlay_id in self.overlays:
             rpt[overlay_id] = {
@@ -429,7 +418,7 @@ class Signal(ControllerModule):
             pending_cbt.set_response(data=rem_act, status=cbt_status)
             self.complete_cbt(pending_cbt)
 
-    def req_handler_initiate_remote_action(self, cbt):
+    def req_handler_initiate_remote_action(self, cbt: CBT):
         """
         Create a new remote action from the received CBT and transmit it to the recepient
         remote_act = dict(overlay_id="",
@@ -455,8 +444,16 @@ class Signal(ControllerModule):
         rem_act["initiator_cm"] = cbt.request.initiator
         rem_act["action_tag"] = cbt.tag
         self.transmit_remote_act(rem_act, peer_id, "invk")
+        
+    def req_handler_send_waiting_remote_acts(self, cbt: CBT):
+        overlay_id = cbt.request.params["OverlayId"]
+        peer_id = cbt.request.params["PeerId"]
+        peer_jid = cbt.request.params["PeerJid"]
+        self._send_waiting_remote_acts(overlay_id, peer_id, peer_jid)
+        cbt.set_response(None, True)
+        self.complete_cbt(cbt)
 
-    def resp_handler_remote_action(self, cbt):
+    def resp_handler_remote_action(self, cbt: CBT):
         """ Convert the response CBT to a remote action and return to the initiator """
         rem_act = self._remote_acts.pop(cbt.tag)
         peer_id = rem_act["initiator_id"]
@@ -465,33 +462,55 @@ class Signal(ControllerModule):
         self.transmit_remote_act(rem_act, peer_id, "cmpt")
         self.free_cbt(cbt)
 
+    def _send_waiting_remote_acts(self, overlay_id, peer_id, peer_jid):
+        out_rem_acts = self._circles[overlay_id]["OutgoingRemoteActs"]
+        if peer_id in out_rem_acts:
+            transport = self._circles[overlay_id]["Transport"]
+            ra_que = out_rem_acts.get(peer_id)
+            while not ra_que.empty():
+                entry = ra_que.get()
+                msg_type, msg_data = entry[0], entry[1]
+                transport.send_msg(peer_jid, msg_type, json.dumps(msg_data))
+                self.logger.debug("Sent queued remote action: %s", msg_data)
+        
     def transmit_remote_act(self, rem_act, peer_id, act_type):
         """
-        Transmit rem act to peer, if Peer JID is not cached queue the rem act and attempt to
-        resolve the peer's JID
+        Transmit rem act to peer, if Peer JID is not cached queue the rem act and
+        attempt to resolve the peer's JID
         """
         olid = rem_act["overlay_id"]
-        target_jid = self._circles[olid]["JidCache"].lookup(peer_id)
+        peer_jid = self._circles[olid]["JidCache"].lookup(peer_id)
         transport = self._circles[olid]["Transport"]
-        if target_jid is None:
+        if peer_jid is None:
             out_rem_acts = self._circles[olid]["OutgoingRemoteActs"]
-            if peer_id not in out_rem_acts.keys():
+            if peer_id not in out_rem_acts:
                 out_rem_acts[peer_id] = Queue(maxsize=0)
             out_rem_acts[peer_id].put((act_type, rem_act, time.time()))
             transport.send_presence(pstatus="uid?#" + peer_id)
         else:
+            # JID was updated by a separate presence update,
+            # send any waiting msgs in the outgoing remote act queue
+            self._send_waiting_remote_acts(olid, peer_id, peer_jid)
             payload = json.dumps(rem_act)
-            transport.send_msg(str(target_jid), act_type, payload)
+            transport.send_msg(str(peer_jid), act_type, payload)
             self.logger.debug("Sent remote act to peer ID: %s\n Payload: %s",
                               peer_id, payload)
-
-    def process_cbt(self, cbt):
+            
+    def peer_jid_updated(self, overlay_id, peer_id, peer_jid):
+        self.register_internal_cbt("_PEER_JID_UPDATED_", 
+                                   {"OverlayId": overlay_id,
+                                    "PeerId": peer_id,
+                                    "PeerJid": peer_jid})
+        
+    def process_cbt(self, cbt: CBT):
         with self._lock:
             if cbt.op_type == "Request":
                 if cbt.request.action == "SIG_REMOTE_ACTION":
                     self.req_handler_initiate_remote_action(cbt)
                 elif cbt.request.action == "SIG_QUERY_REPORTING_DATA":
                     self.req_handler_query_reporting_data(cbt)
+                elif cbt.request.action == "_PEER_JID_UPDATED_":
+                    self.req_handler_send_waiting_remote_acts(cbt)
                 else:
                     self.req_handler_default(cbt)
             elif cbt.op_type == "Response":
@@ -526,9 +545,10 @@ class Signal(ControllerModule):
             self.scavenge_pending_cbts()
 
     def terminate(self):
-        for overlay_id in self._circles:
-            self._circles[overlay_id]["Transport"].shutdown()
-            self._circles[overlay_id]["TransportThread"].join(1.0)
+        with self._lock:
+            for overlay_id in self._circles:
+                self._circles[overlay_id]["Transport"].shutdown()
+                self._circles[overlay_id]["TransportThread"].join(1.0)
         self.logger.info("Module Terminating")
 
     def scavenge_pending_cbts(self):
