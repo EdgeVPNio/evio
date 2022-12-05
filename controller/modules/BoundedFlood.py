@@ -22,7 +22,7 @@
 
 from collections import namedtuple
 import json
-from typing import List
+from typing import List, Union
 from eventlet.green import time
 from eventlet.green import socket
 from eventlet.green import Queue
@@ -319,7 +319,7 @@ class EvioSwitch(MutableMapping):
             return psw.port_no
         return self._ingress_tbl[mac]
 
-    def __setitem__(self, key_mac, value):
+    def __setitem__(self, key_mac, value: Union[tuple, str]):
         if isinstance(value, tuple):
             self._learn(src_mac=key_mac, in_port=value[0], rnid=value[1])
         else:

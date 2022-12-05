@@ -22,7 +22,7 @@
 from abc import ABCMeta, abstractmethod
 import hashlib
 import logging
-
+from .CBT import CBT
 # abstract ControllerModule (CM) class
 # all CM implementations inherit the variables declared here
 # all CM implementations must override the abstract methods declared here
@@ -51,7 +51,7 @@ class ControllerModule():
         pass
 
     @abstractmethod
-    def process_cbt(self, cbt):
+    def process_cbt(self, cbt: CBT):
         pass
 
     @abstractmethod
@@ -124,7 +124,7 @@ class ControllerModule():
                 self._state_digest = new_digest
                 self.logger.info(state)
 
-    def register_cbt(self, _recipient, _action, _params=None):
+    def register_cbt(self, _recipient, _action, _params=None) -> None:
         cbt = self._cfx_handle.create_cbt(
             initiator=self._module_name,
             recipient=_recipient,
@@ -132,9 +132,8 @@ class ControllerModule():
             params=_params
         )
         self._cfx_handle.submit_cbt(cbt)
-        return cbt
 
-    def register_internal_cbt(self, _action, _params=None):
+    def register_internal_cbt(self, _action, _params=None) -> None:
         cbt = self._cfx_handle.create_cbt(
             initiator=self._module_name,
             recipient=self._module_name,
@@ -142,21 +141,20 @@ class ControllerModule():
             params=_params
         )
         self._cfx_handle.submit_cbt(cbt)
-        return cbt
     
-    def create_cbt(self, initiator, recipient, action, params=None):
+    def create_cbt(self, initiator, recipient, action, params=None) -> CBT:
         return self._cfx_handle.create_cbt(initiator, recipient, action, params)
 
-    def create_linked_cbt(self, parent):
+    def create_linked_cbt(self, parent) -> CBT:
         return self._cfx_handle.create_linked_cbt(parent)
 
-    def complete_cbt(self, cbt):
+    def complete_cbt(self, cbt: CBT):
         self._cfx_handle.complete_cbt(cbt)
 
-    def free_cbt(self, cbt):
+    def free_cbt(self, cbt: CBT):
         self._cfx_handle.free_cbt(cbt)
 
-    def submit_cbt(self, cbt):
+    def submit_cbt(self, cbt: CBT):
         self._cfx_handle.submit_cbt(cbt)
 
     # Caller is the subscription source

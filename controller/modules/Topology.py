@@ -26,6 +26,7 @@ import time
 from copy import deepcopy
 from collections import namedtuple
 from datetime import datetime
+from typing import Optional
 from framework.CFx import CFX
 from framework.ControllerModule import ControllerModule
 from framework.Modlib import RemoteAction
@@ -33,6 +34,7 @@ from .NetworkGraph import ConnectionEdge, ConnEdgeAdjacenctList, GraphTransforma
 from .NetworkGraph import EdgeStates, EdgeTypesOut, EdgeTypesIn, OpType, transpose_edge_type
 from .GraphBuilder import GraphBuilder
 from .Tunnel import TunnelEvents, DataplaneTypes
+from framework.CBT import CBT
 
 MinSuccessors = 2
 MaxOnDemandEdges = 3
@@ -228,7 +230,7 @@ class Topology(ControllerModule, CFX):
     def terminate(self):
         self.logger.info("Module Terminating")
 
-    def process_cbt(self, cbt):
+    def process_cbt(self, cbt: CBT):
         # with self._lock:
         if cbt.op_type == "Request":
             if cbt.request.action == "SIG_PEER_PRESENCE_NOTIFY":
@@ -265,7 +267,7 @@ class Topology(ControllerModule, CFX):
         self.register_internal_cbt("_TOPOLOGY_UPDATE_")
 
 
-    def req_handler_peer_presence(self, cbt):
+    def req_handler_peer_presence(self, cbt: CBT):
         """
         Handles peer presence notification. Determines when to build a new graph and refresh
         connections.
@@ -299,7 +301,7 @@ class Topology(ControllerModule, CFX):
         cbt.set_response(None, True)
         self.complete_cbt(cbt)
 
-    def req_handler_vis_data(self, cbt):
+    def req_handler_vis_data(self, cbt: CBT):
         topo_data = {}
         try:
             for olid in self._net_ovls:
@@ -378,13 +380,13 @@ class Topology(ControllerModule, CFX):
             self.logger.warning(
                 "Invalid UpdateType specified for event %s", event)
         
-    def req_handler_tunnl_update(self, cbt):
+    def req_handler_tunnl_update(self, cbt: CBT):
         event = cbt.request.params
         self._process_tnl_event(event)
         cbt.set_response(None, True)
         self.complete_cbt(cbt)
 
-    def req_handler_req_ond_tunnels(self, cbt):
+    def req_handler_req_ond_tunnels(self, cbt: CBT):
         """
         Add the request params for creating an on demand tunnel
         overlay_id, peer_id, ADD/REMOVE op string
@@ -461,7 +463,7 @@ class Topology(ControllerModule, CFX):
             edge_cbt.set_response(edge_resp, edge_resp.is_accepted)
             self.complete_cbt(edge_cbt)
 
-    def req_handler_query_known_peers(self, cbt):
+    def req_handler_query_known_peers(self, cbt: CBT):
         peer_list = {}
         for olid in self._net_ovls:
             if not olid in peer_list:
@@ -472,7 +474,7 @@ class Topology(ControllerModule, CFX):
         cbt.set_response(peer_list, True)
         self.complete_cbt(cbt)
 
-    def resp_handler_auth_tunnel(self, cbt):
+    def resp_handler_auth_tunnel(self, cbt: CBT):
         """ Role B
             LNK auth completed, add the CE to Netbuilder and send response to initiator ie., Role A
         """
@@ -492,7 +494,7 @@ class Topology(ControllerModule, CFX):
         nego_cbt.set_response(edge_resp, edge_resp.is_accepted)
         self.complete_cbt(nego_cbt)
 
-    def resp_handler_remote_action(self, cbt):
+    def resp_handler_remote_action(self, cbt: CBT):
         """ Role Node A, initiate edge creation on successful neogtiation """
         if not cbt.response.status and (not cbt.response.data or type(cbt.response.data) == str):
             rem_act = RemoteAction.request(cbt)
@@ -528,7 +530,7 @@ class Topology(ControllerModule, CFX):
             self.logger.warning("Unrecognized remote action %s",
                                 rem_act.action)
 
-    def resp_handler_create_tnl(self, cbt):
+    def resp_handler_create_tnl(self, cbt: CBT):
         params = cbt.request.params
         olid = params["OverlayId"]
         ovl = self._net_ovls[olid]
@@ -550,7 +552,7 @@ class Topology(ControllerModule, CFX):
                 self._process_next_transition(ovl)
         self.free_cbt(cbt)
 
-    def resp_handler_remove_tnl(self, cbt):
+    def resp_handler_remove_tnl(self, cbt: CBT):
         params = cbt.request.params
         olid = params["OverlayId"]
         ovl = self._net_ovls[olid]
@@ -563,7 +565,7 @@ class Topology(ControllerModule, CFX):
         self.free_cbt(cbt)
 ###################################################################################################
 
-    def _req_handler_manage_topology(self, cbt=None):
+    def _req_handler_manage_topology(self, cbt: Optional[CBT]=None):
         # Periodically refresh the topology, making sure desired links exist and exipred
         # ones are removed.
         for olid in self._net_ovls:
@@ -654,7 +656,7 @@ class Topology(ControllerModule, CFX):
                              location_id=net_ovl.location_id,
                              capability=dp_types)
             edge_params = er._asdict()
-            self.logger.debug("Negotiating %s", er)
+            self.logger.debug("Initiating %s", er)
             rem_act = RemoteAction(net_ovl.overlay_id, er.recipient_id,
                                    "Topology", "TOP_NEGOTIATE_EDGE", edge_params)
             net_ovl.acquire()
