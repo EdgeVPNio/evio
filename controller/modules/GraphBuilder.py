@@ -22,7 +22,7 @@
 import math
 import random
 
-from .NetworkGraph import ConnectionEdge, EdgeTypesIn, EdgeTypesOut
+from .NetworkGraph import ConnectionEdge, ConnectionRole, EdgeTypesOut
 from .NetworkGraph import ConnEdgeAdjacenctList
 from .NetworkGraph import GraphTransformation
 from .NetworkGraph import EdgeStates
@@ -56,7 +56,7 @@ class GraphBuilder():
 
     def _build_static(self, adj_list):
         for peer_id in self._static_edges:
-            ce = ConnectionEdge(peer_id, edge_type="CETypeStatic")
+            ce = ConnectionEdge(peer_id, edge_type="CETypeStatic", role=ConnectionRole.Initiator)
             adj_list[peer_id] = ce
 
     def _get_successors(self):
@@ -85,7 +85,7 @@ class GraphBuilder():
                     del suc_ces[peer_id]
                     adj_list[peer_id] = transition_adj_list[peer_id]
                 else:
-                    adj_list[peer_id] = ConnectionEdge(peer_id, edge_type="CETypeSuccessor")
+                    adj_list[peer_id] = ConnectionEdge(peer_id, edge_type="CETypeSuccessor", role=ConnectionRole.Initiator)
         # do not remove the existing successor until the new one is connected
         sucl = sorted(suc_ces, reverse=True)
         for peer_id in sucl:
@@ -132,7 +132,7 @@ class GraphBuilder():
                                  EdgeStates.Created, EdgeStates.Connected) and \
                 ce.peer_id not in adj_list and not self.is_too_close(ce.peer_id):
                 adj_list[ce.peer_id] = transition_adj_list[ce.peer_id]
-                # adj_list[ce.peer_id] = ConnectionEdge(ce.peer_id, ce.edge_id, ce.edge_type)
+                # adj_list[ce.peer_id] = ConnectionEdge(ce.peer_id, ce.edge_id, ce.edge_type, role=ce.role)
                 num_existing_ldl += 1
                 if num_existing_ldl >= self._max_ldl_cnt:
                     return
@@ -142,7 +142,7 @@ class GraphBuilder():
             if peer_id not in adj_list:
                 oce = transition_adj_list.get(peer_id)
                 if (oce is None) or (oce is not None and oce.edge_type == EdgeTypesOut.Successor):
-                    adj_list[peer_id] = ConnectionEdge(peer_id, edge_type="CETypeLongDistance")
+                    adj_list[peer_id] = ConnectionEdge(peer_id, edge_type="CETypeLongDistance", role=ConnectionRole.Initiator)
 
     def _build_ondemand_links(self, adj_list, transition_adj_list, request_list):
         ond = {}
@@ -151,7 +151,7 @@ class GraphBuilder():
         for ce in existing:
             if ce.edge_state in (EdgeStates.Initialized, EdgeStates.PreAuth, EdgeStates.Authorized,
                                  EdgeStates.Created, EdgeStates.Connected) and ce.peer_id not in adj_list:
-                ond[ce.peer_id] = ConnectionEdge(ce.peer_id, ce.edge_id, ce.edge_type)
+                ond[ce.peer_id] = ConnectionEdge(ce.peer_id, ce.edge_id,  edge_type=ce.edge_type, role=ce.role)
         task_rmv = []
         for task in request_list:
             peer_id = task["PeerId"]
@@ -160,7 +160,7 @@ class GraphBuilder():
                 task_rmv.append(task)
                 if peer_id in self._peers and (peer_id not in adj_list or
                                                peer_id not in transition_adj_list):
-                    ce = ConnectionEdge(peer_id, edge_type="CETypeOnDemand")
+                    ce = ConnectionEdge(peer_id, edge_type="CETypeOnDemand", role=ConnectionRole.Initiator)
                     ond[peer_id] = ce
             elif op == "REMOVE":
                 self._top.log("LOG_DEBUG", "Processing OND Removal, popping %s", peer_id)
@@ -200,12 +200,10 @@ class GraphBuilder():
                                          self._min_successors, self._max_ldl_cnt, self._max_ond)
         for peer_id in self._peers:
             if self._static_edges and peer_id in self._static_edges:
-                ce = ConnectionEdge(peer_id)
-                ce.edge_type = "CETypeStatic"
+                ce = ConnectionEdge(peer_id, edge_type="CETypeStatic", role=ConnectionRole.Initiator)
                 adj_list[peer_id] = ce
             elif not self._manual_topo and self._node_id < peer_id:
-                ce = ConnectionEdge(peer_id)
-                ce.edge_type = "CETypeSuccessor"
+                ce = ConnectionEdge(peer_id, edge_type = "CETypeSuccessor", role=ConnectionRole.Initiator)
                 adj_list[peer_id] = ce
         return adj_list
 

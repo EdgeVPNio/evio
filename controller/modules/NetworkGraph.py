@@ -49,6 +49,12 @@ EDGE_STATES = namedtuple(
               "CEStateConnected", "CEStateDisconnected", "CEStateDeleting"])
 EdgeStates = EDGE_STATES()
 
+CONNECTION_ROLE = namedtuple(
+    "CONNECTION_ROLE",
+    ["Undefined", "Initiator", "Target"],
+    defaults=["ConnRoleUndefined", "ConnRoleInitiator", "ConnRoleTarget"])
+ConnectionRole=CONNECTION_ROLE()
+
 OP_TYPE = namedtuple(
     "OP_TYPE",
     ["Add", "Remove", "Update"],
@@ -87,9 +93,9 @@ def transpose_edge_type(edge_type):
 
 class ConnectionEdge():
     """ A discriptor of the edge/link between two peers."""
-    _PACK_STR = '!16s16sff18s19s?'
+    # _PACK_STR = '!16s16sff18s19s?'
 
-    def __init__(self, peer_id=None, edge_id=None, edge_type="CETypeUnknown", dataplane=None):
+    def __init__(self, peer_id=None, edge_id=None, edge_type="CETypeUnknown", dataplane=None, role=ConnectionRole.Undefined):
         self.peer_id = peer_id
         self.edge_id = edge_id
         if not self.edge_id:
@@ -99,7 +105,8 @@ class ConnectionEdge():
         self.edge_state = EdgeStates.Initialized
         self.edge_type = edge_type
         self.dataplane = dataplane
-
+        self.role = role
+    
     def __key__(self):
         return int(self.peer_id, 16)
 
@@ -125,8 +132,8 @@ class ConnectionEdge():
         return hash(self.__key__())
 
     def __repr__(self):
-        items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
-        return "{{{}}}".format(", ".join(items))
+        return "{{{}}}".format(", ".join((f"\"{k}\": {self.__dict__[k]!r}" for k in
+                                            (self._REFLECT if hasattr(self, "_REFLECT") else self.__dict__.keys()))))
 
     def __iter__(self):
         yield("peer_id", self.peer_id)
@@ -138,19 +145,19 @@ class ConnectionEdge():
         yield("dataplane", self.dataplane)
         # yield("marked_for_delete", self.marked_for_delete)
 
-    def serialize(self):
-        return struct.pack(ConnectionEdge._PACK_STR, self.peer_id, self.edge_id, self.created_time,
-                           self.connected_time, self.edge_state, self.edge_type, self.dataplane)
+    # def serialize(self):
+    #     return struct.pack(ConnectionEdge._PACK_STR, self.peer_id, self.edge_id, self.created_time,
+    #                        self.connected_time, self.edge_state, self.edge_type, self.dataplane)
 
-    @classmethod
-    def from_bytes(cls, data):
-        ce = cls()
-        (ce.peer_id, ce.edge_id, ce.created_time, ce.connected_time, ce.edge_state,
-         ce.edge_type, ce.dataplane) = struct.unpack_from(cls._PACK_STR, data)
-        return ce
+    # @classmethod
+    # def from_bytes(cls, data):
+    #     ce = cls()
+    #     (ce.peer_id, ce.edge_id, ce.created_time, ce.connected_time, ce.edge_state,
+    #      ce.edge_type, ce.dataplane) = struct.unpack_from(cls._PACK_STR, data)
+    #     return ce
 
-    def to_json(self):
-        return json.dumps(dict(self))
+    # def to_json(self):
+    #     return json.dumps(dict(self))
 
     @classmethod
     def from_json_str(cls, json_str):
@@ -187,8 +194,8 @@ class ConnEdgeAdjacenctList(MutableMapping):
         return len(self._conn_edges)
 
     def __repr__(self):
-        items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
-        return "{{{}}}".format(", ".join(items))
+        return "{{{}}}".format(", ".join((f"\"{k}\": {self.__dict__[k]!r}" for k in
+                                            (self._REFLECT if hasattr(self, "_REFLECT") else self.__dict__.keys()))))
 
     def __bool__(self):
         return bool(self._conn_edges)
@@ -303,8 +310,8 @@ class GraphEdit():
         self.priority = priority
 
     def __repr__(self):
-        items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
-        return "{{{}}}".format(", ".join(items))
+        return "{{{}}}".format(", ".join((f"\"{k}\": {self.__dict__[k]!r}" for k in
+                                            (self._REFLECT if hasattr(self, "_REFLECT") else self.__dict__.keys()))))
 
 
 class GraphTransformation():
@@ -320,8 +327,8 @@ class GraphTransformation():
         return iter(self._edits)
 
     def __repr__(self):
-        items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
-        return "{{{}}}".format(", ".join(items))
+        return "{{{}}}".format(", ".join((f"\"{k}\": {self.__dict__[k]!r}" for k in
+                                            (self._REFLECT if hasattr(self, "_REFLECT") else self.__dict__.keys()))))
 
     def __bool__(self):
         return bool(self._edits)

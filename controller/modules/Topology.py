@@ -31,7 +31,7 @@ from framework.CFx import CFX
 from framework.ControllerModule import ControllerModule
 from framework.Modlib import RemoteAction
 from .NetworkGraph import ConnectionEdge, ConnEdgeAdjacenctList, GraphTransformation
-from .NetworkGraph import EdgeStates, EdgeTypesOut, EdgeTypesIn, OpType, transpose_edge_type
+from .NetworkGraph import EdgeStates, EdgeTypesOut, EdgeTypesIn, OpType, transpose_edge_type, ConnectionRole
 from .GraphBuilder import GraphBuilder
 from .Tunnel import TunnelEvents, DataplaneTypes
 from framework.CBT import CBT
@@ -67,8 +67,9 @@ class DiscoveredPeer():
         self.last_checkin = self.available_time
 
     def __repr__(self):
-        items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
-        return "{{{}}}".format(", ".join(items))
+        _keys = self._REFLECT if hasattr(
+            self, "_REFLECT") else self.__dict__.keys()
+        return "{{{}}}".format(", ".join((f"\"{k}\": {self.__dict__[k]!r}" for k in _keys)))
 
     def exclude(self):
         self.successive_fails += SuccessiveFailsIncr
@@ -124,13 +125,6 @@ class NetworkOverlay():
         self.adjacency_list = ConnEdgeAdjacenctList(overlay_id, node_id)
         self._loc_id = kwargs.get("LocationId")
         self._encr_req = kwargs.get("EncryptionRequired", False)
-
-    def __repr__(self):
-        items = set()
-        if hasattr(self, "_REFLECT"):
-            for k in self._REFLECT:
-                items.add(f"\"{k}\": {self.__dict__[k]!r}")
-        return "{{{}}}".format(", ".join(items))
 
     @property
     def location_id(self):
@@ -338,11 +332,8 @@ class Topology(ControllerModule, CFX):
             assert ce.edge_state == EdgeStates.Authorized, f"Invalid edge state {ce}"
             ce.edge_state = EdgeStates.Deleting
             del ovl.adjacency_list[peer_id]
-            # ToDo: if peer_id in ovl.known_peers:
-            ovl.known_peers[peer_id].exclude()
-            self.logger.debug("Excluding peer %s until %s", peer_id,
-                              str(datetime.fromtimestamp(
-                                  ovl.known_peers[peer_id].available_time)))
+            if peer_id in ovl.known_peers:
+                ovl.known_peers[peer_id].exclude()
         elif event == TunnelEvents.Connected:
             """Roles A & B"""
             ce = ovl.adjacency_list[peer_id]
@@ -356,24 +347,22 @@ class Topology(ControllerModule, CFX):
                 self._process_next_transition(ovl)
         elif event == TunnelEvents.Disconnected:
             ce = ovl.adjacency_list[peer_id]
-            assert ce.edge_state in (
-                EdgeStates.Created, EdgeStates.Connected), f"Invalid edge state {ce}"
+            if ce.edge_state != EdgeStates.Connected:
+                raise RuntimeError(f"Tunnel disconnected event is invalid for edge state {ce}")
             # the local topology did not request removal of the connection
-            if (ce.edge_state == EdgeStates.Created) or \
-                    (time.time() - ce.connected_time < Topology._EDGE_PROTECTION_AGE and peer_id in ovl.known_peers):
+            if (time.time() - ce.connected_time < Topology._EDGE_PROTECTION_AGE) and peer_id in ovl.known_peers:
                 ovl.known_peers[peer_id].exclude()
             ce.edge_state = EdgeStates.Disconnected
             self._remove_tunnel(ovl, ce.dataplane, peer_id, ce.edge_id)
         elif event == TunnelEvents.Removed:
             """Roles A & B"""
-            ce = ovl.adjacency_list.get(peer_id)
-            del ovl.adjacency_list[peer_id]
-            if ce is not None and ce.edge_state == EdgeStates.Connected:  # topo initiated the removal
+            ce = ovl.adjacency_list.pop(peer_id, None)
+            if ce and ce.role == ConnectionRole.Initiator: #ce.edge_state == EdgeStates.Connected:  # topo initiated the removal
                 ovl.release()
                 self._process_next_transition(ovl)
-            elif ce is not None and ce.edge_state == EdgeStates.Disconnected:  # the peer disconnected
+            elif ce and ce.role == ConnectionRole.Target: # ce.edge_state == EdgeStates.Disconnected:  # the peer disconnected
                 ce.edge_state = EdgeStates.Deleting
-            else:
+            elif ce:
                 self.logger.error(
                     "Tunnel event remove is unexpected for conn edge %s", ce)
         else:
@@ -417,7 +406,7 @@ class Topology(ControllerModule, CFX):
                 self.logger.warning("Invalid on-demand tunnel request parameter, OverlayId=%s",
                                     olid)
 
-    def req_handler_negotiate_edge(self, edge_cbt):
+    def req_handler_negotiate_edge(self, edge_cbt: CBT):
         """ Role B1, decide if the request for an incoming edge is accepted or rejected """
         edge_req = EdgeRequest(**edge_cbt.request.params)
         olid = edge_req.overlay_id
@@ -454,7 +443,7 @@ class Topology(ControllerModule, CFX):
                 et = transpose_edge_type(edge_req.edge_type)
                 ce = ConnectionEdge(
                     peer_id=peer_id, edge_id=edge_req.edge_id, edge_type=et,
-                    dataplane=edge_resp.dataplane)
+                    dataplane=edge_resp.dataplane, role=ConnectionRole.Target)
                 ce.edge_state = EdgeStates.PreAuth
                 net_ovl.adjacency_list[ce.peer_id] = ce
             self._authorize_incoming_tunnel(net_ovl, peer_id, edge_req.edge_id,
@@ -656,7 +645,7 @@ class Topology(ControllerModule, CFX):
                              location_id=net_ovl.location_id,
                              capability=dp_types)
             edge_params = er._asdict()
-            self.logger.debug("Initiating %s", er)
+            self.logger.info("Initiating %s", er)
             rem_act = RemoteAction(net_ovl.overlay_id, er.recipient_id,
                                    "Topology", "TOP_NEGOTIATE_EDGE", edge_params)
             net_ovl.acquire()
@@ -741,16 +730,12 @@ class Topology(ControllerModule, CFX):
                        f"{conn_edge.edge_id[:7]} already exist")
                 edge_resp = EdgeResponse(
                     is_accepted=False, message=msg, dataplane=None)
-        elif edge_state == EdgeStates.Initialized:
-            edge_resp = EdgeResponse(
-                is_accepted=True, message="Precollision edge permitted", dataplane=dp_type)
-            del net_ovl.adjacency_list[peer_id]
-        elif edge_state == EdgeStates.PreAuth and self.node_id < edge_req.initiator_id:
+        elif (edge_state in (EdgeStates.Initialized, EdgeStates.PreAuth) and self.node_id < edge_req.initiator_id):
             msg = f"E2 - Node {self.node_id} superceeds edge request due to collision, "
             "edge={net_ovl.adjacency_list[peer_id].edge_id[:7]}"
             edge_resp = EdgeResponse(
                 is_accepted=False, message=msg, dataplane=dp_type)
-        elif edge_state == EdgeStates.PreAuth and self.node_id > edge_req.initiator_id:
+        elif (edge_state in (EdgeStates.Initialized, EdgeStates.PreAuth) and self.node_id > edge_req.initiator_id):
             conn_edge.edge_type = transpose_edge_type(edge_req.edge_type)
             conn_edge.edge_id = edge_req.edge_id
             conn_edge.dataplane = dp_type
