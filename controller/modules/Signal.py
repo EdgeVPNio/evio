@@ -58,10 +58,9 @@ class JidCache:
         self._expiry = expiry
         
     def __repr__(self):
-        items = set()
-        for k in JidCache._REFLECT:
-            items.add(f"\"{k}\": {self.__dict__[k]!r}")
-        return "{{{}}}".format(", ".join(items))
+        _keys = self._REFLECT if hasattr(
+            self, "_REFLECT") else self.__dict__.keys()
+        return "{{{}}}".format(", ".join((f"\"{k}\": {self.__dict__[k]!r}" for k in _keys)))
       
     def add_entry(self, node_id, jid):
         ts = time.time()
@@ -108,10 +107,9 @@ class XmppTransport(slixmpp.ClientXMPP):
         self._init_event = threading.Event()
 
     def __repr__(self):
-        items = set()
-        for k in XmppTransport._REFLECT:
-            items.add(f"\"{k}\": {self.__dict__[k]!r}")
-        return "{{{}}}".format(", ".join(items))
+        _keys = self._REFLECT if hasattr(
+            self, "_REFLECT") else self.__dict__.keys()
+        return "{{{}}}".format(", ".join((f"\"{k}\": {self.__dict__[k]!r}" for k in _keys)))
 
     def host(self):
         return self._host
@@ -328,7 +326,7 @@ class XmppTransport(slixmpp.ClientXMPP):
 
 class Signal(ControllerModule):
     _REFLECT = set(["_circles", "_remote_acts", "request_timeout"])
-    
+    # todo: ordering of received remote actions 
     def __init__(self, cfx_handle, module_config, module_name):
         super(Signal, self).__init__(cfx_handle, module_config, module_name)
         self._presence_publisher = None

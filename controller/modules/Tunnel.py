@@ -60,8 +60,9 @@ class Tunnel():
         self.dataplane = dataplane
         
     def __repr__(self):
-        items = (f"\"{k}\": {v!r}" for k, v in self.__dict__.items())
-        return "{{{}}}".format(", ".join(items))
+        _keys = self._REFLECT if hasattr(
+            self, "_REFLECT") else self.__dict__.keys()
+        return "{{{}}}".format(", ".join((f"\"{k}\": {self.__dict__[k]!r}" for k in _keys)))
 
     @property
     def is_link_exist(self):

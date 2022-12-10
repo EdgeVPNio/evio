@@ -32,7 +32,7 @@ import logging
 import logging.handlers as lh
 import queue
 import framework.Fxlib as fxlib
-from .CBT import CBT
+from .CBT import (CBT, RequestTimeout)
 from .CFxHandle import CFxHandle
 from .CFxSubscription import CFxSubscription
 
@@ -336,7 +336,7 @@ class CFX():
             elif param_name == "DebugCBTs":
                 val = self._config["CFx"].get("DebugCBTs", False)
             elif param_name == "RequestTimeout":
-                val = self._config["CFx"]["RequestTimeout"]
+                val = self._config["CFx"].get("RequestTimeout", RequestTimeout)
             elif param_name == "LogConfig":
                 val = {
                         "Level": self._config["CFx"].get("LogLevel", LogLevel),

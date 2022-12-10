@@ -55,17 +55,8 @@ class GeneveTunnel(ControllerModule):
         # self._peers = {}        
         self._tunnels = {} # tunnel id -> TunnelDescriptor 
         self._gnv_updates_publisher = None
-    
-    def __repr__(self):
-        items = set()
-        for k in GeneveTunnel._REFLECT:
-            items.add(f"\"{k}\": {self.__dict__[k]!r}")
-        return "{{{}}}".format(", ".join(items))
 
     def initialize(self):
-        # for olid in self.overlays:
-        #     self._peers[olid] = dict()
-
         self._gnv_updates_publisher = \
             self.publish_subscription("GNV_TUNNEL_EVENTS")
         self.logger.info("Module loaded")

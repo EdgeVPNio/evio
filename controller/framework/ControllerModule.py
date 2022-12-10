@@ -40,11 +40,8 @@ class ControllerModule():
         self.logger = logging.getLogger("Evio." + self._module_name)
 
     def __repr__(self):
-        items = set()
-        if hasattr(self, "_REFLECT"):
-            for k in self._REFLECT:
-                items.add(f"\"{k}\": {self.__dict__[k]!r}")
-        return "{{{}}}".format(", ".join(items))
+        return "{{{}}}".format(", ".join((f"\"{k}\": {self.__dict__[k]!r}" for k in
+                                            (self._REFLECT if hasattr(self, "_REFLECT") else self.__dict__.keys()))))
 
     @abstractmethod
     def initialize(self):
