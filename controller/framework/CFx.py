@@ -37,7 +37,6 @@ from .CFxHandle import CFxHandle
 from .CFxSubscription import CFxSubscription
 
 RootLogLevel = "INFO"
-LogLevel = "INFO"
 Directory = "/var/log/evio/"
 CFxLogFileName = "cfx.log"
 CtrlLogFileName = "ctrl.log"
@@ -143,7 +142,8 @@ class CFX():
             queue_handler = lh.QueueHandler(que)            
             self._rlistener = lh.QueueListener(que, root_handler, respect_handler_level=True)
             self.logger = logging.getLogger()
-            level = getattr(logging, self._config["CFx"].get("RootLogLevel", RootLogLevel))
+            root_log_level = self._config["CFx"].get("RootLogLevel", RootLogLevel)
+            level = getattr(logging, root_log_level)
             self.logger.setLevel(level)
             self.logger.addHandler(queue_handler)            
             self._rlistener.start()
@@ -165,7 +165,7 @@ class CFX():
             # formatter = logging.Formatter(
             #     "[%(asctime)s.%(msecs)03d] %(levelname)s:%(name)s: %(message)s", datefmt="%Y%m%d %H:%M:%S")
             rf_handler.setFormatter(formatter)
-            level = getattr(logging, self._config["CFx"].get("LogLevel", LogLevel))
+            level = getattr(logging, self._config["CFx"].get("LogLevel", root_log_level))
             cm_logger.setLevel(level)
             # setup console logging to record errors in the system journal
             console_handler = logging.StreamHandler()
@@ -338,8 +338,9 @@ class CFX():
             elif param_name == "RequestTimeout":
                 val = self._config["CFx"].get("RequestTimeout", RequestTimeout)
             elif param_name == "LogConfig":
+                root_log_level = self._config["CFx"].get("RootLogLevel", RootLogLevel)
                 val = {
-                        "Level": self._config["CFx"].get("LogLevel", LogLevel),
+                        "Level": self._config["CFx"].get("LogLevel", root_log_level),
                         "Device": self._config["CFx"].get("Device", Device),
                         "Directory": self._config["CFx"].get("Directory", Directory),
                         "Filename": self._config["CFx"].get("TincanLogFileName", TincanLogFileName),
