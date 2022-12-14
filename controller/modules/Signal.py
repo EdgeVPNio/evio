@@ -34,16 +34,18 @@ import socket
 import slixmpp
 from slixmpp import ElementBase, register_stanza_plugin, Message, Callback, StanzaPath, JID
 from framework.ControllerModule import ControllerModule
+from framework.Modlib import RemoteAction
 from framework.CBT import CBT
+import modules as modlib
 
-CacheExpiry = 30
+CacheExpiry = 60
 PresenceInterval = 30
 
 class EvioSignal(ElementBase):
     """Representation of SIGNAL's custom message stanza"""
     name = "evio"
-    namespace = "signal"
-    plugin_attrib = "evio"
+    namespace = "evio:signal"
+    plugin_attrib = name
     interfaces = set(("type", "payload"))
 
 
@@ -58,9 +60,7 @@ class JidCache:
         self._expiry = expiry
         
     def __repr__(self):
-        _keys = self._REFLECT if hasattr(
-            self, "_REFLECT") else self.__dict__.keys()
-        return "{{{}}}".format(", ".join((f"\"{k}\": {self.__dict__[k]!r}" for k in _keys)))
+        return modlib.to_repr(self)
       
     def add_entry(self, node_id, jid):
         ts = time.time()
@@ -107,9 +107,7 @@ class XmppTransport(slixmpp.ClientXMPP):
         self._init_event = threading.Event()
 
     def __repr__(self):
-        _keys = self._REFLECT if hasattr(
-            self, "_REFLECT") else self.__dict__.keys()
-        return "{{{}}}".format(", ".join((f"\"{k}\": {self.__dict__[k]!r}" for k in _keys)))
+        return modlib.to_repr(self)
 
     def host(self):
         return self._host
@@ -205,8 +203,6 @@ class XmppTransport(slixmpp.ClientXMPP):
             presence_receiver = str(presence_receiver_jid.user) + "@" \
                 + str(presence_receiver_jid.domain)
             status = presence["status"]
-            self._sig.logger.debug("Presence recv - Overlay:%s Local JID:%s Msg:%s",
-                          self._overlay_id, self.boundjid, presence)
             if(presence_receiver == self.boundjid.bare and presence_sender != self.boundjid.full):
                 if (status and "#" in status):
                     pstatus, peer_id = status.split("#")
@@ -228,6 +224,7 @@ class XmppTransport(slixmpp.ClientXMPP):
                         if self._node_id == peer_id:
                             payload = self.boundjid.full + "#" + self._node_id
                             self.send_msg(presence_sender, "uid!", payload)
+                            # self._sig.peer_jid_updated(self._overlay_id, peer_nid, peer_jid) # should do this here as well but no nid info avilable to signal
                     else:
                         self._sig.logger.warning("Unrecognized PSTATUS:%s on overlay:%s",
                                       pstatus, self._overlay_id)
@@ -260,9 +257,11 @@ class XmppTransport(slixmpp.ClientXMPP):
                     return
                 # a notification of a peers node id to jid mapping
                 pts = self._jid_cache.add_entry(node_id=peer_id, jid=peer_jid)
+                self._sig.peer_jid_updated(self._overlay_id, peer_id, peer_jid)
                 self._presence_publisher.post_update(
                     dict(PeerId=peer_id, OverlayId=self._overlay_id, PresenceTimestamp=pts))
             elif msg_type in ("invk", "cmpt"):
+                # self._sig.peer_jid_updated(self._overlay_id, peer_nid, peer_jid) # should do this here as well but no nid info avilable to signal
                 rem_act = json.loads(msg_payload)
                 self._sig.handle_remote_action(self._overlay_id, rem_act, msg_type)
             else:
@@ -486,7 +485,7 @@ class Signal(ControllerModule):
             out_rem_acts[peer_id].put((act_type, rem_act, time.time()))
             transport.send_presence(pstatus="uid?#" + peer_id)
         else:
-            # JID was updated by a separate presence update,
+            # JID can be updated by a separate presence update,
             # send any waiting msgs in the outgoing remote act queue
             self._send_waiting_remote_acts(olid, peer_id, peer_jid)
             payload = json.dumps(rem_act)

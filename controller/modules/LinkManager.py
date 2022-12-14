@@ -196,7 +196,6 @@ class LinkManager(ControllerModule):
         self._tunnels[tnlid].mac = tnl_desc["MAC"]
         self._tunnels[tnlid].tap_name = tnl_desc["TapName"]
         self._tunnels[tnlid].fpr = tnl_desc["FPR"]
-        self.logger.debug("Updated tunnels:%s", self._tunnels[tnlid])
 
     def _query_link_stats(self):
         """Query the status of links that have completed creation process"""
@@ -292,17 +291,17 @@ class LinkManager(ControllerModule):
         peer_id = rmv_tnl_cbt.request.params["PeerId"]
         olid = rmv_tnl_cbt.request.params["OverlayId"]
         tap_name = rmv_tnl_cbt.request.params["TapName"]
-        # Notify subscribers of tunnel removal
-        param = {
-            "UpdateType": TunnelEvents.Removed, "OverlayId": olid, "TunnelId": tnlid, "LinkId": lnkid,
-            "PeerId": peer_id, "TapName": tap_name}
-        self._link_updates_publisher.post_update(param)
         self._tunnels.pop(tnlid, None)
         self._links.pop(lnkid, None)
         self.free_cbt(rmv_tnl_cbt)
         if parent_cbt:
             parent_cbt.set_response("Tunnel removed", True)
             self.complete_cbt(parent_cbt)
+        # Notify subscribers of tunnel removal
+        param = {
+            "UpdateType": TunnelEvents.Removed, "OverlayId": olid, "TunnelId": tnlid, "LinkId": lnkid,
+            "PeerId": peer_id, "TapName": tap_name}
+        self._link_updates_publisher.post_update(param)
         self.logger.info("Tunnel %s removed: %s:%s<->%s",
                          tnlid[:7], olid[:7], self.node_id[:7], peer_id[:7])
 
@@ -318,12 +317,12 @@ class LinkManager(ControllerModule):
     #         "PeerId": peer_id}
     #     if self._tunnels[tnlid].tap_name:
     #         param["TapName"] = self._tunnels[tnlid].tap_name
-    #     self._link_updates_publisher.post_update(param)
     #     self._remove_link_from_tunnel(tnlid)
     #     self.free_cbt(rmv_tnl_cbt)
     #     if parent_cbt:
     #         parent_cbt.set_response("Link removed", True)
     #         self.complete_cbt(parent_cbt)
+    #     self._link_updates_publisher.post_update(param)
     #     self.logger.info("Link %s from Tunnel %s removed: %s:%s<->%s",
     #              lnkid[:7], tnlid[:7], olid[:7], self.node_id[:7], peer_id[:7])
 
@@ -426,6 +425,7 @@ class LinkManager(ControllerModule):
         if tnlid in self._tunnels:
             cbt.set_response("Tunnel auth failed, resource already exist for peer:tunnel {0}:{1}"
                              .format(peer_id, tnlid[:7]), False)
+            self.complete_cbt(cbt)
         else:
             self._tunnels[tnlid] = Tunnel(tnlid, olid, peer_id,
                                           tnl_state=TunnelStates.AUTHORIZED,
@@ -438,8 +438,8 @@ class LinkManager(ControllerModule):
             lnkupd_param = {
                 "UpdateType": TunnelEvents.Authorized, "OverlayId": olid, "PeerId": peer_id,
                 "TunnelId": tnlid}
+            self.complete_cbt(cbt)
             self._link_updates_publisher.post_update(lnkupd_param)
-        self.complete_cbt(cbt)
 
     def req_handler_create_tunnel(self, cbt):
         """

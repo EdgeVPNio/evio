@@ -297,13 +297,13 @@ class GeneveTunnel(ControllerModule):
             self._remove_geneve_tunnel(tap_name)
             self._tunnels.pop(tnlid)
             # self._peers[olid].pop(peer_id)
-            gnv_param = {
-                "UpdateType": TunnelEvents.Removed, "OverlayId": olid, "PeerId": peer_id,
-                "TunnelId": tnlid, "TapName": tap_name}
-            self._gnv_updates_publisher.post_update(gnv_param)            
             cbt.set_response(
                 data=f"Tunnel {tap_name} deleted", status=True)
             self.complete_cbt(cbt)
+            gnv_param = {
+                "UpdateType": TunnelEvents.Removed, "OverlayId": olid, "PeerId": peer_id,
+                "TunnelId": tnlid, "TapName": tap_name}
+            self._gnv_updates_publisher.post_update(gnv_param)
         else:
             cbt.set_response(
                 data=f"Tunnel {tap_name} does not exists", status=False)
