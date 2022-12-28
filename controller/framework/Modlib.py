@@ -20,6 +20,7 @@
 # THE SOFTWARE.
 
 import subprocess
+
 import framework.Version as ver
 
 CTL_CREATE_CTRL_LINK = {
@@ -32,8 +33,8 @@ CTL_CREATE_CTRL_LINK = {
             "AddressFamily": "af_inetv6",
             "Protocol": "proto_datagram",
             "IP": "::1",
-            "Port": 5801
-        }
+            "Port": 5801,
+        },
     }
 }
 CTL_CONFIGURE_LOGGING = {
@@ -49,8 +50,8 @@ CTL_CONFIGURE_LOGGING = {
             "Filename": "tincan_log",
             "MaxArchives": 10,
             "MaxFileSize": 1048576,
-            "ConsoleLevel": "DEBUG"
-        }
+            "ConsoleLevel": "DEBUG",
+        },
     }
 }
 CTL_QUERY_TUNNEL_INFO = {
@@ -58,11 +59,7 @@ CTL_QUERY_TUNNEL_INFO = {
         "ProtocolVersion": ver.EVIO_VER_CTL,
         "TransactionId": 0,
         "ControlType": "TincanRequest",
-        "Request": {
-            "Command": "QueryOverlayInfo",
-            "OverlayId": "",
-            "TunnelId": ""
-        }
+        "Request": {"Command": "QueryOverlayInfo", "OverlayId": "", "TunnelId": ""},
     }
 }
 CTL_CREATE_TUNNEL = {
@@ -79,7 +76,7 @@ CTL_CREATE_TUNNEL = {
             "StunServers": [],
             "TurnServers": [],
             "Type": "",
-        }
+        },
     }
 }
 CTL_CREATE_LINK = {
@@ -92,12 +89,8 @@ CTL_CREATE_LINK = {
             "OverlayId": "",
             "TunnelId": "",
             "LinkId": "",
-            "PeerInfo": {
-                "UID": "",
-                "MAC": "",
-                "FPR": ""
-            }
-        }
+            "PeerInfo": {"UID": "", "MAC": "", "FPR": ""},
+        },
     }
 }
 CTL_REMOVE_TUNNEL = {
@@ -105,11 +98,7 @@ CTL_REMOVE_TUNNEL = {
         "ProtocolVersion": ver.EVIO_VER_CTL,
         "TransactionId": 0,
         "ControlType": "TincanRequest",
-        "Request": {
-            "Command": "RemoveTunnel",
-            "OverlayId": "",
-            "TunnelId": ""
-        }
+        "Request": {"Command": "RemoveTunnel", "OverlayId": "", "TunnelId": ""},
     }
 }
 CTL_REMOVE_LINK = {
@@ -117,11 +106,7 @@ CTL_REMOVE_LINK = {
         "ProtocolVersion": ver.EVIO_VER_CTL,
         "TransactionId": 0,
         "ControlType": "TincanRequest",
-        "Request": {
-            "Command": "RemoveLink",
-            "OverlayId": "",
-            "LinkId": ""
-        }
+        "Request": {"Command": "RemoveLink", "OverlayId": "", "LinkId": ""},
     }
 }
 RESP = {
@@ -129,12 +114,8 @@ RESP = {
         "ProtocolVersion": ver.EVIO_VER_CTL,
         "TransactionId": 0,
         "ControlType": "TincanResponse",
-        "Request": {
-        },
-        "Response": {
-            "Success": True,
-            "Message": "description"
-        }
+        "Request": {},
+        "Response": {"Success": True, "Message": "description"},
     }
 }
 CTL_QUERY_LINK_STATS = {
@@ -142,10 +123,7 @@ CTL_QUERY_LINK_STATS = {
         "ProtocolVersion": ver.EVIO_VER_CTL,
         "TransactionId": 0,
         "ControlType": "TincanRequest",
-        "Request": {
-            "Command": "QueryLinkStats",
-            "TunnelIds" : []
-        }
+        "Request": {"Command": "QueryLinkStats", "TunnelIds": []},
     }
 }
 CTL_QUERY_CAS = {
@@ -156,8 +134,8 @@ CTL_QUERY_CAS = {
         "Request": {
             "Command": "QueryCandidateAddressSet",
             "OverlayId": "",
-            "LinkId": ""
-        }
+            "LinkId": "",
+        },
     }
 }
 
@@ -169,43 +147,75 @@ def ip4_a2hex(ipstr):
 def ip6_a2b(str_ip6):
     return b"".join(int(x, 16).to_bytes(2, byteorder="big") for x in str_ip6.split(":"))
 
+
 def ip6_b2a(bin_ip6):
-    return "".join("%04x" % int.from_bytes(bin_ip6[i:i + 2], byteorder="big") + ":"
-                   for i in range(0, 16, 2))[:-1]
+    return "".join(
+        "%04x" % int.from_bytes(bin_ip6[i : i + 2], byteorder="big") + ":"
+        for i in range(0, 16, 2)
+    )[:-1]
+
 
 def ip4_a2b(str_ip4):
     return b"".join(int(x, 10).to_bytes(1, byteorder="big") for x in str_ip4.split("."))
 
+
 def ip4_b2a(bin_ip4):
-    return "".join(str(int.from_bytes(bin_ip4[i:i + 1], byteorder="big")) + "."
-                   for i in range(0, 4, 1))[:-1]
+    return "".join(
+        str(int.from_bytes(bin_ip4[i : i + 1], byteorder="big")) + "."
+        for i in range(0, 4, 1)
+    )[:-1]
+
 
 def mac_a2b(str_mac):
     return b"".join(int(x, 16).to_bytes(1, byteorder="big") for x in str_mac.split(":"))
 
-def mac_b2a(bin_mac):
-    return "".join("%02x" % int.from_bytes(bin_mac[i:i + 1], byteorder="big") + ":"
-                   for i in range(0, 6, 1))[:-1]
 
-def delim_mac_str(mac_str:str, delim=":"):
+def mac_b2a(bin_mac):
+    return "".join(
+        "%02x" % int.from_bytes(bin_mac[i : i + 1], byteorder="big") + ":"
+        for i in range(0, 6, 1)
+    )[:-1]
+
+
+def delim_mac_str(mac_str: str, delim=":"):
     if not mac_str or len(mac_str) != 12 or delim in mac_str:
         return None
-    return str(mac_str[:2] + delim + mac_str[2:4] + delim + mac_str[4:6] + delim + mac_str[6:8] +
-               delim + mac_str[8:10] + delim + mac_str[10:12]).lower()
+    return str(
+        mac_str[:2]
+        + delim
+        + mac_str[2:4]
+        + delim
+        + mac_str[4:6]
+        + delim
+        + mac_str[6:8]
+        + delim
+        + mac_str[8:10]
+        + delim
+        + mac_str[10:12]
+    ).lower()
+
 
 def uid_a2b(str_uid):
     return int(str_uid, 16).to_bytes(20, byteorder="big")
 
+
 def uid_b2a(bin_uid):
     return "%40x" % int.from_bytes(bin_uid, byteorder="big")
 
+
 def hexstr2b(hexstr):
-    return b"".join(int(hexstr[i:i + 2], 16).to_bytes(1, byteorder="big") \
-        for i in range(0, len(hexstr), 2))
+    return b"".join(
+        int(hexstr[i : i + 2], 16).to_bytes(1, byteorder="big")
+        for i in range(0, len(hexstr), 2)
+    )
+
 
 def b2hexstr(binary):
-    return "".join("%02x" % int.from_bytes(binary[i:i + 1], byteorder="big") \
-        for i in range(0, len(binary), 1))
+    return "".join(
+        "%02x" % int.from_bytes(binary[i : i + 1], byteorder="big")
+        for i in range(0, len(binary), 1)
+    )
+
 
 def gen_ip4(uid, peer_map, ip4):
     try:
@@ -251,23 +261,35 @@ def addhex(data1, data2):
 def getchecksum(hexstr):
     result = "0000"
     for i in range(0, len(hexstr), 4):
-        result = addhex(result, hexstr[i:i + 4])
+        result = addhex(result, hexstr[i : i + 4])
     if len(result) != 4:
-        result = addhex(result[0:len(result) - 4], result[len(result) - 4:])
+        result = addhex(result[0 : len(result) - 4], result[len(result) - 4 :])
     return hex(65535 ^ int(result, 16))
 
+
 def runshell(cmd):
-    """ Run a shell command """
-    #print(cmd)
-    return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    """Run a shell command"""
+    # print(cmd)
+    return subprocess.run(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False
+    )
+
 
 def create_process(cmdlist):
-    """ Run a shell command """
+    """Run a shell command"""
     return subprocess.Popen(cmdlist)
 
-class RemoteAction():
-    def __init__(self, overlay_id=None, recipient_id=None, recipient_cm=None,
-                 action=None, params=None, **kwargs):
+
+class RemoteAction:
+    def __init__(
+        self,
+        overlay_id=None,
+        recipient_id=None,
+        recipient_cm=None,
+        action=None,
+        params=None,
+        **kwargs,
+    ):
         self.overlay_id = kwargs.get("overlay_id", overlay_id)
         self.recipient_id = kwargs.get("recipient_id", recipient_id)
         self.recipient_cm = kwargs.get("recipient_cm", recipient_cm)
@@ -279,22 +301,36 @@ class RemoteAction():
         self.status = kwargs.get("status")
         self.data = kwargs.get("data")
 
+    def __repr__(self) -> str:
+        return "{{{}}}".format(
+            ", ".join(
+                (
+                    f'"{k}": {self.__dict__[k]!r}'
+                    for k in (
+                        self._REFLECT
+                        if hasattr(self, "_REFLECT")
+                        else self.__dict__.keys()
+                    )
+                )
+            )
+        )
+
     def __iter__(self):
-        yield("overlay_id", self.overlay_id)
-        yield("recipient_id", self.recipient_id)
-        yield("recipient_cm", self.recipient_cm)
-        yield("action", self.action)
-        yield("params", self.params)
+        yield ("overlay_id", self.overlay_id)
+        yield ("recipient_id", self.recipient_id)
+        yield ("recipient_cm", self.recipient_cm)
+        yield ("action", self.action)
+        yield ("params", self.params)
         if self.initiator_id:
-            yield("initiator_id", self.initiator_id)
+            yield ("initiator_id", self.initiator_id)
         if self.initiator_cm:
-            yield("initiator_cm", self.initiator_cm)
+            yield ("initiator_cm", self.initiator_cm)
         if self.action_tag:
-            yield("action_tag", self.action_tag)
+            yield ("action_tag", self.action_tag)
         if self.status:
-            yield("status", self.status)
+            yield ("status", self.status)
         if self.data:
-            yield("data", self.data)
+            yield ("data", self.data)
 
     def submit_remote_act(self, cm, parent_cbt=None):
         self.initiator_id = cm.node_id
@@ -302,18 +338,8 @@ class RemoteAction():
         ra_desc = dict(self)
         if parent_cbt is not None:
             cbt = cm.create_linked_cbt(parent_cbt)
-            cbt.set_request(cm.module_name, "Signal", "SIG_REMOTE_ACTION", ra_desc)
+            cbt.set_request(cm.module_name, "Signal", "SIG_REMOTE_ACTION", self)
         else:
-            cbt = cm.create_cbt(cm.module_name, "Signal", "SIG_REMOTE_ACTION", ra_desc)
+            cbt = cm.create_cbt(cm.module_name, "Signal", "SIG_REMOTE_ACTION", self)
         self.action_tag = cbt.tag
         cm.submit_cbt(cbt)
-
-    @classmethod
-    def request(cls, cbt):
-        return cls(**cbt.request.params)
-    
-    @classmethod
-    def response(cls, cbt):
-        return cls(**cbt.response.data)
-
-

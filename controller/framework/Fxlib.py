@@ -26,8 +26,7 @@ EVIO_VER_REL = f"{ver.EVIO_VER_MJR}.{ver.EVIO_VER_MNR}.{ver.EVIO_VER_REV}.{ver.E
 CONFIG = {
     "CFx": {
         "Version": EVIO_VER_REL,
-        "Model": "Default",
-        "RequestTimeout": 120
+        "Model": "Default"
     },
     "OverlayVisualizer": {
         "Enabled": False,

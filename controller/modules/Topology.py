@@ -68,10 +68,7 @@ class DiscoveredPeer():
         self.last_checkin: float = self.available_time
 
     def __repr__(self):
-        return modlib.to_repr(self) #!
-        return "{{{}}}".format(", ".join((f"\"{k}\": {self.__dict__[k]!r}" for k in
-                                            (self._REFLECT if hasattr(self, "_REFLECT") else self.__dict__.keys()))))
-
+        return modlib.to_repr(self)
 
     def exclude(self):
         self.successive_fails += SuccessiveFailsIncr
@@ -129,10 +126,7 @@ class NetworkOverlay():
         self._encr_req: bool = kwargs.get("EncryptionRequired", False)
 
     def __repr__(self):
-        return modlib.to_repr(self) #!    
-        return "{{{}}}".format(", ".join((f"\"{k}\": {self.__dict__[k]!r}" for k in
-                                            (self._REFLECT if hasattr(self, "_REFLECT") else self.__dict__.keys()))))
-
+        return modlib.to_repr(self)
     @property
     def location_id(self):
         return self._loc_id
@@ -470,7 +464,7 @@ class Topology(ControllerModule):
             self._authorize_incoming_tunnel(net_ovl, peer_id, edge_req.edge_id,
                                             edge_resp.dataplane, edge_cbt)
         else:
-            edge_cbt.set_response(edge_resp, edge_resp.is_accepted)
+            edge_cbt.set_response(edge_resp._asdict(), edge_resp.is_accepted)
             self.complete_cbt(edge_cbt)
 
     def req_handler_query_known_peers(self, cbt: CBT):
@@ -485,7 +479,7 @@ class Topology(ControllerModule):
         self.complete_cbt(cbt)
 
     def resp_handler_auth_tunnel(self, cbt: CBT):
-        """ Role B
+        """ Role B2
             LNK auth completed, add the CE to Netbuilder and send response to initiator ie., Role A
         """
         olid = cbt.request.params["OverlayId"]
@@ -500,13 +494,13 @@ class Topology(ControllerModule):
                                      None)
         nego_cbt = cbt.parent
         self.free_cbt(cbt)
-        nego_cbt.set_response(edge_resp, edge_resp.is_accepted)
+        nego_cbt.set_response(edge_resp._asdict(), edge_resp.is_accepted)
         self.complete_cbt(nego_cbt)
 
     def resp_handler_remote_action(self, cbt: CBT):
         """ Role Node A, initiate edge creation on successful neogtiation """
         if not cbt.response.status and (not cbt.response.data or type(cbt.response.data) == str):
-            rem_act = RemoteAction.request(cbt)
+            rem_act = cbt.request.params
             self.logger.info("The remote action timed out %s", cbt)
             olid = rem_act.overlay_id
             ovl = self._net_ovls[olid]
@@ -518,11 +512,12 @@ class Topology(ControllerModule):
             self._process_next_transition(ovl)
             return
 
-        rem_act = RemoteAction.response(cbt)
+        rem_act = cbt.response.data
         olid = rem_act.overlay_id
         ovl = self._net_ovls[olid]
         if rem_act.action == "TOP_NEGOTIATE_EDGE":
             try:
+                self.logger.debug(f"Recv remote act: {rem_act}")
                 edge_nego = EdgeNegotiate(**rem_act.params,
                                         **rem_act.data)
                 self._complete_negotiate_edge(ovl, edge_nego)
@@ -743,7 +738,6 @@ class Topology(ControllerModule):
 
     def _resolve_request_collision(self, net_ovl: NetworkOverlay, edge_req: EdgeRequest, conn_edge: ConnectionEdge):
         """ An connection edge was already initiated by this node so resolve the collision """
-        #peer_id = edge_req.initiator_id
         edge_state: EdgeStates = conn_edge.edge_state
         edge_resp: EdgeResponse = None
         dp_type = self._select_tunnel_type(net_ovl, edge_req)

@@ -21,14 +21,14 @@
 
 import threading
 import traceback
-import queue as Queue
+import queue
 import time
 from .CBT import CBT
 
 
 class CFxHandle():
     def __init__(self, CFxObject):
-        self._cm_queue = Queue.Queue()  # CBT queue
+        self._cm_queue = queue.Queue()  # CBT queue
         self._cm_instance = None
         self._cm_thread = None  # CM worker thread
         self._cm_config = None
@@ -165,11 +165,11 @@ class CFxHandle():
             publisher_name, subscription_name, self._cm_instance)
 
     def _check_container_bounds(self):
-        if self._timer_loop_cnt % 100 == 0:
+        if self._timer_loop_cnt % 10 == 0:
             plen = len(self._pending_cbts)
-            if plen >= 50:
+            if plen >= 25:
                 self._cm_instance.logger.warning("_pending_cbts length=%s", plen)
             olen = len(self._owned_cbts)
-            if olen >= 50:
+            if olen >= 25:
                 self._cm_instance.logger.warning("_owned_cbts length=%s", olen)
         self._timer_loop_cnt = self._timer_loop_cnt + 1
