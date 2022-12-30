@@ -237,31 +237,38 @@ class XmppTransport(slixmpp.ClientXMPP):
             sender_jid = JID(presence["from"])
             receiver_jid = JID(presence["to"])
             status = presence["status"]
-            if receiver_jid != self.boundjid or sender_jid == self.boundjid:
+            if sender_jid == self.boundjid:
+                self._sig.logger.debug(
+                    "Discarding self-presence %s->%s", sender_jid, self.boundjid
+                )
                 return
             if status and "#" in status:
-                pstatus, peer_id = status.split("#")
+                pstatus, node_id = status.split("#")
                 if pstatus == "ident":
-                    if peer_id == self._node_id:
+                    if node_id == self._node_id:
                         return
                     # a notification of a peer's node id to jid mapping
-                    pts = self._jid_cache.add_entry(node_id=peer_id, jid=sender_jid)
-                    self._sig.peer_jid_updated(self._overlay_id, peer_id, sender_jid)
+                    pts = self._jid_cache.add_entry(node_id=node_id, jid=sender_jid)
+                    self._sig.peer_jid_updated(self._overlay_id, node_id, sender_jid)
                     self._presence_publisher.post_update(
                         dict(
-                            PeerId=peer_id,
+                            PeerId=node_id,
                             OverlayId=self._overlay_id,
                             PresenceTimestamp=pts,
                         )
                     )
                     self._sig.logger.debug(
-                        "Resolved %s@%s->%s", peer_id[:7], self._overlay_id, sender_jid
+                        "Resolved from %s, %s@%s->%s",
+                        pstatus,
+                        node_id[:7],
+                        self._overlay_id,
+                        sender_jid,
                     )
                     payload = self.boundjid.full + "#" + self._node_id
                     self.send_msg(sender_jid, "announce", payload)
                 elif pstatus == "uid?":
                     # a request for our jid
-                    if self._node_id == peer_id:
+                    if receiver_jid == self.boundjid and self._node_id == node_id:
                         payload = self.boundjid.full + "#" + self._node_id
                         self.send_msg(sender_jid, "uid!", payload)
                         # self._sig.peer_jid_updated(self._overlay_id, peer_nid, peer_jid) # should do this here as well but no nid info avilable to signal
@@ -293,18 +300,8 @@ class XmppTransport(slixmpp.ClientXMPP):
             # extract header and content
             msg_type = msg["evio"]["type"]
             msg_payload = msg["evio"]["payload"]
-            if msg_type == "uid!":
-                match_jid, matched_nid = msg_payload.split("#")
-                # put the learned JID in cache
-                self._jid_cache.add_entry(matched_nid, match_jid)
-                self._sig.peer_jid_updated(self._overlay_id, matched_nid, match_jid)
-            elif msg_type == "announce":
+            if msg_type in ("uid!", "announce"):
                 peer_jid, peer_id = msg_payload.split("#")
-                if peer_id == self._node_id:
-                    self._sig.logger.debug(
-                        "UID Announce msg returned to self msg=%s", msg
-                    )
-                    return
                 # a notification of a peers node id to jid mapping
                 pts = self._jid_cache.add_entry(node_id=peer_id, jid=peer_jid)
                 self._sig.peer_jid_updated(self._overlay_id, peer_id, peer_jid)
@@ -314,6 +311,13 @@ class XmppTransport(slixmpp.ClientXMPP):
                         OverlayId=self._overlay_id,
                         PresenceTimestamp=pts,
                     )
+                )
+                self._sig.logger.debug(
+                    "Resolved from %s, %s@%s->%s",
+                    msg_type,
+                    peer_id[:7],
+                    self._overlay_id,
+                    sender_jid,
                 )
             elif msg_type in ("invk", "cmpt"):
                 # self._sig.peer_jid_updated(self._overlay_id, peer_nid, peer_jid) # should do this here as well but no nid info avilable to signal
