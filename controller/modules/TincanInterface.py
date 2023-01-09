@@ -61,8 +61,8 @@ class TincanInterface(ControllerModule):
         self._tincan_listener_thread.setDaemon(True)
         self._tincan_listener_thread.start()
         self.create_control_link()
-        self._tci_publisher = self._cfx_handle.publish_subscription("TCI_TINCAN_MSG_NOTIFY")
-        self.register_cbt("Logger", "LOG_QUERY_CONFIG")
+        self._tci_publisher = self.publish_subscription("TCI_TINCAN_MSG_NOTIFY")
+        self.configure_tincan_logging(self.log_config, False)                    
         self.logger.info("Module loaded")
 
     def __tincan_listener(self):
@@ -102,7 +102,9 @@ class TincanInterface(ControllerModule):
         self.send_control(json.dumps(ctl))
 
     def resp_handler_create_control_link(self, cbt):
-        if cbt.response.status == "False":
+        status = cbt.response.status
+        self.free_cbt(cbt)
+        if status == "False":
             msg = "Failed to create Tincan response link: CBT={0}".format(cbt)
             raise RuntimeError(msg)
 
@@ -111,14 +113,16 @@ class TincanInterface(ControllerModule):
         ctl = modlib.CTL_CONFIGURE_LOGGING
         ctl["EVIO"]["TransactionId"] = cbt.tag
         if not use_defaults:
-            ctl["EVIO"]["Request"] = log_cfg
+            ctl["EVIO"]["Request"].update(log_cfg)
         self._cfx_handle._pending_cbts[cbt.tag] = cbt
         self.send_control(json.dumps(ctl))
+        self.free_cbt(cbt)
 
     def resp_handler_configure_tincan_logging(self, cbt):
         if cbt.response.status == "False":
-            self.logger.warn("Failed to configure Tincan logging: CBT=%s", cbt)
-
+            self.logger.warning("Failed to configure Tincan logging: CBT=%s", cbt)
+        self.free_cbt(cbt)
+        
     def req_handler_create_link(self, cbt):
         msg = cbt.request.params
         ctl = modlib.CTL_CREATE_LINK
@@ -135,7 +139,6 @@ class TincanInterface(ControllerModule):
         # Optional overlay data to create overlay on demand
         req["StunServers"] = msg.get("StunServers")
         req["TurnServers"] = msg.get("TurnServers")
-        req["Type"] = msg["Type"]
         req["TapName"] = msg.get("TapName")
         req["IgnoredNetInterfaces"] = msg.get("IgnoredNetInterfaces")
         self.send_control(json.dumps(ctl))
@@ -147,7 +150,6 @@ class TincanInterface(ControllerModule):
         req = ctl["EVIO"]["Request"]
         req["StunServers"] = msg["StunServers"]
         req["TurnServers"] = msg.get("TurnServers")
-        req["Type"] = msg["Type"]
         req["TapName"] = msg["TapName"]
         req["OverlayId"] = msg["OverlayId"]
         req["TunnelId"] = msg["TunnelId"]
@@ -227,23 +229,20 @@ class TincanInterface(ControllerModule):
             else:
                 self.req_handler_default(cbt)
         elif cbt.op_type == "Response":
-            if cbt.request.action == "LOG_QUERY_CONFIG":
-                self.configure_tincan_logging(cbt.response.data,
-                                              not cbt.response.status)
-
-            elif cbt.request.action == "TCI_CREATE_CTRL_LINK":
+            if cbt.request.action == "TCI_CREATE_CTRL_LINK":
                 self.resp_handler_create_control_link(cbt)
 
             elif cbt.request.action == "TCI_CONFIGURE_LOGGING":
                 self.resp_handler_configure_tincan_logging(cbt)
 
-            self.free_cbt(cbt)
+            else:    
+                self.resp_handler_default(cbt)
 
     def send_control(self, msg):
         return self._sock.sendto(bytes(msg.encode("utf-8")), self._dest)
 
-    def timer_method(self):
+    def timer_method(self, is_exiting=False):
         pass
 
     def terminate(self):
-        pass
+        self.logger.info("Module Terminating")

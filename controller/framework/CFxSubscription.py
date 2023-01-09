@@ -21,9 +21,9 @@
 
 
 class CFxSubscription():
-    def __init__(self, owner_name, subscription_name):
-        self._owner_name = owner_name
-        self._owner = None
+    def __init__(self, publisher_name, subscription_name):
+        self._publisher_name = publisher_name
+        self._publisher = None
         self._subscription_name = subscription_name
         self._subscribers = []
 
@@ -39,4 +39,4 @@ class CFxSubscription():
 
     def post_update(self, msg):
         for sink in self._subscribers:
-            self._owner.register_cbt(sink.__class__.__name__, self._subscription_name, msg)
+            self._publisher.register_cbt(sink.__class__.__name__, self._subscription_name, msg)

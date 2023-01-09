@@ -26,39 +26,32 @@ EVIO_VER_REL = f"{ver.EVIO_VER_MJR}.{ver.EVIO_VER_MNR}.{ver.EVIO_VER_REV}.{ver.E
 CONFIG = {
     "CFx": {
         "Version": EVIO_VER_REL,
-        "Model": "Default",
-        "RequestTimeout": 120,
-    },
-    "Logger": {
-        "Enabled": True      # Send logging output to <File> or <Console>
+        "Model": "Default"
     },
     "OverlayVisualizer": {
         "Enabled": False,
-        "Dependencies": ["Logger"],
         "TimerInterval": 30
     },
     "TincanInterface": {
-        "Enabled": True,
-        "Dependencies": ["Logger"]
+        "Enabled": True
     },
     "Signal": {
         "Enabled": True,
-        "Dependencies": ["Logger"],
         "TimerInterval": 30
     },
     "LinkManager": {
         "Enabled": True,
-        "Dependencies": ["Logger", "TincanInterface", "Signal"],
+        "Dependencies": ["TincanInterface", "Signal"],
         "TimerInterval": 30        # Timer thread interval in sec
     },
     "Topology": {
         "Enabled": True,
-        "Dependencies": ["Logger", "TincanInterface", "LinkManager"],
+        "Dependencies": ["TincanInterface", "LinkManager"],
         "TimerInterval": 30
     },
     "BridgeController": {
         "Enabled": True,
-        "Dependencies": ["Logger", "LinkManager"],
+        "Dependencies": ["LinkManager"],
         "TimerInterval": 30
     }
 }

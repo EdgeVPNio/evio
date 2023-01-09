@@ -21,13 +21,14 @@
 
 import threading
 import traceback
-import queue as Queue
+import queue
 import time
 from .CBT import CBT
 
+
 class CFxHandle():
     def __init__(self, CFxObject):
-        self._cm_queue = Queue.Queue()  # CBT queue
+        self._cm_queue = queue.Queue()  # CBT queue
         self._cm_instance = None
         self._cm_thread = None  # CM worker thread
         self._cm_config = None
@@ -74,7 +75,8 @@ class CFxHandle():
         cbt.completed = True
         self._pending_cbts.pop(cbt.tag, None)
         if not cbt.child_count == 0:
-            raise RuntimeError("Invalid attempt to complete a CBT with outstanding dependencies")
+            raise RuntimeError(
+                "Invalid attempt to complete a CBT with outstanding dependencies")
         self.__cfx_object.submit_cbt(cbt)
 
     def initialize(self):
@@ -104,8 +106,8 @@ class CFxHandle():
             cbt = self._cm_queue.get()
             # Terminate when CBT is None
             if cbt is None:
-                self._cm_queue.task_done()
                 self._cm_instance.terminate()
+                self._cm_queue.task_done()
                 break
             else:
                 try:
@@ -113,12 +115,8 @@ class CFxHandle():
                         self._pending_cbts[cbt.tag] = cbt
                     self._cm_instance.process_cbt(cbt)
                 except Exception as err:
-                    log_cbt = self.create_cbt(
-                        initiator=self._cm_instance.__class__.__name__,
-                        recipient="Logger", action="LOG_WARNING",
-                        params="Process CBT exception:{0}\n{1}\n{2}"
-                        .format(err, cbt, traceback.format_exc()))
-                    self.submit_cbt(log_cbt)
+                    self._cm_instance.logger.warning(
+                        f"Process CBT exception:{err}\n{cbt}\n{traceback.format_exc()}")
                     if cbt.request.initiator == self._cm_instance.__class__.__name__:
                         self.free_cbt(cbt)
                     else:
@@ -131,47 +129,47 @@ class CFxHandle():
         # call the timer_method of each CM every timer_interval seconds
         while not self._exit_event.wait(self._timer_interval):
             try:
+                self._cm_instance.trace_state()
                 self._check_container_bounds()
                 self._cm_instance.timer_method()
             except Exception as err:
-                log_cbt = self.create_cbt(
-                    initiator=self._cm_instance.__class__.__name__,
-                    recipient="Logger", action="LOG_WARNING",
-                    params="Timer Method exception:{0}\n{1}"
-                    .format(err, traceback.format_exc()))
-                self.submit_cbt(log_cbt)
-
+                self._cm_instance.logger.warning(
+                    f"Timer Method exception:{err}\n{traceback.format_exc()}")
+        self._cm_instance.timer_method(True)
+                
     def query_param(self, param_name=""):
         pv = self.__cfx_object.query_param(param_name)
         return pv
 
     # Caller is the subscription source
-    def publish_subscription(self, subscription_name):
-        return self.__cfx_object.publish_subscription(self._cm_instance.__class__.__name__,
-                                                      subscription_name, self._cm_instance)
+    def publish_subscription(self, publisher_name, subscription_name):
+        return self.__cfx_object.publish_subscription(
+            publisher_name, subscription_name, self._cm_instance)
 
     def remove_subscription(self, sub):
-        self.__cfx_object.RemoveSubscriptionPublisher(sub)
+        self.__cfx_object.remove_subscription(sub)
+
+    def get_registered_publishers(self)->list:
+        return  self.__cfx_object.get_registered_publishers()
+
+    def get_available_subscriptions(self, publisher_name)->list:
+        return self.__cfx_object.get_available_subscriptions(publisher_name)
 
     # Caller is the subscription sink
-    def start_subscription(self, owner_name, subscription_name):
-        self.__cfx_object.start_subscription(owner_name, subscription_name, self._cm_instance)
+    def start_subscription(self, publisher_name, subscription_name):
+        self.__cfx_object.start_subscription(
+            publisher_name, subscription_name, self._cm_instance)
 
-    def end_subscription(self, owner_name, subscription_name):
-        self.__cfx_object.end_subscription(owner_name, subscription_name, self._cm_instance)
+    def end_subscription(self, publisher_name, subscription_name):
+        self.__cfx_object.end_subscription(
+            publisher_name, subscription_name, self._cm_instance)
 
     def _check_container_bounds(self):
         if self._timer_loop_cnt % 10 == 0:
             plen = len(self._pending_cbts)
-            if plen >= 50:
-                log_cbt = self.create_cbt(initiator=self._cm_instance.__class__.__name__,
-                                          recipient="Logger", action="LOG_WARNING",
-                                          params="_pending_cbts length={0}".format(plen))
-                self.submit_cbt(log_cbt)
+            if plen >= 25:
+                self._cm_instance.logger.warning("_pending_cbts length=%s", plen)
             olen = len(self._owned_cbts)
-            if olen >= 50:
-                log_cbt = self.create_cbt(initiator=self._cm_instance.__class__.__name__,
-                                          recipient="Logger", action="LOG_WARNING",
-                                          params="_owned_cbts length={0}".format(olen))
-                self.submit_cbt(log_cbt)
+            if olen >= 25:
+                self._cm_instance.logger.warning("_owned_cbts length=%s", olen)
         self._timer_loop_cnt = self._timer_loop_cnt + 1

@@ -20,10 +20,13 @@
 # THE SOFTWARE.
 
 import uuid
+import json
+RequestTimeout = 90
 
 
 class CBT():
     tag_counter = int(uuid.uuid4().hex[:15], base=16)
+
     class Request():
         def __init__(self, initiator="", recipient="", action="", params=None):
             self.initiator = initiator
@@ -32,9 +35,9 @@ class CBT():
             self.params = params
 
         def __repr__(self):
-            msg = "Request<initiator=%s, recipient=%s, action=%s, params=%s>" % (
-                self.initiator, self.recipient, self.action, str(self.params))
-            return msg
+            _keys = self._REFLECT if hasattr(
+                self, "_REFLECT") else self.__dict__.keys()
+            return "{{{}}}".format(", ".join((f"\"{k}\": {self.__dict__[k]!r}" for k in _keys)))
 
         def __itr__(self):
             yield("initiator", self.initiator)
@@ -50,10 +53,9 @@ class CBT():
             self.data = None
 
         def __repr__(self):
-            msg = "Response<status=%s, initiator=%s, recipient=%s, data=%s>" % (
-                self.status, self.initiator, self.recipient, str(self.data))
-            return msg
-
+            _keys = self._REFLECT if hasattr(
+                self, "_REFLECT") else self.__dict__.keys()
+            return "{{{}}}".format(", ".join((f"\"{k}\": {self.__dict__[k]!r}" for k in _keys)))
         def __itr__(self):
             yield("status", self.status)
             yield("initiator", self.initiator)
@@ -75,10 +77,9 @@ class CBT():
         self.time_free = None
 
     def __repr__(self):
-        msg = ("CBT<tag=%d, parent=%s, child_count=%d, completed=%r, op_type=%s, request=%r,"
-               " response=%r>" % (self.tag, str(self.parent), self.child_count, self.completed,
-                                  self.op_type, self.request, self.response))
-        return msg
+            _keys = self._REFLECT if hasattr(
+                self, "_REFLECT") else self.__dict__.keys()
+            return "{{{}}}".format(", ".join((f"\"{k}\": {self.__dict__[k]!r}" for k in _keys)))
 
     def __itr__(self):
         yield("tag", self.tag)

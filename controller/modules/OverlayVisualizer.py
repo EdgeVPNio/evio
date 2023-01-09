@@ -34,13 +34,15 @@ from framework.ControllerModule import ControllerModule
 
 class OverlayVisualizer(ControllerModule):
     def __init__(self, cfx_handle, module_config, module_name):
-        super(OverlayVisualizer, self).__init__(cfx_handle, module_config, module_name)
+        super(OverlayVisualizer, self).__init__(
+            cfx_handle, module_config, module_name)
         self._vis_ds_lock = threading.Lock()
         self._vis_req_publisher = None
         # Visualizer webservice URL
         self._vis_address = "http://" + self.config["WebServiceAddress"]
-        self._req_url = "{}/EVIO/nodes/{}".format(self._vis_address, self.node_id)
-        self._vis_ds:dict
+        self._req_url = "{}/EVIO/nodes/{}".format(
+            self._vis_address, self.node_id)
+        self._vis_ds: dict
         self._boot_time = str(datetime.fromtimestamp(time.time()))
 
     def initialize(self):
@@ -50,16 +52,16 @@ class OverlayVisualizer(ControllerModule):
         # timer_method() and all subscribing modules are expected to reply
         # with the data they want to forward to the visualiser
         self._vis_ds = self.init_viz_data()
-        self._vis_req_publisher = self._cfx_handle.publish_subscription("VIS_DATA_REQ")
+        self._vis_req_publisher = self.publish_subscription("VIS_DATA_REQ")
 
-        self.log("LOG_INFO", "Module loaded")
+        self.logger.info("Module loaded")
         self.post_viz_data(self.init_viz_data())
 
     def init_viz_data(self, boot_time=None):
         ds = dict(NodeId=self.node_id, VizData=defaultdict(dict))
         ds["BootTime"] = self._boot_time
-        ds["Version"] = self._cfx_handle.query_param("Version")
-        for olid in self._cfx_handle.query_param("Overlays"):
+        ds["Version"] = self.version
+        for olid in self.overlay_names:
             ds["VizData"][olid] = defaultdict(dict, Tunnels=defaultdict(dict))
         if "NodeName" in self.config:
             ds["NodeName"] = self.config["NodeName"]
@@ -80,21 +82,14 @@ class OverlayVisualizer(ControllerModule):
                                 ]
                 self.free_cbt(cbt)
             else:
-                parent_cbt = cbt.parent
-                cbt_data = cbt.response.data
-                cbt_status = cbt.response.status
-                self.free_cbt(cbt)
-                if parent_cbt is not None and parent_cbt.child_count == 1:
-                    parent_cbt.set_response(cbt_data, cbt_status)
-                    self.complete_cbt(parent_cbt)
-
+                self.req_handler_default(cbt)
         else:
             self.req_handler_default(cbt)
 
     def post_viz_data(self, viz_data):
         try:
             viz_data = json.dumps(viz_data).encode("utf-8")
-            self.log("LOG_DEBUG", "Posting viz data: %s", viz_data)
+            self.logger.debug("Posting viz data: %s", viz_data)
             resp = requests.put(
                 self._req_url,
                 data=zlib.compress(viz_data),
@@ -109,7 +104,7 @@ class OverlayVisualizer(ControllerModule):
                 "Failed to send data to the collector webservice"
                 " ({0}). Exception: {1}".format(self._req_url, str(err))
             )
-            self.log("LOG_WARNING", err_msg)
+            self.logger.warning(err_msg)
 
     def build_tunnel_data(self, ds):
         for olid in ds["VizData"]:
@@ -126,7 +121,9 @@ class OverlayVisualizer(ControllerModule):
             ds["VizData"][olid].pop("Topology", None)
         return ds
 
-    def timer_method(self):
+    def timer_method(self, is_exiting=False):
+        if is_exiting:
+            return
         viz_ds = None
         with self._vis_ds_lock:
             viz_ds = self._vis_ds
@@ -136,4 +133,4 @@ class OverlayVisualizer(ControllerModule):
         self._vis_req_publisher.post_update(None)
 
     def terminate(self):
-        pass
+        self.logger.info("Module Terminating")
