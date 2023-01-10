@@ -23,7 +23,7 @@ import time
 
 from framework.ControllerModule import ControllerModule
 from framework.Modlib import RemoteAction
-from pyroute2 import NDB, IPRoute
+from pyroute2 import IPRoute
 
 from .Tunnel import DataplaneTypes, Tunnel, TunnelEvents, TunnelStates
 
@@ -35,7 +35,7 @@ class GeneveTunnel(ControllerModule):
     _REFLECT = set(["_tunnels"])
 
     def __init__(self, cfx_handle, module_config, module_name):
-        super(GeneveTunnel, self).__init__(cfx_handle, module_config, module_name)
+        super().__init__(cfx_handle, module_config, module_name)
         self._ipr = IPRoute()
         self._tunnels = {}  # tunnel id -> TunnelDescriptor
         self._gnv_updates_publisher = None
@@ -78,7 +78,7 @@ class GeneveTunnel(ControllerModule):
 
     def terminate(self):
         for tnl in self._tunnels.values():
-            self._remove_geneve_tunnel(tnl.tap_name)
+            self._remove_tunnel(tnl.tap_name)
         self._tunnels.clear()
         self.logger.info("Module Terminating")
 
@@ -94,12 +94,15 @@ class GeneveTunnel(ControllerModule):
             }
             self._gnv_updates_publisher.post_update(param)
             self._tunnels.pop(tnl.tnlid, None)
-            self._remove_geneve_tunnel(tnl.tap_name)
+            self._remove_tunnel(tnl.tap_name)
 
-    def _create_geneve_tunnel(self, tap_name, vnid, remote_addr):
+    def _create_tunnel(self, tap_name, vnid, remote_addr):
         try:
             self.logger.info(
-                f"Creating Geneve tunnel {tap_name} vnid={vnid}, remote addr={remote_addr}"
+                "Creating Geneve tunnel %s vnid=%s, remote addr=%s",
+                tap_name,
+                vnid,
+                remote_addr,
             )
             self._ipr.link(
                 "add",
@@ -116,9 +119,9 @@ class GeneveTunnel(ControllerModule):
                 "Failed to create Geneve tunnel %s, error code: %s", tap_name, str(e)
             )
 
-    def _remove_geneve_tunnel(self, tap_name):
+    def _remove_tunnel(self, tap_name):
         try:
-            self.logger.info(f"Removing Geneve tunnel {tap_name}")
+            self.logger.info("Removing Geneve tunnel %s", tap_name)
             idx = self._ipr.link_lookup(ifname=tap_name)
             if idx:
                 self._ipr.link("del", index=idx[0])
@@ -146,9 +149,7 @@ class GeneveTunnel(ControllerModule):
         tnlid = cbt.request.params["TunnelId"]
         if tnlid in self._tunnels:
             cbt.set_response(
-                "Geneve tunnel authorization failed, resource already exist for peer:tunnel {0}:{1}".format(
-                    peer_id[:7], tnlid[:7]
-                ),
+                f"Geneve tunnel authorization failed, a tunnel with ID {tnlid[:7]} already exist for peer{peer_id[:7]}",
                 False,
             )
         else:
@@ -236,7 +237,7 @@ class GeneveTunnel(ControllerModule):
         if not self._is_tunnel_authorized(tnlid):
             msg = str(
                 "The requested link endpoint was not authorized. It will not be created. "
-                "TunnelId={0}, PeerId={1}, VNID={2}".format(tnlid, peer_id, vnid)
+                f"TunnelId={tnlid}, PeerId={peer_id}, VNID={vnid}"
             )
             self.logger.warning(msg)
             cbt.set_response(msg, False)
@@ -245,7 +246,7 @@ class GeneveTunnel(ControllerModule):
         if vnid is None:
             msg = str(
                 "The VNID is NULL. Tunnel cannot be created. "
-                "TunnelId={0}, PeerId={1}".format(tnlid, peer_id)
+                f"TunnelId={tnlid}, PeerId={peer_id}"
             )
             self.logger.warning(msg)
             cbt.set_response(msg, False)
@@ -254,8 +255,7 @@ class GeneveTunnel(ControllerModule):
         # Send request to create tunnel
         try:
             tap_name = self._tunnels[tnlid].tap_name
-            # self._tunnels[tnlid].state = TunnelStates.CREATING
-            self._create_geneve_tunnel(tap_name, vnid, endpnt_address)
+            self._create_tunnel(tap_name, vnid, endpnt_address)
             msg = {
                 "EndPointAddress": self.config["Overlays"][olid]["EndPointAddress"],
                 "VNId": vnid,
@@ -266,8 +266,8 @@ class GeneveTunnel(ControllerModule):
             }
             cbt.set_response(msg, True)
             self.complete_cbt(cbt)
-        except Exception as e:
-            msg = str("Creation of geneve tunnel failed. Error={0}".format(e))
+        except Exception as err:
+            msg = str("Creation of geneve tunnel failed. Error=%s", err)
             self.logger.warning(msg)
             cbt.set_response(msg, False)
         self.submit_cbt(cbt)
@@ -279,7 +279,7 @@ class GeneveTunnel(ControllerModule):
         tnlid = params["TunnelId"]
         peer_id = params["NodeId"]
         if not self._is_tunnel_authorized:
-            # the in progress tunnel was removed in the deauth method
+            # the in-progress tunnel was removed in the deauth method
             cbt.set_response("The request expired and was cancelled", False)
             self.complete_cbt(cbt)
             return
@@ -316,7 +316,7 @@ class GeneveTunnel(ControllerModule):
                 self.complete_cbt(cbt)
             else:
                 self._tunnels[tnlid].state = TunnelStates.OFFLINE
-                self._remove_geneve_tunnel(tap_name)
+                self._remove_tunnel(tap_name)
                 self._tunnels.pop(tnlid)
                 # self._peers[olid].pop(peer_id)
                 cbt.set_response(data=f"Tunnel {tap_name} deleted", status=True)
@@ -386,13 +386,13 @@ class GeneveTunnel(ControllerModule):
             if vnid is None:
                 msg = str(
                     "The VNID is NULL. Tunnel cannot be created. "
-                    "TunnelId={0}, PeerId={1}".format(tnlid, peer_id)
+                    f"TunnelId={tnlid}, PeerId={peer_id}"
                 )
                 self.logger.warning(msg)
                 parent_cbt.set_response(msg, False)
                 self.complete_cbt(parent_cbt)
                 return
-            self._create_geneve_tunnel(tap_name, vnid, endpnt_address)
+            self._create_tunnel(tap_name, vnid, endpnt_address)
             params = {
                 "OverlayId": olid,
                 "NodeId": self.node_id,
