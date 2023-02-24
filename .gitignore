@@ -1,10 +1,7 @@
-out/
 .vscode/
 __pycache__/
 venv/
 *.py[cod]
-*.so
-*.o
 .Python
 nid
 *.log

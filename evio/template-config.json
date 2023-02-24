@@ -1,0 +1,50 @@
+{
+  "Broker": {
+    "Overlays": ["_OVERLAYNAME_"]
+  },
+  "Signal": {
+    "Overlays": {
+      "_OVERLAYNAME_": {
+        "HostAddress": "A.B.C.D",
+        "AuthenticationMethod": "PASSWORD",
+        "Port": "5222",
+        "Username": "test1@openfire.local",
+        "Password": "password_test1"
+      }
+    }
+  },
+  "LinkManager": {
+    "Stun": ["stun.l.google.com:19302", "stun1.l.google.com:19302"],
+    "Overlays": {
+      "_OVERLAYNAME_": {
+        "IgnoredNetInterfaces": [
+          "flannel.1",
+          "cni0",
+          "docker0",
+          "nodelocaldns",
+          "kube-ipvs0",
+          "ovs-system",
+          "nebula1"
+        ]
+      }
+    }
+  },
+  "BridgeController": {
+    "BoundedFlood": {
+      "Overlays": {
+        "_OVERLAYNAME_": {}
+      }
+    },
+    "Overlays": {
+      "_OVERLAYNAME_": {
+        "NetDevice": {
+          "AppBridge": {
+            "IP4": "10.10.10.1",
+            "PrefixLen": 24,
+            "MTU": 1350
+          }
+        }
+      }
+    }
+  }
+}
