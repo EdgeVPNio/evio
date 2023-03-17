@@ -291,30 +291,27 @@ class ConnEdgeAdjacenctList(MutableMapping):
             self._decr_edge_type_count(ce.edge_type)
 
     def _decr_edge_type_count(self, edge_type: str):
+        def _chk_decr(edge_cnt: int) -> int:
+            if edge_cnt <= 0:
+                raise ValueError("Invalid decrement, edge count already zero")
+            return edge_cnt - 1
+
         if edge_type == EDGE_TYPE_OUT.LongDistance:
-            self.num_ldl -= 1
-            assert self.num_ldl >= 0, "Invalid edge count"
+            self.num_ldl = _chk_decr(self.num_ldl)
         elif edge_type == EDGE_TYPE_IN.ILongDistance:
-            self.num_ldli -= 1
-            assert self.num_ldli >= 0, "Invalid edge count"
+            self.num_ldli = _chk_decr(self.num_ldli)
         elif edge_type == EDGE_TYPE_OUT.Successor:
-            self.num_succ -= 1
-            assert self.num_succ >= 0, "Invalid edge count"
+            self.num_succ = _chk_decr(self.num_succ)
         elif edge_type == EDGE_TYPE_IN.Predecessor:
-            self.num_succi -= 1
-            assert self.num_succi >= 0, "Invalid edge count"
+            self.num_succi = _chk_decr(self.num_succi)
         elif edge_type == EDGE_TYPE_OUT.OnDemand:
-            self.num_ond -= 1
-            assert self.num_ond >= 0, "Invalid edge count"
+            self.num_ond = _chk_decr(self.num_ond)
         elif edge_type == EDGE_TYPE_IN.IOnDemand:
-            self.num_ondi -= 1
-            assert self.num_ondi >= 0, "Invalid edge count"
+            self.num_ondi = _chk_decr(self.num_ondi)
         elif edge_type == EDGE_TYPE_OUT.Static:
-            self.num_stat -= 1
-            assert self.num_stat >= 0, "Invalid edge count"
+            self.num_stat = _chk_decr(self.num_stat)
         elif edge_type == EDGE_TYPE_IN.IStatic:
-            self.num_stati -= 1
-            assert self.num_stati >= 0, "Invalid edge count"
+            self.num_stati = _chk_decr(self.num_stati)
         else:
             raise ValueError(f"Invalid edge type {edge_type}")
 

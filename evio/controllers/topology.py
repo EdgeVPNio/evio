@@ -234,6 +234,7 @@ class Topology(ControllerModule):
 
     def __init__(self, nexus, module_config):
         super().__init__(nexus, module_config)
+        self._is_topo_update_pending = False
         self._net_ovls: dict[str, NetworkOverlay] = {}
         self._last_trim_time: float = time.time()
         self._trim_check_interval: int = self.config.get(
@@ -322,13 +323,28 @@ class Topology(ControllerModule):
                 self.resp_handler_create_tnl(cbt)
             elif cbt.request.action in ("LNK_REMOVE_TUNNEL", "GNV_REMOVE_TUNNEL"):
                 self.resp_handler_remove_tnl(cbt)
+            if cbt.request.action == "_TOPOLOGY_UPDATE_":
+                self._resp_handler_complete_topo_update(cbt)
             else:
                 self.resp_handler_default(cbt)
 
     def timer_method(self, is_exiting=False):
         if is_exiting:
             return
+        if not self._is_topo_update_pending:
+            self._start_topo_update()
+
+    def _start_topo_update(self):
+        if self._is_topo_update_pending:
+            return
+        self._is_topo_update_pending = True
         self.register_internal_cbt("_TOPOLOGY_UPDATE_")
+
+    def _resp_handler_complete_topo_update(self, cbt):
+        if not self._is_topo_update_pending:
+            self.logger.warning("Topology update flag already false")
+        self._is_topo_update_pending = False
+        self.free_cbt(cbt)
 
     def req_handler_peer_presence(self, cbt: CBT):
         """
@@ -492,49 +508,52 @@ class Topology(ControllerModule):
 
     def req_handler_tunnl_update(self, cbt: CBT):
         event = cbt.request.params
-        self._process_tnl_event(event)
-        cbt.set_response(None, True)
-        self.complete_cbt(cbt)
+        try:
+            self._process_tnl_event(event)
+        except RuntimeError as rte:
+            self.logger.warning(rte)
+        finally:
+            cbt.set_response(None, True)
+            self.complete_cbt(cbt)
 
     def req_handler_req_ond_tunnels(self, cbt: CBT):
         """
         Add the request params for creating an on demand tunnel
         overlay_id, peer_id, ADD/REMOVE op string
         """
-        for op in cbt.request.params:
-            olid = op["OverlayId"]
-            peer_id = op["PeerId"]
-            if olid in self._net_ovls:
+        try:
+            for op in cbt.request.params:
+                olid = op["OverlayId"]
+                peer_id = op["PeerId"]
+                opc = op["Operation"]
                 ovl = self._net_ovls[olid]
-                if op["Operation"] == "REMOVE" or (
-                    op["Operation"] == "ADD"
+                if opc not in ("REMOVE", "ADD", "DISCONN"):
+                    raise ValueError(f"Invalid on-demand operation requested {opc}")
+                if opc == "REMOVE" or (
+                    opc == "ADD"
                     and peer_id in ovl.known_peers
                     and ovl.known_peers[peer_id].is_available
                 ):
                     ovl.ond_peers.append(op)
-                    self.logger.debug("Added on-demand tunnel request to queue %s", op)
-                elif op["Operation"] == "DISCONN":
-                    if peer_id in ovl.adjacency_list:
-                        self._process_tnl_event(
-                            {
-                                "UpdateType": TUNNEL_EVENTS.Disconnected,
-                                "OverlayId": olid,
-                                "PeerId": peer_id,
-                            }
-                        )
-                    else:
-                        self.logger.warning(
-                            "The requested OND_DISCONN edge does not exist, peer_id=%s",
-                            peer_id,
-                        )
-                else:
-                    self.logger.warning(
-                        "Invalid OND operation requested %s", op["Operation"]
+                elif opc == "DISCONN":
+                    self._process_tnl_event(
+                        {
+                            "UpdateType": TUNNEL_EVENTS.Disconnected,
+                            "OverlayId": olid,
+                            "PeerId": peer_id,
+                        }
                     )
-            else:
-                self.logger.warning(
-                    "Invalid on-demand tunnel request parameter, OverlayId=%s", olid
-                )
+                cbt.set_response("On-demand request accepted", True)
+        except ValueError as verr:
+            cbt.set_response("", False)
+            self.logger.warning(verr)
+        except KeyError as kerr:
+            cbt.set_response("", False)
+            self.logger.warning(kerr)
+        except RuntimeError as rte:
+            cbt.set_response("", False)
+            self.logger.warning(rte)
+        self.complete_cbt(cbt)
 
     def req_handler_negotiate_edge(self, edge_cbt: CBT):
         """Role B1, decide if the request for an incoming edge is accepted or rejected"""
@@ -730,7 +749,7 @@ class Topology(ControllerModule):
 
     def _update_overlay(self, olid: str):
         ovl = self._net_ovls[olid]
-        if not ovl.transformation and ovl.is_idle:
+        if not ovl.transformation and ovl.can_acquire:
             ovl.new_peer_count = 0
             ovl_cfg = self.config["Overlays"][olid]
             enf_lnks = ovl_cfg.get("StaticEdges", [])
