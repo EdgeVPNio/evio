@@ -274,12 +274,6 @@ class ConnEdgeAdjacenctList(MutableMapping):
         else:
             raise RuntimeWarning("EdgeType threshold not implemented")
 
-        # def is_all_successors_connected(self):
-        #     matches = self.select_edges(
-        #         edge_type=EDGE_TYPE_OUT.Successor, edge_state=EDGE_STATES.Connected
-        #     )
-        # return len(matches) >= self.min_successors
-
     def add_conn_edge(self, peer_id: str, ce: ConnectionEdge):
         self.remove_conn_edge(peer_id)
         self._conn_edges[peer_id] = ce

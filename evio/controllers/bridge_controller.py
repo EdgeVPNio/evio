@@ -35,8 +35,6 @@ import time
 from abc import ABCMeta, abstractmethod
 from collections.abc import MutableMapping
 from distutils import spawn
-
-# from subprocess import CompletedProcess
 from typing import Any, Literal, Union
 
 import broker

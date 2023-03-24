@@ -455,12 +455,6 @@ class Broker:
         if sub is not None:
             sub.remove_subscriber(sink)
 
-    # def inject_fault(self, module_name):
-    #     if "InjectFaults" not in self._config["Broker"]:
-    #         return
-    #     if module_name in self._config["Broker"]["InjectFaults"]:
-    #         inject_fault(frequency=self._config["Broker"]["InjectFaults"][module_name])
-
 
 if __name__ == "__main__":
     cf = Broker()

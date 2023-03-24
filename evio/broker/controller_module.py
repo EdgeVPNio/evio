@@ -38,7 +38,6 @@ class ControllerModule:
     def __init__(self, nexus: Nexus, ctrl_config: dict):
         self._nexus = nexus
         self._ctrl_config = ctrl_config
-        # self._module_name = self.__class__.__module__
         self._state_digest = None
         self.logger = logging.getLogger("Evio." + self.__class__.__name__)
 
@@ -73,11 +72,6 @@ class ControllerModule:
     def config(self) -> dict:
         return self._ctrl_config
 
-    # @property
-    # def module_name(self):
-    # return full path name
-    #     return self.__class__.__module__
-
     @property
     def name(self):
         return self.__class__.__name__
@@ -107,18 +101,6 @@ class ControllerModule:
         if parent_cbt and parent_cbt.child_count == 0:
             parent_cbt.set_response(cbt_data, cbt_status)
             self.complete_cbt(parent_cbt)
-
-    # def log(self, level, fmt, *args):
-    #     if level == "LOG_DEBUG":
-    #         self.logger.debug(fmt, *args)
-    #     elif level == "LOG_INFO":
-    #         self.logger.info(fmt, *args)
-    #     elif level == "LOG_WARNING":
-    #         self.logger.warning(fmt, *args)
-    #     elif level == "LOG_ERROR":
-    #         self.logger.error(fmt, *args)
-    #     else:
-    #         self.logger.debug(fmt, *args)
 
     def trace_state(self):
         if self.config.get("StateTracingEnabled", False):
