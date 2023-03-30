@@ -1005,15 +1005,18 @@ class BoundedFlood(app_manager.RyuApp):
                     self._broadcast_frame(msg.datapath, pkt, in_port, msg)
                 elif in_port not in sw.leaf_ports and is_multiricepient(eth.dst):
                     self.logger.error(
-                        "Raw multirecipient frame ingressed on peer port, discarding.",
-                        "ingress=%s/%s",
+                        "Raw multirecipient frame ingressed on peer port, discarding frame. "
+                        "Ingress=%s/%s",
                         sw.name,
                         in_port,
                     )
                 else:
                     self.logger.warning(
-                        f"No forwarding route to {eth.dst} in LT, discarding frame. "
-                        f" ingress={sw.name}/{in_port}"
+                        "No forwarding route to %s in LT, discarding frame. "
+                        "Ingress=%s/%s",
+                        eth.dst,
+                        sw.name,
+                        in_port,
                     )
                 return
         except Exception as err:
