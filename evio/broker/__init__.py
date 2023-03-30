@@ -57,6 +57,7 @@ CONFIG = {
                 "TimerInterval": 30,
             },
             "UsageReport": {
+                "Enabled": False,
                 "Module": "usage_report",
                 "Dependencies": ["Topology"],
                 "TimerInterval": 3600,
