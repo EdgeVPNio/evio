@@ -32,8 +32,7 @@ from threading import Thread
 import broker
 from broker.controller_module import ControllerModule
 from broker.version import EVIO_VER_CTL
-
-# from pyroute2 import IPRoute
+from pyroute2 import IPRoute
 
 MAX_READ_SIZE = 65507  # Max buffer size for Tincan Messages
 SOCKET_READ_WAIT_TIME = 15  # Socket read wait time for Tincan Messages
@@ -214,16 +213,16 @@ class TincanTunnel(ControllerModule):
         req = ctl["EVIO"]["Request"]
         req["OverlayId"] = msg["OverlayId"]
         req["TunnelId"] = msg["TunnelId"]
-        self.send_control(json.dumps(ctl))
-        # if "TapName" in msg and msg["TapName"]:
-        #     with IPRoute() as ipr:
-        #         idx = ipr.link_lookup(ifname="port_name")
-        #         if len(idx) > 0:
-        #             idx = idx[0]
-        #             ipr.link("set", index=idx, state="down")
-        #             ipr.link("set", index=idx, master=0)
-        #             ipr.link("del", index=idx)
+        if "TapName" in msg and msg["TapName"]:
+            with IPRoute() as ipr:
+                idx = ipr.link_lookup(ifname="port_name")
+                if len(idx) > 0:
+                    idx = idx[0]
+                    ipr.link("set", index=idx, state="down")
+                    ipr.link("set", index=idx, master=0)
+                    ipr.link("del", index=idx)
         # broker.runshell([self.iptool, "link", "del", "dev", msg["TapName"]])
+        self.send_control(json.dumps(ctl))
 
     def req_handler_remove_link(self, cbt):
         msg = cbt.request.params

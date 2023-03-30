@@ -133,9 +133,9 @@ class LinkManager(ControllerModule):
         return tap_name
 
     def _get_ignored_tap_names(self, overlay_id, new_inf_name=None):
-        ign_tap_names = set()
+        ign_netinf = set()
         if new_inf_name:
-            ign_tap_names.add(new_inf_name)
+            ign_netinf.add(new_inf_name)
 
         if not self.config["Overlays"][overlay_id].get(
             "AllowRecursiveTunneling", False
@@ -143,12 +143,12 @@ class LinkManager(ControllerModule):
             # Ignore ALL the evio tap devices (regardless of their overlay id/link id)
             for tnlid in self._tunnels:
                 if self._tunnels[tnlid].tap_name:
-                    ign_tap_names.add(self._tunnels[tnlid].tap_name)
-            for tap_name in self._ignored_net_interfaces.values():
-                ign_tap_names |= tap_name
-        else:
-            ign_tap_names |= self._ignored_net_interfaces[overlay_id]
-        return ign_tap_names
+                    ign_netinf.add(self._tunnels[tnlid].tap_name)
+        # add the global ignore list
+        ign_netinf.update(self.config.get("IgnoredNetInterfaces", []))
+        # add the overlay specifc list
+        ign_netinf |= self._ignored_net_interfaces[overlay_id]
+        return ign_netinf
 
     def is_complete_link(self, tnlid):
         is_complete = (
