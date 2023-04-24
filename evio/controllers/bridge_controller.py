@@ -238,7 +238,7 @@ class LinuxBridge(BridgeABC):
         """Initialize a Linux bridge object."""
         super().__init__(name, ip_addr, prefix_len, mtu)
         self.logger: logging.Logger = logger
-        with IPRoute as ipr:
+        with IPRoute() as ipr:
             idx = ipr.link_lookup(ifname=self.name)
             if len(idx) == 1:
                 return
@@ -251,7 +251,7 @@ class LinuxBridge(BridgeABC):
 
     def del_br(self):
         # Set the device down and delete the bridge
-        with IPRoute as ipr:
+        with IPRoute() as ipr:
             idx = ipr.link_lookup(ifname=self.name)[0]
             ipr.link("set", index=idx, state="down")
             ipr.link("del", ifname=self.name, kind="bridge")
@@ -519,7 +519,6 @@ class BridgeController(ControllerModule):
         self._tunnels: dict[str, TunnelsLog] = {}
 
     def initialize(self):
-
         for _, net_ovl in self.config["Overlays"].items():
             if "NetDevice" not in net_ovl:
                 net_ovl["NetDevice"] = {}
@@ -606,11 +605,7 @@ class BridgeController(ControllerModule):
             bridge = self._ovl_net[olid]
             port_name = cbt.request.params.get("TapName")
             tnlid = cbt.request.params["TunnelId"]
-            if cbt.request.params["UpdateType"] == TUNNEL_EVENTS.Created:
-                # block external system components from attempting to configure our
-                # tunnel as a source of traffic
-                bridge.flush_ip_addresses(port_name)
-            elif cbt.request.params["UpdateType"] == TUNNEL_EVENTS.Connected:
+            if cbt.request.params["UpdateType"] == TUNNEL_EVENTS.Connected:
                 mac = cbt.request.params["MAC"]
                 peer_mac = cbt.request.params["PeerMac"]
                 self._tunnels[olid][port_name] = {
