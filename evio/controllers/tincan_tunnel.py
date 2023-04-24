@@ -140,7 +140,6 @@ class TincanTunnel(ControllerModule):
             ctl["EVIO"]["Request"].update(log_cfg)
         self._nexus._pending_cbts[cbt.tag] = cbt
         self.send_control(json.dumps(ctl))
-        self.free_cbt(cbt)
 
     def resp_handler_configure_tincan_logging(self, cbt):
         if cbt.response.status == "False":
@@ -215,7 +214,7 @@ class TincanTunnel(ControllerModule):
         req["TunnelId"] = msg["TunnelId"]
         if "TapName" in msg and msg["TapName"]:
             with IPRoute() as ipr:
-                idx = ipr.link_lookup(ifname="port_name")
+                idx = ipr.link_lookup(ifname=msg["TapName"])
                 if len(idx) > 0:
                     idx = idx[0]
                     ipr.link("set", index=idx, state="down")

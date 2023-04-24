@@ -32,7 +32,6 @@ from .nexus import Nexus
 
 
 class ControllerModule:
-
     __metaclass__ = ABCMeta
 
     def __init__(self, nexus: Nexus, ctrl_config: dict):
@@ -135,9 +134,13 @@ class ControllerModule:
         return self._nexus.create_linked_cbt(parent)
 
     def complete_cbt(self, cbt: CBT):
+        if cbt.time_complete != 0.0:
+            raise RuntimeError("This CBT has been previously completed.")
         self._nexus.complete_cbt(cbt)
 
     def free_cbt(self, cbt: CBT):
+        if cbt.time_free != 0.0:
+            raise RuntimeError("This CBT has been previously freed.")
         self._nexus.free_cbt(cbt)
 
     def submit_cbt(self, cbt: CBT):

@@ -227,7 +227,6 @@ class NetworkOverlay:
 
 
 class Topology(ControllerModule):
-
     _DEL_RETRY_INTERVAL = 10
     _EDGE_PROTECTION_AGE = 180
     _REFLECT: list[str] = ["_net_ovls"]
@@ -323,7 +322,7 @@ class Topology(ControllerModule):
                 self.resp_handler_create_tnl(cbt)
             elif cbt.request.action in ("LNK_REMOVE_TUNNEL", "GNV_REMOVE_TUNNEL"):
                 self.resp_handler_remove_tnl(cbt)
-            if cbt.request.action == "_TOPOLOGY_UPDATE_":
+            elif cbt.request.action == "_TOPOLOGY_UPDATE_":
                 self._resp_handler_complete_topo_update(cbt)
             else:
                 self.resp_handler_default(cbt)
@@ -692,10 +691,10 @@ class Topology(ControllerModule):
         ovl = self._net_ovls[olid]
         peer_id = params["PeerId"]
         if not cbt.response.status:
-            ce = ovl.adjacency_list.get(peer_id)
-            if ce is None:
-                self.free_cbt(cbt)
-                return
+            # ce = ovl.adjacency_list.get(peer_id)
+            # if ce is None:
+            #     self.free_cbt(cbt)
+            #     return
             self.logger.warning(
                 "Failed to create topology edge to %s. %s", peer_id, cbt.response.data
             )
@@ -1045,7 +1044,7 @@ class Topology(ControllerModule):
         ce = net_ovl.adjacency_list[peer_id]
         if (
             ce.edge_state == EDGE_STATES.Connected
-            and ce.edge_type in EDGE_TYPE_OUT
+            and ce.role == CONNECTION_ROLE.Initiator
             and time.time() - ce.connected_time >= Topology._EDGE_PROTECTION_AGE
         ):
             if (

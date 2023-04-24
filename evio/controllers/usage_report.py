@@ -49,7 +49,7 @@ class UsageReport(ControllerModule):
     def process_cbt(self, cbt):
         if cbt.op_type == "Request":
             self.req_handler_default(cbt)
-        else:
+        elif cbt.op_type == "Response":
             if cbt.request.action == "TOP_QUERY_KNOWN_PEERS":
                 self.resp_handler_query_known_peers(cbt)
             else:
