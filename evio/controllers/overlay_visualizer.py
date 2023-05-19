@@ -70,7 +70,9 @@ class OverlayVisualizer(ControllerModule):
         return ds
 
     def process_cbt(self, cbt):
-        if cbt.op_type == "Response":
+        if cbt.is_expired:
+            self.abort_handler(cbt)
+        elif cbt.is_pending:
             if cbt.request.action == "VIS_DATA_REQ":
                 msg = cbt.response.data
                 if cbt.response.status and msg:
@@ -83,7 +85,7 @@ class OverlayVisualizer(ControllerModule):
                 self.free_cbt(cbt)
             else:
                 self.req_handler_default(cbt)
-        else:
+        elif cbt.is_completed:
             self.req_handler_default(cbt)
 
     def post_viz_data(self, viz_data):
@@ -100,11 +102,7 @@ class OverlayVisualizer(ControllerModule):
             )
             resp.raise_for_status()
         except requests.exceptions.RequestException as err:
-            err_msg = (
-                "Failed to send data to the collector webservice"
-                " ({0}). Exception: {1}".format(self._req_url, str(err))
-            )
-            self.logger.warning(err_msg)
+            self.logger.warning("Failed to send viz data to %s. %s", self._req_url, err)
 
     def build_tunnel_data(self, ds):
         for olid in ds["VizData"]:
@@ -122,9 +120,7 @@ class OverlayVisualizer(ControllerModule):
             ds["VizData"][olid].pop("Topology", None)
         return ds
 
-    def timer_method(self, is_exiting=False):
-        if is_exiting:
-            return
+    def on_timer_event(self):
         viz_ds = None
         with self._vis_ds_lock:
             viz_ds = self._vis_ds
@@ -134,4 +130,4 @@ class OverlayVisualizer(ControllerModule):
         self._vis_req_publisher.post_update(None)
 
     def terminate(self):
-        self.logger.info("Module Terminating")
+        self.logger.info("Controller module terminating")

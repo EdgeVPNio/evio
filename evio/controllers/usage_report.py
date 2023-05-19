@@ -29,6 +29,7 @@ except ImportError:
 import urllib.request as request
 from urllib.error import HTTPError, URLError
 
+from broker.cbt import CBT
 from broker.controller_module import ControllerModule
 
 
@@ -46,22 +47,22 @@ class UsageReport(ControllerModule):
     def initialize(self):
         self.logger.info("Controller module loaded")
 
-    def process_cbt(self, cbt):
-        if cbt.op_type == "Request":
+    def process_cbt(self, cbt: CBT):
+        if cbt.is_expired:
+            self.abort_handler(cbt)
+        elif cbt.is_pending:
             self.req_handler_default(cbt)
-        elif cbt.op_type == "Response":
+        elif cbt.is_completed:
             if cbt.request.action == "TOP_QUERY_KNOWN_PEERS":
                 self.resp_handler_query_known_peers(cbt)
             else:
                 self.resp_handler_default(cbt)
 
-    def timer_method(self, is_exiting=False):
-        if is_exiting:
-            return
+    def on_timer_event(self):
         self.register_cbt("Topology", "TOP_QUERY_KNOWN_PEERS", None)
 
     def terminate(self):
-        self.logger.info("Module Terminating")
+        self.logger.info("Controller module terminating")
 
     def create_report(self, data):
         self._report["ReportId"] = self._report_id
@@ -93,7 +94,7 @@ class UsageReport(ControllerModule):
             )
             self.logger.debug(log)
 
-    def resp_handler_query_known_peers(self, cbt):
+    def resp_handler_query_known_peers(self, cbt: CBT):
         if cbt.response.status:
             data = cbt.response.data
             with self._lck:

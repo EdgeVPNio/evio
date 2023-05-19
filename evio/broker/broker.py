@@ -20,6 +20,8 @@
 # THE SOFTWARE.
 
 import argparse
+
+# import datetime
 import importlib
 import json
 import logging
@@ -33,13 +35,14 @@ import uuid
 from copy import deepcopy
 from typing import Any  # Optional, Set, Tuple, Union
 
-from . import CONFIG
-from .cbt import CBT, REQUEST_TIMEOUT
+from . import CBT_LIFESPAN, CONFIG, CONTROLLER_TIMER_INTERVAL
+from .cbt import CBT
 from .controller_module import ControllerModule
 from .nexus import Nexus
 from .subscription import Subscription
+from .timed_transactions import TimedTransactions, Transaction
 
-ROOT_LOG_LEVEL = "INFO"
+BROKER_LOG_LEVEL = "INFO"
 LOG_DIRECTORY = "/var/log/evio/"
 BROKER_LOG_NAME = "broker.log"
 CTRL_LOG_NAME = "ctrl.log"
@@ -76,18 +79,21 @@ class Broker:
         self._config: dict = {}
         self.parse_config()
         self._setup_logging()
-        self._handle_lock: threading.Lock = threading.Lock()
+        self._nexus_lock: threading.Lock = threading.Lock()
         self._nexus_map: dict[str, Any] = {}  # ctrl classname -> class instance
         self.model = self._config["Broker"].get("Model")
         self._subscriptions: dict[str, list[Subscription]] = {}
         self._node_id: str = self._set_node_id()
         self._load_order: list[str] = []
+        self.timers = TimedTransactions()
 
     def __enter__(self):
         self.initialize()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            print(exc_type, exc_val, exc_tb)
         return self.terminate()
 
     def parse_config(self):
@@ -109,7 +115,8 @@ class Broker:
         args = parser.parse_args()
         if args.config_file:
             while not os.path.isfile(args.config_file):
-                self.logger.info("Waiting on config file %s", args.config_file)
+                print("Waiting on config file ", args.config_file)
+                # self.logger.info("Waiting on config file %s", args.config_file)
                 time.sleep(10)
             # load the configuration file
             with open(args.config_file, encoding="utf-8") as cfg_file:
@@ -166,8 +173,10 @@ class Broker:
             que, root_handler, respect_handler_level=True
         )
         self.logger = logging.getLogger()
-        root_log_level = self._config["Broker"].get("RootLogLevel", ROOT_LOG_LEVEL)
-        level = getattr(logging, root_log_level)
+        broker_log_level = self._config["Broker"].get(
+            "BrokerLogLevel", BROKER_LOG_LEVEL
+        )
+        level = getattr(logging, broker_log_level)
         self.logger.setLevel(level)
         self.logger.addHandler(queue_handler)
         self._rlistener.start()
@@ -189,7 +198,9 @@ class Broker:
             backupCount=self._config["Broker"].get("MaxArchives", MAX_ARCHIVES),
         )
         rf_handler.setFormatter(formatter)
-        level = getattr(logging, self._config["Broker"].get("LogLevel", root_log_level))
+        level = getattr(
+            logging, self._config["Broker"].get("LogLevel", broker_log_level)
+        )
         cm_logger.setLevel(level)
         # setup console logging to record errors in the system journal
         console_handler = logging.StreamHandler()
@@ -225,16 +236,15 @@ class Broker:
         for ctrl_name in self._load_order:
             self.load_module(ctrl_name)
 
+        self.timers.start()
         # intialize the the CMs via their respective nexus
         for ctrl_name in self._load_order:
             self._nexus_map[ctrl_name].initialize()
 
         # start all the worker and timer threads
-        with self._handle_lock:
+        with self._nexus_lock:
             for ctrl_name in self._load_order:
                 self._nexus_map[ctrl_name].start_controller()
-                if self._nexus_map[ctrl_name]._timer_thread:
-                    self._nexus_map[ctrl_name]._timer_thread.start()
 
     def _validate_controller_deps(self):
         dependency_graph = {}
@@ -283,7 +293,9 @@ class Broker:
 
         # get the controller class from the class name
         ctrl_class = getattr(module, ctrl_cls_name)
-        timer_interval = self.cfg_controllers[ctrl_cls_name].get("TimerInterval", 0)
+        timer_interval = self.cfg_controllers[ctrl_cls_name].get(
+            "TimerInterval", CONTROLLER_TIMER_INTERVAL
+        )
         nexus = Nexus(self, timer_interval=timer_interval)
         ctrl_config = self._config.get(ctrl_cls_name)
         if ctrl_config is None:
@@ -335,19 +347,15 @@ class Broker:
         signal.pause()
 
     def terminate(self):
-        with self._handle_lock:
+        self.timers.terminate()
+        with self._nexus_lock:
             for ctrl_name in reversed(self._load_order):
-                if self._nexus_map[ctrl_name]._timer_thread:
-                    tn = self._nexus_map[ctrl_name]._timer_thread.name
-                    self._nexus_map[ctrl_name]._exit_event.set()
-                    self._nexus_map[ctrl_name]._timer_thread.join()
-                    self.logger.info("%s exited", tn)
-                    print("exited:", tn)
                 wn = self._nexus_map[ctrl_name]._cm_thread.name
                 self._nexus_map[ctrl_name].work_queue.put(None)
+            for ctrl_name in reversed(self._load_order):
+                wn = self._nexus_map[ctrl_name]._cm_thread.name
                 self._nexus_map[ctrl_name]._cm_thread.join()
                 self.logger.info("%s exited", wn)
-                print("exited:", wn)
         # self._rlistener.stop()
         # logging.shutdown()
         return True
@@ -366,13 +374,13 @@ class Broker:
             elif param_name == "DebugCBTs":
                 val = self._config["Broker"].get("DebugCBTs", False)
             elif param_name == "RequestTimeout":
-                val = self._config["Broker"].get("RequestTimeout", REQUEST_TIMEOUT)
+                val = self._config["Broker"].get("RequestTimeout", CBT_LIFESPAN)
             elif param_name == "LogConfig":
-                root_log_level = self._config["Broker"].get(
-                    "RootLogLevel", ROOT_LOG_LEVEL
+                broker_log_level = self._config["Broker"].get(
+                    "BrokerLogLevel", BROKER_LOG_LEVEL
                 )
                 val = {
-                    "Level": self._config["Broker"].get("LogLevel", root_log_level),
+                    "Level": self._config["Broker"].get("LogLevel", broker_log_level),
                     "Device": self._config["Broker"].get("Device", DEVICE),
                     "Directory": self._config["Broker"].get("Directory", LOG_DIRECTORY),
                     "Filename": self._config["Broker"].get(
@@ -393,15 +401,27 @@ class Broker:
                 "Exception occurred while querying paramater:%s, %s",
                 param_name,
                 str(err),
+                exc_info=True,
             )
         return val
 
     def submit_cbt(self, cbt: CBT):
         recipient: str = cbt.request.recipient
-        if cbt.op_type == "Response":
+        if cbt.is_response:
             recipient = cbt.response.recipient
-        with self._handle_lock:
-            self._nexus_map[recipient].work_queue.put(cbt)
+
+        def is_cmplt(x: CBT):
+            return x.is_completed or x.is_expired
+
+        with self._nexus_lock:
+            nexus = self._nexus_map[recipient]
+            nexus.work_queue.put(cbt)
+            if cbt.is_pending:
+                initiator = cbt.request.initiator
+                owner = self._nexus_map[initiator]
+                self.timers.register(
+                    Transaction(cbt, is_cmplt, owner.on_cbt_expired, cbt.lifespan)
+                )
 
     # Caller is the subscription source
     def publish_subscription(self, publisher_name, subscription_name, publisher):
@@ -454,6 +474,9 @@ class Broker:
         sub = self.find_subscription(publisher_name, subscription_name)
         if sub is not None:
             sub.remove_subscriber(sink)
+
+    def register_timed_transaction(self, entry: Transaction):
+        self.timers.register(entry)
 
 
 if __name__ == "__main__":

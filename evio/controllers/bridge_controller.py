@@ -35,25 +35,37 @@ import time
 from abc import ABCMeta, abstractmethod
 from collections.abc import MutableMapping
 from distutils import spawn
-from typing import Any, Literal, Union
+from typing import Any, Union
 
 import broker
+from broker import (
+    BR_NAME_MAX_LENGTH,
+    BRIDGE_AUTO_DELETE,
+    DEFAULT_BRIDGE_PROVIDER,
+    DEFAULT_SWITCH_PROTOCOL,
+    MTU,
+    NAME_PREFIX_APP_BR,
+    NAME_PREFIX_EVI,
+    PROXY_LISTEN_ADDRESS,
+    PROXY_LISTEN_PORT,
+    SDN_CONTROLLER_PORT,
+)
 from broker.cbt import CBT
 from broker.controller_module import ControllerModule
 from pyroute2 import IPRoute
 
-from .tunnel import TUNNEL_EVENTS
+from .tunnel import DATAPLANE_TYPES, TUNNEL_EVENTS
 
-BR_NAME_MAX_LENGTH: Literal[15] = 15
-NAME_PREFIX_EVI: Literal["evi"] = "evi"
-NAME_PREFIX_APP_BR: Literal["app"] = "app"
-MTU: Literal[1410] = 1410
-BRIDGE_AUTO_DELETE: bool = False
-BRIDGE_PROVIDER: Literal["OVS"] = "OVS"
-SWITCH_PROTOCOL: Literal["BF"] = "BF"
-PROXY_LISTEN_ADDRESS: Literal["127.0.0.1"] = "127.0.0.1"
-PROXY_LISTEN_PORT: Literal[5802] = 5802
-SDN_CONTROLLER_PORT: Literal[6633] = 6633
+# BR_NAME_MAX_LENGTH: Literal[15] = 15
+# NAME_PREFIX_EVI: Literal["evi"] = "evi"
+# NAME_PREFIX_APP_BR: Literal["app"] = "app"
+# MTU: Literal[1410] = 1410
+# BRIDGE_AUTO_DELETE: bool = True
+# DEFAULT_BRIDGE_PROVIDER: Literal["OVS"] = "OVS"
+# DEFAULT_SWITCH_PROTOCOL: Literal["BF"] = "BF"
+# PROXY_LISTEN_ADDRESS: Literal["127.0.0.1"] = "127.0.0.1"
+# PROXY_LISTEN_PORT: Literal[5802] = 5802
+# SDN_CONTROLLER_PORT: Literal[6633] = 6633
 
 
 class BridgeABC:
@@ -89,7 +101,7 @@ class BridgeABC:
         return self.__repr__()
 
     def flush_ip_addresses(self, port_name):
-        broker.runshell(["sysctl", f"net.ipv6.conf.{port_name}.disable_ipv6=1"])
+        broker.run_proc(["sysctl", f"net.ipv6.conf.{port_name}.disable_ipv6=1"])
         with IPRoute() as ipr:
             ipr.flush_addr(label=port_name)
 
@@ -118,7 +130,7 @@ class OvsBridge(BridgeABC):
         self.logger = logger
         if OvsBridge.brctl is None:
             raise RuntimeError("openvswitch-switch was not found")
-        broker.runshell([OvsBridge.brctl, "--may-exist", "add-br", self.name])
+        broker.run_proc([OvsBridge.brctl, "--may-exist", "add-br", self.name])
 
         if ip_addr and prefix_len:
             self.flush_ip_addresses(self.name)
@@ -128,7 +140,7 @@ class OvsBridge(BridgeABC):
         else:
             self.flush_ip_addresses(self.name)
         try:
-            broker.runshell(
+            broker.run_proc(
                 [
                     OvsBridge.brctl,
                     "set",
@@ -141,6 +153,7 @@ class OvsBridge(BridgeABC):
             self.logger.warning(
                 "The following error occurred while setting MTU for OVS bridge: %s",
                 rte,
+                exc_info=True,
             )
 
         if sw_proto is not None and sw_proto.casefold() == "STP".casefold():
@@ -157,28 +170,28 @@ class OvsBridge(BridgeABC):
 
     def add_sdn_ctrl(self, sdn_ctrl_port):
         ctrl_conn_str = f"tcp:127.0.0.1:{sdn_ctrl_port}"
-        broker.runshell([OvsBridge.brctl, "set-controller", self.name, ctrl_conn_str])
+        broker.run_proc([OvsBridge.brctl, "set-controller", self.name, ctrl_conn_str])
 
     def del_sdn_ctrl(self):
-        broker.runshell([OvsBridge.brctl, "del-controller", self.name])
+        broker.run_proc([OvsBridge.brctl, "del-controller", self.name])
 
     def del_br(self):
         self.del_sdn_ctrl()
 
-        broker.runshell([OvsBridge.brctl, "--if-exists", "del-br", self.name])
+        broker.run_proc([OvsBridge.brctl, "--if-exists", "del-br", self.name])
 
     def add_port(self, port_name):
         self.flush_ip_addresses(self.name)
         with IPRoute() as ipr:
             idx = ipr.link_lookup(ifname=port_name)[0]
             ipr.link("set", index=idx, mtu=self.mtu)
-        broker.runshell(
+        broker.run_proc(
             [OvsBridge.brctl, "--may-exist", "add-port", self.name, port_name]
         )
         self.ports.add(port_name)
 
     def del_port(self, port_name):
-        broker.runshell(
+        broker.run_proc(
             [OvsBridge.brctl, "--if-exists", "del-port", self.name, port_name]
         )
         if port_name in self.ports:
@@ -186,7 +199,7 @@ class OvsBridge(BridgeABC):
 
     def stp(self, enable):
         """Enables spanning tree protocol on bridge, as opposed to BoundedFlood"""
-        broker.runshell(
+        broker.run_proc(
             [
                 OvsBridge.brctl,
                 "set",
@@ -197,7 +210,7 @@ class OvsBridge(BridgeABC):
         )
 
     def add_patch_port(self, peer_patch_port: str):
-        broker.runshell(
+        broker.run_proc(
             [
                 OvsBridge.brctl,
                 "--may-exist",
@@ -519,6 +532,9 @@ class BridgeController(ControllerModule):
         self._tunnels: dict[str, TunnelsLog] = {}
 
     def initialize(self):
+        self._register_abort_handlers()
+        self._register_req_handlers()
+        self._register_resp_handlers()
         for _, net_ovl in self.config["Overlays"].items():
             if "NetDevice" not in net_ovl:
                 net_ovl["NetDevice"] = {}
@@ -526,18 +542,58 @@ class BridgeController(ControllerModule):
         if "BoundedFlood" in self.config:
             self._start_bf_proxy_server()
         # create and configure the bridge for each overlay
-        ign_br_names = self._create_overlay_bridges()
-        self.logger.debug("ignored bridges=%s", ign_br_names)
+        _ = self._create_overlay_bridges()
         publishers = self.get_registered_publishers()
+        if (
+            "TincanTunnel" not in publishers
+            or "TCI_TINCAN_MSG_NOTIFY"
+            not in self.get_available_subscriptions("TincanTunnel")
+        ):
+            raise RuntimeError(
+                "The TincanTunnel MESSAGE NOTIFY subscription is not available."
+                "Link Manager cannot continue."
+            )
+        self.start_subscription("TincanTunnel", "TCI_TINCAN_MSG_NOTIFY")
+
+        if (
+            "LinkManager" not in publishers
+            or "LNK_TUNNEL_EVENTS"
+            not in self.get_available_subscriptions("LinkManager")
+        ):
+            raise RuntimeError(
+                "The LinkManager subscription is not available."
+                "BridgeController cannot continue."
+            )
         self.start_subscription("LinkManager", "LNK_TUNNEL_EVENTS")
+
         if (
             "GeneveTunnel" in publishers
             and "GNV_TUNNEL_EVENTS" in self.get_available_subscriptions("GeneveTunnel")
         ):
             self.start_subscription("GeneveTunnel", "GNV_TUNNEL_EVENTS")
         else:
-            self.logger.warning("Geneve tunnel capability unavailable")
+            self.logger.info("Geneve tunnel capability unavailable")
         self.logger.info("Controller module loaded")
+
+    def _register_abort_handlers(self):
+        self._abort_handler_tbl = {
+            "LNK_ADD_IGN_INF": self.abort_handler_default,
+            "TOP_REQUEST_OND_TUNNEL": self.abort_handler_default,
+        }
+
+    def _register_req_handlers(self):
+        self._req_handler_tbl = {
+            "GNV_TUNNEL_EVENTS": self.req_handler_manage_bridge,
+            "LNK_TUNNEL_EVENTS": self.req_handler_manage_bridge,
+            "VIS_DATA_REQ": self.req_handler_vis_data,
+            "TCI_TINCAN_MSG_NOTIFY": self.req_handler_tincan_notify,
+        }
+
+    def _register_resp_handlers(self):
+        self._resp_handler_tbl = {
+            "LNK_ADD_IGN_INF": self.resp_handler_default,
+            "TOP_REQUEST_OND_TUNNEL": self.resp_handler_default,
+        }
 
     def _start_bf_proxy_server(self):
         proxy_listen_port = self.config["BoundedFlood"].get(
@@ -569,7 +625,8 @@ class BridgeController(ControllerModule):
             except socket.error as err:
                 self.logger.warning(
                     "Failed to start the BoundedFlood Proxy, will retry. Error msg= %s",
-                    str(err),
+                    err,
+                    exc_info=True,
                 )
                 time.sleep(1)
         self._server_thread.setDaemon(True)
@@ -587,8 +644,8 @@ class BridgeController(ControllerModule):
                 br_cfg["NetDevice"]["NamePrefix"] = NAME_PREFIX_EVI
             self._ovl_net[olid] = bridge_factory(
                 olid,
-                br_cfg["NetDevice"].get("BridgeProvider", BRIDGE_PROVIDER),
-                br_cfg["NetDevice"].get("SwitchProtocol", SWITCH_PROTOCOL),
+                br_cfg["NetDevice"].get("BridgeProvider", DEFAULT_BRIDGE_PROVIDER),
+                br_cfg["NetDevice"].get("SwitchProtocol", DEFAULT_SWITCH_PROTOCOL),
                 self,
                 **br_cfg["NetDevice"],
             )
@@ -599,7 +656,7 @@ class BridgeController(ControllerModule):
             self.register_cbt("LinkManager", "LNK_ADD_IGN_INF", ign_br_names)
         return ign_br_names
 
-    def req_handler_manage_bridge(self, cbt):
+    def req_handler_manage_bridge(self, cbt: CBT):
         try:
             olid = cbt.request.params["OverlayId"]
             bridge = self._ovl_net[olid]
@@ -623,31 +680,59 @@ class BridgeController(ControllerModule):
                 self.logger.info("Port %s added to bridge %s", port_name, str(bridge))
             elif cbt.request.params["UpdateType"] == TUNNEL_EVENTS.Removed:
                 self._tunnels[olid].pop(port_name, None)
-                if bridge.bridge_type == OvsBridge.bridge_type:
+                if (
+                    bridge.bridge_type == OvsBridge.bridge_type
+                    and port_name in bridge.ports
+                ):
                     bridge.del_port(port_name)
                     self.logger.info(
                         "Port %s removed from bridge %s", port_name, bridge
                     )
         except RuntimeError as err:
-            self.logger.warning(str(err))
+            self.logger.warning("Manage bridge error %s", err, exc_info=True)
         cbt.set_response(None, True)
         self.complete_cbt(cbt)
 
-    def timer_method(self, is_exiting=False):
-        if is_exiting:
-            return
+    def req_handler_tincan_notify(self, cbt: CBT):
+        if cbt.request.params["Command"] == "ResetTincanTunnels":
+            sid = cbt.request.params["SessionId"]
+            for olid, br in self._ovl_net.items():
+                self.logger.info("Clearing Tincan TAPs from %s for session %s", br, sid)
+                for port_name, port in self._tunnels[olid].items():
+                    if (
+                        br.bridge_type == OvsBridge.bridge_type
+                        and port["Dataplane"] == DATAPLANE_TYPES.Tincan
+                        and port_name in br.ports
+                    ):
+                        br.del_port(port_name)
+                        self.logger.info(
+                            "Port %s removed from bridge %s", port_name, br
+                        )
+                self._tunnels[olid].clear()
+        cbt.set_response(data=None, status=True)
+        self.complete_cbt(cbt)
+
+    def on_timer_event(self):
         for tnl in self._tunnels.values():
             tnl.trim()
 
+    # def abort_handler(self, cbt: CBT):
+    #     """Additional resouce clean here, eg., fail edge negotiate or create"""
+    #     self.free_cbt(cbt)
+
     def process_cbt(self, cbt):
-        if cbt.op_type == "Request":
+        if cbt.is_expired:
+            self.abort_handler(cbt)
+        elif cbt.is_pending:
             if cbt.request.action in ("LNK_TUNNEL_EVENTS", "GNV_TUNNEL_EVENTS"):
                 self.req_handler_manage_bridge(cbt)
             elif cbt.request.action == "VIS_DATA_REQ":
                 self.req_handler_vis_data(cbt)
+            elif cbt.request.action == "TCI_TINCAN_MSG_NOTIFY":
+                self.req_handler_tincan_notify(cbt)
             else:
                 self.req_handler_default(cbt)
-        elif cbt.op_type == "Response":
+        elif cbt.is_completed:
             self.resp_handler_default(cbt)
 
     def terminate(self):
@@ -667,8 +752,8 @@ class BridgeController(ControllerModule):
                         for port in [*bridge.ports]:
                             bridge.del_port(port)
         except RuntimeError as err:
-            self.logger.exception(str(err))
-        self.logger.info("Module Terminating")
+            self.logger.warning("Terminate error %s", err, exc_info=True)
+        self.logger.info("Controller module terminating")
 
     def req_handler_vis_data(self, cbt: CBT):
         br_data = {}
@@ -677,7 +762,7 @@ class BridgeController(ControllerModule):
             is_data_available = True
             br_data[olid] = {}
             br_data[olid]["BridgeProvider"] = self.overlays[olid]["NetDevice"].get(
-                "BridgeProvider", BRIDGE_PROVIDER
+                "BridgeProvider", DEFAULT_BRIDGE_PROVIDER
             )
             br_data[olid]["BridgeName"] = self.overlays[olid]["NetDevice"].get(
                 "NamePrefix", NAME_PREFIX_EVI
@@ -702,7 +787,11 @@ class BridgeController(ControllerModule):
         if "NamePrefix" not in abr_cfg:
             abr_cfg["NamePrefix"] = NAME_PREFIX_APP_BR
         gbr = bridge_factory(
-            olid, abr_cfg.get("BridgeProvider", BRIDGE_PROVIDER), None, self, **abr_cfg
+            olid,
+            abr_cfg.get("BridgeProvider", DEFAULT_BRIDGE_PROVIDER),
+            None,
+            self,
+            **abr_cfg,
         )
 
         gbr.add_patch_port(self._ovl_net[olid].patch_port_name)
@@ -717,7 +806,9 @@ class BridgeController(ControllerModule):
             for olid, tnls_log in self._tunnels.items():
                 resp[olid] = tnls_log.snapshot()
         except Exception as err:
-            self.logger.exception("The operation get_tunnels failed, exception=%s", err)
+            self.logger.warning(
+                "The operation get_tunnels failed, %s", err, exc_info=True
+            )
             resp = {}
         return resp
 

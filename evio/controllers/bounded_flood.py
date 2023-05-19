@@ -910,14 +910,16 @@ class BoundedFlood(app_manager.RyuApp):
             self._ev_bh_update.put(
                 EvioOp(Opcode.UPDATE_TUNNELS, datapath.id, overlay_id)
             )
-        except RuntimeError:
+        except RuntimeError as rte:
             self.logger.exception(
-                "An runtime error occurred while registering a switch"
+                "An runtime error occurred while registering a switch. %s", rte
             )
             if datapath.id in self._lt:
                 self._lt.pop(datapath.id, None)
-        except Exception:
-            self.logger.exception("A failure occurred while registering a switch. ")
+        except Exception as err:
+            self.logger.exception(
+                "A failure occurred while registering a switch. %s", err
+            )
             if datapath.id in self._lt:
                 self._lt.pop(datapath.id, None)
 
@@ -962,8 +964,7 @@ class BoundedFlood(app_manager.RyuApp):
 
         except Exception as err:
             self.logger.exception(
-                f"An error occurred while responding to a port event. "
-                f"Event={ev.msg}. Error={err}"
+                "An error occurred while responding to port event %s. %s ", ev.msg, err
             )
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
@@ -1021,8 +1022,9 @@ class BoundedFlood(app_manager.RyuApp):
                 return
         except Exception as err:
             self.logger.exception(
-                f"An error occurred in the controller's packet handler. "
-                f"Event={ev.msg}. Error={err}"
+                "An error occurred in the controller's packet handler. Event=%s\nException=%s",
+                ev.msg,
+                err,
             )
 
     @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
@@ -1039,8 +1041,9 @@ class BoundedFlood(app_manager.RyuApp):
                 )
         except Exception as err:
             self.logger.exception(
-                f"An error occurred in the flow stats handler. Event={ev.msg}."
-                f"Error={err}"
+                "An error occurred in the flow stats handler. Event=%s\nException=%s",
+                ev.msg,
+                err,
             )
 
     ##################################################################################
@@ -1053,9 +1056,9 @@ class BoundedFlood(app_manager.RyuApp):
                     for dpid in self._lt:
                         self._request_stats(self.dpset.dps[dpid])
                     # hub.sleep(self._traffic_analysis_interval)
-            except Exception:
+            except Exception as err:
                 self.logger.exception(
-                    "An exception occurred within the traffic monitor"
+                    "An exception occurred within the traffic monitor. %s", err
                 )
                 # hub.sleep(self._traffic_analysis_interval)
 
@@ -1088,9 +1091,9 @@ class BoundedFlood(app_manager.RyuApp):
                     elif op.code == Opcode.OND_REQUEST:
                         self._request_ond_tnl_ops(op.olid, op.data)
                     self._ev_bh_update.task_done()
-            except Exception:
+            except Exception as err:
                 self.logger.exception(
-                    "An exception occurred while updating the tunnel data"
+                    "An exception occurred while updating the tunnel data. %s", err
                 )
 
     def log_state(self):
@@ -1103,8 +1106,8 @@ class BoundedFlood(app_manager.RyuApp):
                     self._log_state()
                     self._log_counters(counter_vals)
                     # hub.sleep(self._state_logging_interval)
-            except Exception:
-                self.logger.exception("An exception occurred within log state")
+            except Exception as err:
+                self.logger.exception("Log state failure. %s", err)
                 # hub.sleep(self._state_logging_interval)
 
     def check_links(self):
@@ -1144,8 +1147,10 @@ class BoundedFlood(app_manager.RyuApp):
                                 )
                             )
                     # hub.sleep(self._link_check_interval)
-            except Exception:
-                self.logger.exception("An exception occurred within check links")
+            except Exception as err:
+                self.logger.exception(
+                    "An exception occurred within check links. %s", err
+                )
                 # hub.sleep(self._link_check_interval)
 
     ##################################################################################
@@ -1277,7 +1282,7 @@ class BoundedFlood(app_manager.RyuApp):
                 self.logger.warning("Add flow operation failed, OFPFlowMod=%s", mod)
         except struct.error as err:
             self.logger.exception(
-                f"Add flow operation failed, OFPFlowMod={mod}\n. Error={err}"
+                "Add flow operation failed, OFPFlowMod=%s\n. Error=%s", mod, err
             )
 
     def _create_flow_rule_drop_multicast(self, datapath, priority=1, tblid=0):
@@ -1384,7 +1389,10 @@ class BoundedFlood(app_manager.RyuApp):
                 self._reset_switch_flow_rules(datapath)
         except Exception as err:
             self.logger.exception(
-                f"Failed to delete flows for port {sw_name}/{port_no}. Error={err}"
+                "Failed to delete flows for port %s/%s. Exception=%s",
+                sw_name,
+                port_no,
+                err,
             )
 
     def _del_port_flow_rules_ovs(self, datapath, port_no, tblid=None):
@@ -1414,7 +1422,7 @@ class BoundedFlood(app_manager.RyuApp):
                 self._reset_switch_flow_rules(datapath)
         except Exception as err:
             self.logger.exception(
-                f"Failed to delete flows for port {sw_name}/{port_no}. Error={err}"
+                "Failed to delete flows for port %s/%s. %s", sw_name, port_no, err
             )
 
     def _is_flow_rule_exist(self, switch, port_no):
@@ -1556,7 +1564,6 @@ class BoundedFlood(app_manager.RyuApp):
             self.logger.info("Link CHK attempted but remote is not a peer")
 
     def _do_link_ack(self, datapath, port):
-
         sw: EvioSwitch = self._lt[datapath.id]
         nid = sw.node_id
         if port.is_peer:

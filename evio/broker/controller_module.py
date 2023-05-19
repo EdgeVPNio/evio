@@ -22,6 +22,7 @@
 import hashlib
 import logging
 from abc import ABCMeta, abstractmethod
+from typing import Callable
 
 from . import introspect
 from .cbt import CBT
@@ -38,6 +39,9 @@ class ControllerModule:
         self._nexus = nexus
         self._ctrl_config = ctrl_config
         self._state_digest = None
+        self._abort_handler_tbl: dict[str, Callable[[CBT]]] = {}
+        self._req_handler_tbl: dict[str, Callable[[CBT]]] = {}
+        self._resp_handler_tbl: dict[str, Callable[[CBT]]] = {}
         self.logger = logging.getLogger("Evio." + self.__class__.__name__)
 
     def __repr__(self):
@@ -47,12 +51,44 @@ class ControllerModule:
     def initialize(self):
         pass
 
-    @abstractmethod
     def process_cbt(self, cbt: CBT):
-        pass
+        if cbt.is_expired:
+            self.abort_handler(cbt)
+        elif cbt.is_pending:
+            self.req_handler(cbt)
+        elif cbt.is_completed:
+            self.resp_handler(cbt)
+        else:
+            raise RuntimeError("Unexpected CBT state")
+
+    def abort_handler(self, cbt: CBT):
+        try:
+            handle = self._abort_handler_tbl[cbt.request.action]
+        except KeyError as ke:
+            self.logger.warning(ke, exc_info=True)
+            self.abort_handler_default(cbt)
+            return
+        handle((cbt))
+
+    def req_handler(self, cbt: CBT):
+        try:
+            handle = self._req_handler_tbl[cbt.request.action]
+        except KeyError as ke:
+            self.logger.warning(ke, exc_info=True)
+            self.req_handler_default(cbt)
+            return
+        handle((cbt))
+
+    def resp_handler(self, cbt: CBT):
+        try:
+            handle = self._resp_handler_tbl[cbt.request.action]
+        except KeyError:
+            self.resp_handler_default(cbt)
+            return
+        handle((cbt))
 
     @abstractmethod
-    def timer_method(self, is_exiting=False):
+    def on_timer_event(self):
         pass
 
     @abstractmethod
@@ -89,62 +125,92 @@ class ControllerModule:
 
     def req_handler_default(self, cbt):
         self.logger.warning("Unsupported CBT action %s", cbt)
+        cbt.set_response({"Message": "No request handler registered"}, False)
         self.complete_cbt(cbt)
 
     def resp_handler_default(self, cbt):
-        self.logger.debug("Using CBT default response handler %s", cbt)
+        self.logger.debug("CBT default response handler %s", cbt)
         parent_cbt = cbt.parent
-        cbt_data = cbt.response.data
+        resp_data = cbt.response.data
         cbt_status = cbt.response.status
         self.free_cbt(cbt)
         if parent_cbt and parent_cbt.child_count == 0:
-            parent_cbt.set_response(cbt_data, cbt_status)
+            parent_cbt.set_response(resp_data, cbt_status)
             self.complete_cbt(parent_cbt)
 
-    def trace_state(self):
+    def abort_handler_default(self, cbt: CBT):
+        self.free_cbt(cbt)
+
+    def log_state(self):
         if self.config.get("StateTracingEnabled", False):
             state = str(self)
             new_digest = hashlib.sha256(state.encode("utf-8")).hexdigest()
             if self._state_digest != new_digest:
                 self._state_digest = new_digest
-                self.logger.info("state trace: %s", state)
+                self.logger.info("controller state: %s", state)
 
-    def register_cbt(self, _recipient, _action, _params=None):
+    def register_cbt(
+        self, _recipient, _action, _params=None, parent_cbt=None, **kwargs
+    ):
         cbt = self._nexus.create_cbt(
             initiator=self.name,
             recipient=_recipient,
             action=_action,
             params=_params,
+            parent_cbt=parent_cbt,
+            **kwargs,
         )
-        self._nexus.submit_cbt(cbt)
+        self._nexus.submit_req_cbt(cbt)
 
-    def register_internal_cbt(self, _action, _params=None):
+    def register_internal_cbt(self, _action, _params=None, parent_cbt=None, **kwargs):
         cbt = self._nexus.create_cbt(
             initiator=self.name,
             recipient=self.name,
             action=_action,
             params=_params,
+            parent_cbt=parent_cbt,
+            **kwargs,
         )
-        self._nexus.submit_cbt(cbt)
+        self._nexus.submit_req_cbt(cbt)
 
-    def create_cbt(self, initiator, recipient, action, params=None) -> CBT:
-        return self._nexus.create_cbt(initiator, recipient, action, params)
-
-    def create_linked_cbt(self, parent) -> CBT:
-        return self._nexus.create_linked_cbt(parent)
+    def create_cbt(
+        self, initiator, recipient, action, params=None, parent_cbt=None, **kwargs
+    ) -> CBT:
+        return self._nexus.create_cbt(
+            initiator, recipient, action, params, parent_cbt, **kwargs
+        )
 
     def complete_cbt(self, cbt: CBT):
-        if cbt.time_complete != 0.0:
+        if not cbt.is_response:
+            raise RuntimeError("Invalid attempt to complete CBT without a response")
+        if cbt.is_completed:
             raise RuntimeError("This CBT has been previously completed.")
+        if cbt.is_expired:
+            raise RuntimeError("Invalid Operation: Do not complete an expired CBT")
+        if len(cbt.deps) != 0:
+            raise RuntimeWarning(
+                "Invalid attempt to complete a CBT with outstanding dependencies"
+            )
         self._nexus.complete_cbt(cbt)
 
     def free_cbt(self, cbt: CBT):
-        if cbt.time_free != 0.0:
+        if cbt.is_freed:
             raise RuntimeError("This CBT has been previously freed.")
+        if not (cbt.is_completed or cbt.is_expired):
+            raise RuntimeError(
+                "Attempting to free a CBT that is neither completed nor expired."
+            )
         self._nexus.free_cbt(cbt)
 
     def submit_cbt(self, cbt: CBT):
-        self._nexus.submit_cbt(cbt)
+        if cbt.request.initiator != self.name:
+            raise ValueError(
+                f"Invalid attempt to submit a CBT that is owned by {cbt.request.initiator}"
+            )
+        self._nexus.submit_req_cbt(cbt)
+
+    def get_pending_cbt(self, tag: int) -> CBT:
+        return self._nexus.get_pending_cbt(tag)
 
     # Caller is the subscription source
     def publish_subscription(self, subscription_name: str):
@@ -165,3 +231,8 @@ class ControllerModule:
 
     def end_subscription(self, publisher_name, subscription_name):
         self._nexus.end_subscription(publisher_name, subscription_name)
+
+    def register_timed_transaction(self, obj, is_completed, on_expired, lifespan):
+        if is_completed(obj):
+            raise ValueError(f"Object already marked as completed {obj}")
+        self._nexus.register_timed_transaction(obj, is_completed, on_expired, lifespan)

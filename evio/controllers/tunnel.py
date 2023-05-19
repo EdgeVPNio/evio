@@ -21,7 +21,6 @@
 
 
 import hashlib
-import time
 from collections import namedtuple
 
 import broker
@@ -63,20 +62,15 @@ DATAPLANE_TYPES = DataplaneTypes()
 
 
 class Tunnel:
-    def __init__(
-        self, tnlid, overlay_id, peer_id, tnl_state, state_timeout, tap_name, dataplane
-    ):
+    def __init__(self, tnlid, overlay_id, peer_id, tnl_state, tap_name, dataplane):
         self.tnlid = tnlid
         self.overlay_id = overlay_id
         self.peer_id = peer_id
         self.tap_name = tap_name
         self._mac = None
-        # self.fpr = None
         self.link = None
         self.peer_mac = None
         self.state = tnl_state
-        self.creation_start_time = time.time()
-        self.timeout = time.time() + state_timeout  # timeout for current phase
         self.dataplane = dataplane
 
     def __repr__(self):

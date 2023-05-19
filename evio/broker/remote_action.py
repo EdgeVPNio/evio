@@ -30,13 +30,13 @@ class RemoteAction:
         recipient_cm=None,
         action=None,
         params=None,
-        **kwargs,
+        **kwargs
     ):
-        self.overlay_id = kwargs.get("overlay_id", overlay_id)
-        self.recipient_id = kwargs.get("recipient_id", recipient_id)
-        self.recipient_cm = kwargs.get("recipient_cm", recipient_cm)
-        self.action = kwargs.get("action", action)
-        self.params = kwargs.get("params", params)
+        self.overlay_id = overlay_id
+        self.recipient_id = recipient_id
+        self.recipient_cm = recipient_cm
+        self.action = action
+        self.params = params
         self.initiator_id = kwargs.get("initiator_id")
         self.initiator_cm = kwargs.get("initiator_cm")
         self.action_tag = kwargs.get("action_tag")
@@ -63,13 +63,11 @@ class RemoteAction:
         if self.data:
             yield ("data", self.data)
 
-    def submit_remote_act(self, cm, parent_cbt=None):
+    def submit_remote_act(self, cm, parent_cbt=None, **kwargs):
         self.initiator_id = cm.node_id
         self.initiator_cm = cm.name
-        if parent_cbt is not None:
-            cbt = cm.create_linked_cbt(parent_cbt)
-            cbt.set_request(cm.name, "Signal", "SIG_REMOTE_ACTION", self)
-        else:
-            cbt = cm.create_cbt(cm.name, "Signal", "SIG_REMOTE_ACTION", self)
+        cbt = cm.create_cbt(
+            cm.name, "Signal", "SIG_REMOTE_ACTION", self, parent_cbt, **kwargs
+        )
         self.action_tag = cbt.tag
         cm.submit_cbt(cbt)

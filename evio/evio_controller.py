@@ -19,28 +19,13 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-import time
 
-import psutil
 from broker.broker import Broker
 
 
-# Function checks the system process table for Tincan process
-def is_tincan_proc():
-    # Iterates across process table to find Tincan process
-    for process in psutil.process_iter():
-        if process.name().find("tincan") != -1:
-            return True
-    return False
-
-
 def main():
-    # Wait for tincan process to start
-    while is_tincan_proc() is False:
-        print("Waiting on Tincan to start...")
-        time.sleep(10)
-    with Broker() as broker:
-        broker.run()
+    with Broker() as _broker:
+        _broker.run()
 
 
 if __name__ == "__main__":

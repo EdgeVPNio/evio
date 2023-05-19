@@ -143,8 +143,6 @@ def transpose_edge_type(edge_type: str) -> str:
 class ConnectionEdge:
     """A discriptor of the edge/link between two peers."""
 
-    # _PACK_STR = '!16s16sff18s19s?'
-
     def __init__(
         self,
         peer_id: str,
@@ -154,16 +152,16 @@ class ConnectionEdge:
         role: str = CONNECTION_ROLE.Undefined,
         edge_state: str = EDGE_STATES.Initialized,
     ):
-        self.peer_id = peer_id
-        self.edge_id = edge_id
+        self.peer_id: str = peer_id
+        self.edge_id: str = edge_id
         if not self.edge_id:
             self.edge_id = uuid.uuid4().hex
-        self.created_time = time.time()
-        self.connected_time = None
-        self.edge_state = edge_state
-        self.edge_type = edge_type
-        self.dataplane = dataplane
-        self.role = role
+        self.created_time: float = time.time()
+        self.connected_time: float = 0.0
+        self.edge_state: str = edge_state
+        self.edge_type: str = edge_type
+        self.dataplane: str = dataplane
+        self.role: str = role
 
     def __key__(self):
         return int(self.peer_id, 16)
@@ -361,6 +359,14 @@ class ConnEdgeAdjacenctList(MutableMapping):
             matches = state_match
         return matches
 
+    def clear_tincan_ces(self):
+        rml = []
+        for peer_id, ce in self._conn_edges.items():
+            if ce.dataplane == DATAPLANE_TYPES.Tincan:
+                rml.append(peer_id)
+        for peer_id in rml:
+            self.remove_conn_edge(peer_id)
+
 
 class GraphEdit:
     def __init__(self, conn_edge: ConnectionEdge, op_type: str, priority: int):
@@ -464,3 +470,6 @@ class GraphTransformation:
 
     def push_back(self, update):
         self._edits.append(update)
+
+    def clear(self):
+        self._edits.clear()
