@@ -987,7 +987,7 @@ class BoundedFlood(app_manager.RyuApp):
                     )
                 return
             if not port.is_categorized:
-                self.logger.warning(f"Port {in_port} is not yet ready")
+                self.logger.info(f"Packet in, but port {in_port} is not yet ready")
                 return
             port.last_active_time = time.time()
             if eth.ethertype == FloodRouteBound.ETH_TYPE_BF:
@@ -1005,14 +1005,14 @@ class BoundedFlood(app_manager.RyuApp):
                 if in_port in sw.leaf_ports and is_multiricepient(eth.dst):
                     self._broadcast_frame(msg.datapath, pkt, in_port, msg)
                 elif in_port not in sw.leaf_ports and is_multiricepient(eth.dst):
-                    self.logger.error(
+                    self.logger.info(
                         "Raw multirecipient frame ingressed on peer port, discarding frame. "
                         "Ingress=%s/%s",
                         sw.name,
                         in_port,
                     )
                 else:
-                    self.logger.warning(
+                    self.logger.info(
                         "No forwarding route to %s in LT, discarding frame. "
                         "Ingress=%s/%s",
                         eth.dst,
