@@ -614,23 +614,24 @@ class Topology(ControllerModule):
         if edge_resp and edge_resp.is_accepted:
             # net_ovl.pending_auth[peer_id] = edge_resp
             # edge_cbt.add_context("pending_auth", edge_resp)
-            if edge_resp.message[:2] != "E0":
-                et = transpose_edge_type(edge_req.edge_type)
-                ce = ConnectionEdge(
-                    peer_id=peer_id,
-                    edge_id=edge_req.edge_id,
-                    edge_type=et,
-                    dataplane=edge_resp.dataplane,
-                    role=CONNECTION_ROLE.Target,
-                )
-                ce.edge_state = EDGE_STATES.PreAuth
-                net_ovl.adjacency_list[ce.peer_id] = ce
-                self.register_timed_transaction(
-                    (ce, olid),
-                    self._is_connedge_connected,
-                    self._on_connedge_timeout,
-                    CBT_LIFESPAN,
-                )
+            if edge_resp.message[:2] == "E0":
+                net_ovl.adjacency_list.pop(peer_id)
+            et = transpose_edge_type(edge_req.edge_type)
+            ce = ConnectionEdge(
+                peer_id=peer_id,
+                edge_id=edge_req.edge_id,
+                edge_type=et,
+                dataplane=edge_resp.dataplane,
+                role=CONNECTION_ROLE.Target,
+            )
+            ce.edge_state = EDGE_STATES.PreAuth
+            net_ovl.adjacency_list[ce.peer_id] = ce
+            self.register_timed_transaction(
+                (ce, olid),
+                self._is_connedge_connected,
+                self._on_connedge_timeout,
+                CBT_LIFESPAN,
+            )
             self._authorize_incoming_tunnel(
                 net_ovl,
                 peer_id,
@@ -1015,10 +1016,6 @@ class Topology(ControllerModule):
             edge_state in (EDGE_STATES.Initialized, EDGE_STATES.PreAuth)
             and self.node_id > edge_req.initiator_id
         ):
-            conn_edge.edge_type = transpose_edge_type(edge_req.edge_type)
-            conn_edge.role = CONNECTION_ROLE.Target
-            conn_edge.edge_id = edge_req.edge_id
-            conn_edge.dataplane = dp_type
             msg = f"E0 - Node {self.node_id} accepts edge collision override."
             " CE:{conn_edge.edge_id[:7]} remapped -> edge:{edge_req.edge_id[:7]}"
             edge_resp = EdgeResponse(is_accepted=True, message=msg, dataplane=dp_type)

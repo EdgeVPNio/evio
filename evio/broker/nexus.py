@@ -136,17 +136,10 @@ class Nexus:
                     if not cbt.is_completed:
                         self._pending_cbts[cbt.tag] = cbt
                     self._controller.process_cbt(cbt)
-                except Exception as err:
+                except RuntimeError as err:
                     self._controller.logger.warning(
                         "Process CBT exception: %s\nCBT: %s", err, cbt, exc_info=True
                     )
-                    if cbt.request.initiator == self._controller.name:
-                        cbt.set_response(None, False)
-                        cbt.time_completed = time.time()
-                        self.free_cbt(cbt)
-                    else:
-                        cbt.set_response(None, False)
-                        self.complete_cbt(cbt)
                 finally:
                     self._cm_queue.task_done()
 

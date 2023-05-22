@@ -698,17 +698,18 @@ class BridgeController(ControllerModule):
             sid = cbt.request.params["SessionId"]
             for olid, br in self._ovl_net.items():
                 self.logger.info("Clearing Tincan TAPs from %s for session %s", br, sid)
+                rml = []
                 for port_name, port in self._tunnels[olid].items():
                     if (
                         br.bridge_type == OvsBridge.bridge_type
                         and port["Dataplane"] == DATAPLANE_TYPES.Tincan
                         and port_name in br.ports
                     ):
-                        br.del_port(port_name)
-                        self.logger.info(
-                            "Port %s removed from bridge %s", port_name, br
-                        )
-                self._tunnels[olid].clear()
+                        rml.append(port_name)
+                for port_name in rml:
+                    br.del_port(port_name)
+                    self._tunnels[olid].pop(port_name, None)
+                    self.logger.info("Port %s removed from bridge %s", port_name, br)
         cbt.set_response(data=None, status=True)
         self.complete_cbt(cbt)
 
