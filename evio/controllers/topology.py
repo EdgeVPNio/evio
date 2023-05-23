@@ -1157,6 +1157,7 @@ class Topology(ControllerModule):
         net_ovl.adjacency_list.update_edge(new_conn_edge)
 
     def _cleanup_expired_incomplete_edge(self, cbt: CBT):
+        self.logger.debug("Abort CBT %s", cbt)
         olid = cbt.request.params.get("OverlayId", None)
         if not olid:
             self.logger.warning("No overlay ID found in expired CBT")
@@ -1169,6 +1170,7 @@ class Topology(ControllerModule):
         self.free_cbt(cbt)
 
     def _abort_handler_remote_action(self, cbt: CBT):
+        self.logger.debug("Aborting RemoteAction CBT %s", cbt)
         rem_act = cbt.request.params
         olid = rem_act.overlay_id
         net_ovl = self._net_ovls[olid]
