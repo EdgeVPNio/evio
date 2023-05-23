@@ -511,13 +511,16 @@ class LinkManager(ControllerModule):
         Complete setup"""
         parent_cbt = cbt.parent
         resp_data = cbt.response.data
-        if not cbt.response.status:
-            self.logger.warning("Create link endpoint failed :%s", cbt)
+        if not cbt.response.status or parent_cbt is None:
+            self.logger.warning(
+                "Create link endpoint failed :%s or the parent expired", cbt
+            )
             lnkid = cbt.request.params["LinkId"]
             self._rollback_link_creation_changes(lnkid)
             self.free_cbt(cbt)
-            parent_cbt.set_response(resp_data, False)
-            self.complete_cbt(parent_cbt)
+            if parent_cbt:
+                parent_cbt.set_response(resp_data, False)
+                self.complete_cbt(parent_cbt)
             if resp_data and "CurrentId" in resp_data:
                 self.tc_session_id = resp_data["CurrentId"]
             return
@@ -548,18 +551,19 @@ class LinkManager(ControllerModule):
         parent_cbt = cbt.parent
         resp_data = cbt.response.data
         rem_act: RemoteAction
-        if not cbt.response.status:
+        if not cbt.response.status or parent_cbt is None:
             rem_act = cbt.request.params
             lnkid = rem_act.params["LinkId"]
             tnlid = self.tunnel_id(lnkid)
             self.logger.debug(
-                "The remote action requesting a connection endpoint link %s has failed",
+                "The remote action requesting a connection endpoint link %s has failed or the parent expired",
                 tnlid,
             )
             self._rollback_link_creation_changes(tnlid)
             self.free_cbt(cbt)
-            parent_cbt.set_response(resp_data, False)
-            self.complete_cbt(parent_cbt)
+            if parent_cbt:
+                parent_cbt.set_response(resp_data, False)
+                self.complete_cbt(parent_cbt)
         else:
             rem_act = cbt.response.data
             self.free_cbt(cbt)
@@ -576,12 +580,16 @@ class LinkManager(ControllerModule):
         lnkid = cbt.request.params["LinkId"]
         tnlid = cbt.request.params["TunnelId"]
         resp_data = cbt.response.data
-        if not cbt.response.status:
+        if not cbt.response.status or parent_cbt is None:
             self._deauth_tnl(tnlid)
             self.free_cbt(cbt)
-            parent_cbt.set_response("Failed to create tunnel", False)
-            self.complete_cbt(parent_cbt)
-            self.logger.warning("The create tunnel operation failed:%s", resp_data)
+            if parent_cbt:
+                parent_cbt.set_response("Failed to create tunnel", False)
+                self.complete_cbt(parent_cbt)
+            self.logger.warning(
+                "The create tunnel operation failed: %s or the parent expired",
+                resp_data,
+            )
             if resp_data and "CurrentId" in resp_data:
                 self.tc_session_id = resp_data["CurrentId"]
             return
