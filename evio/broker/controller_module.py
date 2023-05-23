@@ -62,12 +62,15 @@ class ControllerModule:
             raise RuntimeError("Unexpected CBT state")
 
     def abort_handler(self, cbt: CBT):
-        handle = self._abort_handler_tbl.get(cbt.request.action, self.abort_handler_default)
+        handle = self._abort_handler_tbl.get(
+            cbt.request.action, self.abort_handler_default
+        )
         try:
             handle(cbt)
         except Exception as err:
             self.logger.exception(err)
-            self.free_cbt(cbt)
+            if cbt and not cbt.is_freed:
+                self.free_cbt(cbt)
 
     def req_handler(self, cbt: CBT):
         handle = self._req_handler_tbl.get(cbt.request.action, self.req_handler_default)
@@ -75,16 +78,20 @@ class ControllerModule:
             handle(cbt)
         except Exception as err:
             self.logger.exception(err)
-            cbt.set_response({"Message": "Failed"}, False)
-            self.complete_cbt(cbt)
+            if cbt and not cbt.is_completed:
+                cbt.set_response({"Message": "Failed"}, False)
+                self.complete_cbt(cbt)
 
     def resp_handler(self, cbt: CBT):
-        handle = self._resp_handler_tbl.get(cbt.request.action, self.resp_handler_default)
+        handle = self._resp_handler_tbl.get(
+            cbt.request.action, self.resp_handler_default
+        )
         try:
             handle(cbt)
         except Exception as err:
             self.logger.exception(err)
-            self.free_cbt(cbt)        
+            if cbt and not cbt.is_freed:
+                self.free_cbt(cbt)
 
     @abstractmethod
     def on_timer_event(self):
