@@ -77,7 +77,7 @@ CONF = cfg.CONF  # RYU environment
 BF_COUNTER_DIGEST = hashlib.sha256("".encode("utf-8")).hexdigest()
 BF_STATE_DIGEST = hashlib.sha256("".encode("utf-8")).hexdigest()
 INTERNAL_PORT_NUM = 4294967294
-KNOWN_LEAF_PORTS = {INTERNAL_PORT_NUM, 1}
+KNOWN_LEAF_PORTS = (INTERNAL_PORT_NUM, 1)
 
 NODE_TYPES = namedtuple(
     "NODE_TYPES",
@@ -362,8 +362,8 @@ class EvioSwitch:
         self._overlay_id = kwargs["OverlayId"]
         self._node_id = kwargs["NodeId"]
         self.logger: logging.Logger = kwargs["Logger"]
-        self._leaf_prts: Set[int] = set()  # port_no of leaf tunnels
-        self._link_prts: Set[int] = set()  # port_no of peer tunnels
+        self._leaf_prts: Set[int] = set()  # port numbers of local TAP to leaf tunnels
+        self._link_prts: Set[int] = set()  # port numbers of local TAP to peer tunnels
         self._leaf_macs: Set[str] = set()  # hw addr of local leaf devices
         self._port_tbl: dict[int, PortDescriptor] = dict()  # port_no->PortDescriptor
         self._ingress_tbl: dict[str, int] = dict()  # hw_addr->ingress port number
@@ -1316,7 +1316,7 @@ class BoundedFlood(app_manager.RyuApp):
         if not resp:
             self.logger.warning("Add flow (MC) operation failed, OFPFlowMod=%s", mod)
 
-    def _update_port_flow_rules(self, datapath, peer_id, in_port):
+    def _update_port_flow_rules(self, datapath, peer_id, port_no):
         """Used when a new port is connected to the switch and we know the pendant MACs that
         anchored to the now adjacent peer switch. Flow rules involving those pendant MACs are
         updated or created to use the new port."""
@@ -1324,14 +1324,17 @@ class BoundedFlood(app_manager.RyuApp):
         sw: EvioSwitch = self._lt[dpid]
         parser = datapath.ofproto_parser
         for mac in sw.leaf_macs(peer_id):
-            self._update_inbound_flow_rules(datapath, mac, in_port, tblid=0)
-            # create new outbound flow rule, old ones will expire
+            # rules for flows going out to the remote peer
+            self._update_outbound_flow_rules(
+                datapath=datapath, dst_mac=mac, new_egress=port_no, tblid=0
+            )
+            # create new inbound flow rule, old ones will expire Todo: Incorrect. doesn't expire, peer keeps sending on this path as it doesn't have RNID data
             for dst_mac in sw.local_leaf_macs:
-                port_no = sw.get_ingress_port(dst_mac)
-                if port_no:
-                    actions = [parser.OFPActionOutput(port_no)]
+                local_port_no = sw.get_ingress_port(dst_mac)
+                if local_port_no:
+                    actions = [parser.OFPActionOutput(local_port_no)]
                     match = parser.OFPMatch(
-                        in_port=in_port, eth_dst=dst_mac, eth_src=mac
+                        in_port=port_no, eth_dst=dst_mac, eth_src=mac
                     )
                     self._create_flow_rule(
                         datapath,
@@ -1486,7 +1489,8 @@ class BoundedFlood(app_manager.RyuApp):
         self._clear_switch_flow_rules(datapath)
         self._create_switch_startup_flow_rules(datapath)
 
-    def _update_inbound_flow_rules(self, datapath, dst_mac, new_egress, tblid=None):
+    def _update_outbound_flow_rules(self, datapath, dst_mac, new_egress, tblid=None):
+        sw: EvioSwitch = self._lt[datapath.id]
         parser = datapath.ofproto_parser
         if tblid is None:
             tblid = datapath.ofproto.OFPTT_ALL
@@ -1495,30 +1499,34 @@ class BoundedFlood(app_manager.RyuApp):
         inst = [
             parser.OFPInstructionActions(datapath.ofproto.OFPIT_APPLY_ACTIONS, acts)
         ]
-        mt = parser.OFPMatch(eth_dst=dst_mac)
-        sw = self._lt[datapath.id]
-        mod = parser.OFPFlowMod(
-            datapath=datapath,
-            table_id=tblid,
-            match=mt,
-            command=cmd,
-            instructions=inst,
-            idle_timeout=sw.idle_timeout,
-        )
-        self.logger.debug("Attempting to update all flows matching %s/%s", sw.name, mt)
-        datapath.send_msg(mod)
-
-    def _update_leaf_macs(self, dpid, rnid, macs, num_items):
-        sw: EvioSwitch = self._lt[dpid]
-        sw.clear_leaf_macs(rnid)
-        sw.peer(rnid).hop_count = 1
-        mlen = num_items * 6
-        for mactup in struct.iter_unpack("!6s", macs[:mlen]):
-            macstr = mac_lib.haddr_to_str(mactup[0])
-            self.logger.debug(
-                "Registering leaf mac %s/%s to peer %s", sw.name, macstr, rnid
+        port_no = KNOWN_LEAF_PORTS[1]
+        for src_mac in sw.local_leaf_macs:
+            mt = parser.OFPMatch(in_port=port_no, eth_dst=dst_mac, eth_src=src_mac)
+            sw = self._lt[datapath.id]
+            mod = parser.OFPFlowMod(
+                datapath=datapath,
+                table_id=tblid,
+                match=mt,
+                command=cmd,
+                instructions=inst,
+                idle_timeout=sw.idle_timeout,
             )
-            sw.add_leaf_mac(rnid, macstr)
+            self.logger.debug(
+                "Attempting to update outflow matching %s/%s", sw.name, mt
+            )
+            datapath.send_msg(mod)
+
+    # def _update_leaf_macs(self, dpid, rnid, macs, num_items):
+    #     sw: EvioSwitch = self._lt[dpid]
+    #     sw.clear_leaf_macs(rnid)
+    #     sw.peer(rnid).hop_count = 1
+    #     mlen = num_items * 6
+    #     for mactup in struct.iter_unpack("!6s", macs[:mlen]):
+    #         macstr = mac_lib.haddr_to_str(mactup[0])
+    #         self.logger.debug(
+    #             "Registering leaf mac %s/%s to peer %s", sw.name, macstr, rnid
+    #         )
+    #         sw.add_leaf_mac(rnid, macstr)
 
     def do_link_check(self, datapath, port):
         """
@@ -1728,6 +1736,7 @@ class BoundedFlood(app_manager.RyuApp):
                 port.is_activated = True
                 self._update_port_flow_rules(datapath, port.peer.node_id, in_port)
             return
+        # learn a mac address
         sw.set_ingress_port(src, (in_port, rcvd_frb.root_nid))
         sw.peer(rcvd_frb.root_nid).hop_count = rcvd_frb.hop_count
         sw.max_hops = rcvd_frb.hop_count
