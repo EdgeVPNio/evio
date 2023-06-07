@@ -19,9 +19,11 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+import os
 import subprocess
 from typing import Literal
 
+from .performance_data import PerformanceData
 from .version import (
     EVIO_VER_BLD,
     EVIO_VER_CTL,
@@ -30,7 +32,78 @@ from .version import (
     EVIO_VER_REV,
 )
 
+__all__ = [
+    "EVIO_VER_REL",
+    "LOG_DIRECTORY" "BROKER_LOG_LEVEL",
+    "BROKER_LOG_NAME",
+    "TINCAN_LOG_NAME",
+    "PERFDATA_LOG_NAME",
+    "MAX_FILE_SIZE",
+    "MAX_ARCHIVES",
+    "CONSOLE_LEVEL",
+    "DEVICE",
+    "EVENT_PERIOD",
+    "CBT_LIFESPAN",
+    "LINK_SETUP_TIMEOUT",
+    "CONTROLLER_TIMER_INTERVAL",
+    "CACHE_EXPIRY_INTERVAL",
+    "PRESENCE_INTERVAL",
+    "BR_NAME_MAX_LENGTH",
+    "NAME_PREFIX_EVI",
+    "NAME_PREFIX_APP_BR",
+    "MTU",
+    "BRIDGE_AUTO_DELETE",
+    "DEFAULT_BRIDGE_PROVIDER",
+    "DEFAULT_SWITCH_PROTOCOL",
+    "PROXY_LISTEN_ADDRESS",
+    "PROXY_LISTEN_PORT",
+    "SDN_CONTROLLER_PORT",
+    "GENEVE_SETUP_TIMEOUT",
+    "MAX_READ_SIZE",
+    "SOCKET_READ_WAIT_TIME",
+    "RCV_SERVICE_ADDRESS",
+    "SND_SERVICE_ADDRESS",
+    "CTRL_RECV_PORT",
+    "CTRL_SEND_PORT",
+    "MIN_SUCCESSORS",
+    "MAX_ON_DEMAND_EDGES",
+    "PEER_DISCOVERY_COALESCE",
+    "EXCLUSION_BASE_INTERVAL",
+    "MAX_SUCCESSIVE_FAILS",
+    "TRIM_CHECK_INTERVAL",
+    "MAX_CONCURRENT_OPS",
+    "SUCCESSIVE_FAIL_INCR",
+    "SUCCESSIVE_FAIL_DECR",
+    "STALE_INTERVAL",
+    "perfd",
+    "CONFIG",
+    "CTL_CREATE_CTRL_LINK",
+    "CTL_CONFIGURE_LOGGING",
+    "CTL_ECHO",
+    "CTL_QUERY_TUNNEL_INFO",
+    "CTL_CREATE_TUNNEL",
+    "CTL_CREATE_LINK",
+    "CTL_REMOVE_TUNNEL",
+    "CTL_REMOVE_LINK",
+    "RESP",
+    "CTL_QUERY_LINK_STATS",
+    "CTL_QUERY_CAS",
+    "run_proc",
+    "runshell",
+    "introspect",
+    "delim_mac_str",
+    "statement_false",
+]
 EVIO_VER_REL: str = f"{EVIO_VER_MJR}.{EVIO_VER_MNR}.{EVIO_VER_REV}.{EVIO_VER_BLD}"
+LOG_DIRECTORY = "/var/log/evio/"
+BROKER_LOG_LEVEL = "INFO"
+BROKER_LOG_NAME = "broker.log"
+TINCAN_LOG_NAME = "tincan_log"
+PERFDATA_LOG_NAME = "perf.data"
+MAX_FILE_SIZE = 10000000  # 10MB sized log files
+MAX_ARCHIVES = 5
+CONSOLE_LEVEL = None
+DEVICE = "File"
 EVENT_PERIOD: Literal[1] = 1
 CBT_LIFESPAN: Literal[180] = 180
 LINK_SETUP_TIMEOUT: Literal[180] = 180
@@ -64,6 +137,7 @@ MAX_CONCURRENT_OPS: Literal[1] = 1
 SUCCESSIVE_FAIL_INCR: Literal[1] = 1
 SUCCESSIVE_FAIL_DECR: Literal[2] = 2
 STALE_INTERVAL = float(2 * 3600)  # 2 hrs
+perfd = PerformanceData(LogFile=os.path.join(LOG_DIRECTORY, PERFDATA_LOG_NAME))
 
 CONFIG = {
     "Broker": {

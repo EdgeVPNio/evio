@@ -289,7 +289,7 @@ class LinkManager(ControllerModule):
                 "The requested lnk endpt was not authorized it will not be created. "
                 "TunnelId={0}, PeerId={1}".format(tnlid, peer_id)
             )
-            self.logger.warning(msg)
+            self.logger.info(msg)
             lnk_endpt_cbt.set_response(msg, False)
             self.complete_cbt(lnk_endpt_cbt)
             return
@@ -343,10 +343,10 @@ class LinkManager(ControllerModule):
         peer_id = params["NodeData"]["UID"]
         if tnlid not in self._tunnels:
             self.logger.info(
-                "A response to an aborted add peer CAS operation was discarded: %s",
-                str(cbt),
+                "An request for an aborted tunnel was discarded: %s",
+                cbt,
             )
-            cbt.set_response("This request was aborted", False)
+            cbt.set_response({"Message": "This tunnel was aborted"}, False)
             self.complete_cbt(cbt)
             return
         self._tunnels[tnlid].link.creation_state = 0xB3
@@ -361,6 +361,8 @@ class LinkManager(ControllerModule):
         if cbt.request.params["Command"] == "LinkStateChange":
             lnkid = cbt.request.params["LinkId"]
             tnlid = cbt.request.params["TunnelId"]
+            if tnlid not in self._tunnels:
+                return
             if (cbt.request.params["Data"] == "LINK_STATE_DOWN") and (
                 self._tunnels[tnlid].tunnel_state != TUNNEL_STATES.QUERYING
             ):

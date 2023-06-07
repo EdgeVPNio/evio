@@ -43,6 +43,7 @@ from broker import (
     SUCCESSIVE_FAIL_DECR,
     SUCCESSIVE_FAIL_INCR,
     TRIM_CHECK_INTERVAL,
+    perfd,
 )
 from broker.cbt import CBT
 from broker.controller_module import ControllerModule
@@ -63,17 +64,6 @@ from .network_graph import (
 )
 from .peer_profile import DEFAULT_ROLE, ROLES
 from .tunnel import DATAPLANE_TYPES, TUNNEL_EVENTS, DataplaneTypes
-
-# MIN_SUCCESSORS = 2
-# MAX_ON_DEMAND_EDGES = 3
-# PEER_DISCOVERY_COALESCE = 1
-# EXCLUSION_BASE_INTERVAL = 60
-# MAX_SUCCESSIVE_FAILS = 4
-# TRIM_CHECK_INTERVAL = 300
-# MAX_CONCURRENT_OPS = 1
-# SUCCESSIVE_FAIL_INCR = 1
-# SUCCESSIVE_FAIL_DECR = 2
-# STALE_INTERVAL = float(2 * 3600)  # 2 hrs
 
 EdgeRequest = namedtuple(
     "EdgeRequest",
@@ -448,8 +438,15 @@ class Topology(ControllerModule):
             ce.edge_state = EDGE_STATES.Connected
             ce.connected_time = update["ConnectedTimestamp"]
             ovl.known_peers[peer_id].restore()
-            # Todo: Record tunnel ready
-            self.logger.info("TR @ %s - %s", datetime.fromtimestamp(time.time()), ce)
+            perfd.record(
+                {
+                    "ReportedBy": self.name,
+                    "Event": "Tunnel Ready",
+                    "Category": "Tunnel Lifespan",
+                    "Time": str(datetime.fromtimestamp(time.time())),
+                    "Data": ce,
+                }
+            )
             # if ce.edge_type in EDGE_TYPE_OUT:
             #     ovl.release()
             #     self._process_next_transition(ovl)
@@ -466,11 +463,18 @@ class Topology(ControllerModule):
                 ovl.known_peers[peer_id].exclude()
             ce.edge_state = EDGE_STATES.Disconnected
             # ovl.acquire()
-            # Todo: Record tunnel fail
-            self.logger.info("TF @ %s - %s", datetime.fromtimestamp(time.time()), ce)
+            perfd.record(
+                {
+                    "ReportedBy": self.name,
+                    "Event": "Tunnel Fail",
+                    "Category": "Tunnel Lifespan",
+                    "Time": str(datetime.fromtimestamp(time.time())),
+                    "Data": ce,
+                }
+            )
             self._remove_tunnel(ovl, ce.dataplane, peer_id, ce.edge_id)
         elif event == TUNNEL_EVENTS.Removed:
-            """Roles A & B"""
+            """Role B"""
             ce = ovl.adjacency_list.get(peer_id, None)
             if (
                 ce
@@ -889,9 +893,14 @@ class Topology(ControllerModule):
                 edge_params,
             )
             rem_act.submit_remote_act(self, on_free=net_ovl.release)
-            # Todo: Record Tunnel start
-            self.logger.info(
-                "TS @ %s - %s", datetime.fromtimestamp(time.time()), rem_act
+            perfd.record(
+                {
+                    "ReportedBy": self.name,
+                    "Event": "Tunnel Start",
+                    "Category": "Tunnel Lifespan",
+                    "Time": str(datetime.fromtimestamp(time.time())),
+                    "Data": ce,
+                }
             )
 
     def _complete_negotiate_edge(
@@ -1138,6 +1147,7 @@ class Topology(ControllerModule):
             "PeerId": peer_id,
             "TunnelId": tunnel_id,
         }
+        self.logger.info("Removing tunnel %s to %s", tunnel_id[:7], peer_id[:7])
         if dataplane == DATAPLANE_TYPES.Geneve:
             self.register_cbt("GeneveTunnel", "GNV_REMOVE_TUNNEL", params)
         elif dataplane == DATAPLANE_TYPES.Tincan:

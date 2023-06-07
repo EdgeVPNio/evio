@@ -42,10 +42,16 @@ class ControllerModule:
         self._abort_handler_tbl: dict[str, Callable[[CBT]]] = {}
         self._req_handler_tbl: dict[str, Callable[[CBT]]] = {}
         self._resp_handler_tbl: dict[str, Callable[[CBT]]] = {}
-        self.logger = logging.getLogger("Evio." + self.__class__.__name__)
+        self._setup_logger()
 
     def __repr__(self):
         return introspect(self)
+
+    def _setup_logger(self):
+        self.logger = logging.getLogger(self.__class__.__name__)
+        if "LogLevel" in self.config:
+            self.logger.setLevel(self.config["LogLevel"])
+        return
 
     @abstractmethod
     def initialize(self):

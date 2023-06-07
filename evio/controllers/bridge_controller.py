@@ -335,6 +335,7 @@ class BoundedFloodProxy(socketserver.ThreadingMixIn, socketserver.TCPServer):
     Supports interactions between BF Ryu module and evio controller
     """
 
+    socketserver.TCPServer.allow_reuse_address = True
     RyuManager = spawn.find_executable("ryu-manager")
     if RyuManager is None:
         raise RuntimeError("RyuManager was not found, is it installed?")
@@ -626,9 +627,8 @@ class BridgeController(ControllerModule):
                 self.logger.warning(
                     "Failed to start the BoundedFlood Proxy, will retry. Error msg= %s",
                     err,
-                    exc_info=True,
                 )
-                time.sleep(1)
+                time.sleep(10)
         self._server_thread.setDaemon(True)
         self._server_thread.start()
         # start the BF RYU module
@@ -656,39 +656,46 @@ class BridgeController(ControllerModule):
             self.register_cbt("LinkManager", "LNK_ADD_IGN_INF", ign_br_names)
         return ign_br_names
 
+    def _add_tunnel(self, overlay_id: str, port_name: str, tnl_data: dict):
+        try:
+            bridge = self._ovl_net[overlay_id]
+            mac = tnl_data["MAC"]
+            peer_mac = tnl_data["PeerMac"]
+            self._tunnels[overlay_id][port_name] = {
+                "PeerId": tnl_data["PeerId"],
+                "TunnelId": tnl_data["TunnelId"],
+                "ConnectedTimestamp": tnl_data["ConnectedTimestamp"],
+                "TapName": port_name,
+                "MAC": mac if ":" in mac else broker.delim_mac_str(mac),
+                "PeerMac": peer_mac
+                if ":" in peer_mac
+                else broker.delim_mac_str(peer_mac),
+                "Dataplane": tnl_data["Dataplane"],
+            }
+            bridge.add_port(port_name)
+        except Exception as err:
+            self._tunnels[overlay_id].pop(port_name, None)
+            bridge.del_port(port_name)
+            self.logger.warning(
+                "Failed to add port %s. %s", tnl_data, err, exc_info=True
+            )
+
     def req_handler_manage_bridge(self, cbt: CBT):
         try:
             olid = cbt.request.params["OverlayId"]
             bridge = self._ovl_net[olid]
             port_name = cbt.request.params.get("TapName")
-            tnlid = cbt.request.params["TunnelId"]
             if cbt.request.params["UpdateType"] == TUNNEL_EVENTS.Connected:
-                mac = cbt.request.params["MAC"]
-                peer_mac = cbt.request.params["PeerMac"]
-                self._tunnels[olid][port_name] = {
-                    "PeerId": cbt.request.params["PeerId"],
-                    "TunnelId": tnlid,
-                    "ConnectedTimestamp": cbt.request.params["ConnectedTimestamp"],
-                    "TapName": port_name,
-                    "MAC": mac if ":" in mac else broker.delim_mac_str(mac),
-                    "PeerMac": peer_mac
-                    if ":" in peer_mac
-                    else broker.delim_mac_str(peer_mac),
-                    "Dataplane": cbt.request.params["Dataplane"],
-                }
-                bridge.add_port(port_name)
+                self._add_tunnel(olid, port_name, cbt.request.params)
                 self.logger.info("Port %s added to bridge %s", port_name, str(bridge))
             elif cbt.request.params["UpdateType"] == TUNNEL_EVENTS.Removed:
                 self._tunnels[olid].pop(port_name, None)
-                if (
-                    bridge.bridge_type == OvsBridge.bridge_type
-                    and port_name in bridge.ports
-                ):
+                if bridge.bridge_type == OvsBridge.bridge_type:
                     bridge.del_port(port_name)
                     self.logger.info(
                         "Port %s removed from bridge %s", port_name, bridge
                     )
-        except RuntimeError as err:
+        except Exception as err:
             self.logger.warning("Manage bridge error %s", err, exc_info=True)
         cbt.set_response(None, True)
         self.complete_cbt(cbt)

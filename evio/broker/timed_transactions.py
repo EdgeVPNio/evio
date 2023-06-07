@@ -1,3 +1,4 @@
+import logging
 import sched
 import threading
 import time
@@ -20,7 +21,6 @@ class Transaction:
 class TimedTransactions:
     def __init__(self) -> None:
         self._exit_ev = threading.Event()
-        self._lck = threading.Lock()
         thread_name = "TimedTransactions.event"
         self._event_thread = threading.Thread(
             target=self._run, name=thread_name, daemon=False
@@ -40,7 +40,11 @@ class TimedTransactions:
 
     def _run(self):
         while not self._exit_ev.wait(self._chk_interval):
-            self._sched.run()
+            try:
+                while not self._exit_ev.wait(self._chk_interval):
+                    self._sched.run()
+            except Exception as err:
+                logging.getLogger().exception("%s", err)
 
     def start(self):
         self._event_thread.start()

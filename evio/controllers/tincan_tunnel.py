@@ -415,7 +415,8 @@ class TincanTunnel(ControllerModule):
             if self._tc_pid == 0:
                 cbt.set_response(
                     {
-                        "Message": "Tincan not ready for request. Try again later.",
+                        "Message": "Tincan session not ready for request. Try again later.",
+                        "NodeId": self.node_id,
                         "CurrentId": self._tc_pid,
                     },
                     False,

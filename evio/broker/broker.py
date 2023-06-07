@@ -20,37 +20,44 @@
 # THE SOFTWARE.
 
 import argparse
-
-# import datetime
 import importlib
 import json
 import logging
-import logging.handlers as lh
 import os
 import queue
 import signal
+import sys
 import threading
 import time
 import uuid
 from copy import deepcopy
-from typing import Any  # Optional, Set, Tuple, Union
+from logging.handlers import (
+    QueueHandler,
+    QueueListener,
+    RotatingFileHandler,
+    TimedRotatingFileHandler,
+)
+from typing import Any
 
-from . import CBT_LIFESPAN, CONFIG, CONTROLLER_TIMER_INTERVAL
+from . import (
+    BROKER_LOG_LEVEL,
+    BROKER_LOG_NAME,
+    CBT_LIFESPAN,
+    CONFIG,
+    CONSOLE_LEVEL,
+    CONTROLLER_TIMER_INTERVAL,
+    DEVICE,
+    EVIO_VER_REL,
+    LOG_DIRECTORY,
+    MAX_ARCHIVES,
+    MAX_FILE_SIZE,
+    TINCAN_LOG_NAME,
+)
 from .cbt import CBT
 from .controller_module import ControllerModule
 from .nexus import Nexus
 from .subscription import Subscription
 from .timed_transactions import TimedTransactions, Transaction
-
-BROKER_LOG_LEVEL = "INFO"
-LOG_DIRECTORY = "/var/log/evio/"
-BROKER_LOG_NAME = "broker.log"
-CTRL_LOG_NAME = "ctrl.log"
-TINCAN_LOG_NAME = "tincan_log"
-MAX_FILE_SIZE = 10000000  # 10MB sized log files
-MAX_ARCHIVES = 5
-CONSOLE_LEVEL = None
-DEVICE = "File"
 
 
 class Broker:
@@ -76,11 +83,12 @@ class Broker:
         )
 
     def __init__(self):
-        self._config: dict = {}
-        self.parse_config()
-        self._setup_logging()
         self._nexus_lock: threading.Lock = threading.Lock()
         self._nexus_map: dict[str, Any] = {}  # ctrl classname -> class instance
+        self._config: dict = {}
+        self.parse_config()
+        self._cm_qlisteners: list[QueueListener] = []
+        self._setup_logging()
         self.model = self._config["Broker"].get("Model")
         self._subscriptions: dict[str, list[Subscription]] = {}
         self._node_id: str = self._set_node_id()
@@ -147,74 +155,67 @@ class Broker:
                     self._config[key] = cfg[key]
 
     def _setup_logging(self):
-        # Extracts the filepath else sets logs to current working directory
+        logging.getLogger("slixmpp").propagate = False
+        handlers = []
         filepath = self._config["Broker"].get("Directory", LOG_DIRECTORY)
-        fqname = os.path.join(
+        bkr_logname = os.path.join(
             filepath, self._config["Broker"].get("BrokerLogName", BROKER_LOG_NAME)
         )
         if not os.path.exists(filepath):
             os.makedirs(filepath, exist_ok=True)
-        if os.path.isfile(fqname):
-            os.remove(fqname)
+        if os.path.isfile(bkr_logname):
+            os.remove(bkr_logname)
         # setup root logger
         formatter = logging.Formatter(
             "[%(asctime)s.%(msecs)03d] %(levelname)s:%(name)s: %(message)s",
             datefmt="%Y%m%d %H:%M:%S",
         )
-        root_handler = lh.RotatingFileHandler(
-            filename=fqname,
-            maxBytes=self._config["Broker"].get("MaxFileSize", MAX_FILE_SIZE),
-            backupCount=self._config["Broker"].get("MaxArchives", MAX_ARCHIVES),
+        file_handler = TimedRotatingFileHandler(
+            filename=bkr_logname, when="midnight", backupCount=7, utc=True
         )
-        root_handler.setFormatter(formatter)
-        que = queue.Queue(-1)  # no limit on size
-        queue_handler = lh.QueueHandler(que)
-        self._rlistener = lh.QueueListener(
-            que, root_handler, respect_handler_level=True
-        )
-        self.logger = logging.getLogger()
         broker_log_level = self._config["Broker"].get(
             "BrokerLogLevel", BROKER_LOG_LEVEL
         )
-        level = getattr(logging, broker_log_level)
-        self.logger.setLevel(level)
-        self.logger.addHandler(queue_handler)
-        self._rlistener.start()
+        file_handler.setLevel(broker_log_level)
+        file_handler.setFormatter(formatter)
+        handlers.append(file_handler)
+        # console logging
+        console_handler = logging.StreamHandler(stream=sys.stdout)
+        console_handler.setFormatter(logging.Formatter("evio: %(message)s"))
+        console_handler.setLevel(logging.ERROR)
+        handlers.append(console_handler)
+        que = queue.Queue(-1)
+        que_handler = QueueHandler(que)
+        self._que_listener = QueueListener(que, *handlers, respect_handler_level=True)
+        self.logger = logging.getLogger()
+        self.logger.setLevel(broker_log_level)
+        self.logger.addHandler(que_handler)
+        self._que_listener.start()
+        for k, v in self.cfg_controllers.items():
+            self._setup_controller_logger((k, v["Module"]), formatter, broker_log_level)
 
-        # setup CM logging, each module adds their own logger
-        fqname = os.path.join(
-            filepath, self._config["Broker"].get("CtrlLogName", CTRL_LOG_NAME)
-        )
-        if not os.path.exists(filepath):
-            os.makedirs(filepath, exist_ok=True)
-        if os.path.isfile(fqname):
-            os.remove(fqname)
-
-        cm_logger = logging.getLogger("Evio")
-
-        rf_handler = lh.RotatingFileHandler(
-            filename=fqname,
+    def _setup_controller_logger(
+        self, cm_name: tuple[str, str], formatter: logging.Formatter, def_log_level: int
+    ):
+        logname = os.path.join(LOG_DIRECTORY, f"{cm_name[1]}.log")
+        # if os.path.isfile(logname):
+        #     os.remove(logname)
+        level = self._config["Broker"].get("LogLevel", def_log_level)
+        file_handler = RotatingFileHandler(
+            filename=logname,
             maxBytes=self._config["Broker"].get("MaxFileSize", MAX_FILE_SIZE),
             backupCount=self._config["Broker"].get("MaxArchives", MAX_ARCHIVES),
         )
-        rf_handler.setFormatter(formatter)
-        level = getattr(
-            logging, self._config["Broker"].get("LogLevel", broker_log_level)
-        )
-        cm_logger.setLevel(level)
-        # setup console logging to record errors in the system journal
-        console_handler = logging.StreamHandler()
-        console_log_formatter = logging.Formatter("%(levelname)s:%(name)s: %(message)s")
-        console_handler.setFormatter(console_log_formatter)
-        console_handler.setLevel(logging.ERROR)
-        # use queue handler/listenter since AsyncIO is used in this process
-        que = queue.Queue(-1)
-        queue_handler = lh.QueueHandler(que)
-        self._cm_listener = lh.QueueListener(
-            que, console_handler, rf_handler, respect_handler_level=True
-        )
-        cm_logger.addHandler(queue_handler)
-        self._cm_listener.start()
+        file_handler.setFormatter(formatter)
+        file_handler.setLevel(level)
+        que = queue.Queue(100)
+        que_handler = QueueHandler(que)
+        que_listener = QueueListener(que, file_handler, respect_handler_level=True)
+        logger = logging.getLogger(cm_name[0])
+        logger.setLevel(level)
+        logger.addHandler(que_handler)
+        que_listener.start()
+        self._cm_qlisteners.append(que_listener)
 
     @property
     def cfg_controllers(self) -> dict[str, dict]:
@@ -228,6 +229,7 @@ class Broker:
         return self._config.get(ctrl, {})
 
     def initialize(self):
+        self.logger.info("Version %s loaded", EVIO_VER_REL)
         # check for controller cyclic dependencies
         self._validate_controller_deps()
 
@@ -257,7 +259,7 @@ class Broker:
             raise RuntimeError(msg)
 
     def build_load_order(self):
-        # creates an ordering for loading the controllers based on their dependencies
+        # create the controller load order based on their dependencies
         controllers = self.cfg_controllers
         for ctrl, cfg in controllers.items():
             if cfg.get("Enabled", True):
@@ -343,7 +345,7 @@ class Broker:
     def run(self):
         for sig in [signal.SIGINT, signal.SIGTERM]:
             signal.signal(sig, Broker.__handler)
-        # sleeps until signal is received
+        # sleeps until exit signal is received
         signal.pause()
 
     def terminate(self):
@@ -356,8 +358,10 @@ class Broker:
                 wn = self._nexus_map[ctrl_name]._cm_thread.name
                 self._nexus_map[ctrl_name]._cm_thread.join()
                 self.logger.info("%s exited", wn)
-        # self._rlistener.stop()
-        # logging.shutdown()
+            for ql in self._cm_qlisteners:
+                ql.stop()
+        self._rlistener.stop()
+        logging.shutdown()
         return True
 
     def query_param(self, param_name=""):

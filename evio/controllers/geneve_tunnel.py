@@ -57,7 +57,7 @@ class GeneveTunnel(ControllerModule):
             "GNV_REMOVE_TUNNEL": self.req_handler_remove_tunnel,
             "GNV_EXCHANGE_ENDPT": self.req_handler_exchnge_endpt,
             "GNV_UPDATE_MAC": self.req_handler_update_peer_mac,
-            "GNV_CANCEL_TUNNEL": self.req_handler_abort_tunnel,
+            "GNV_CANCEL_TUNNEL": self.req_handler_cancel_tunnel,
         }
 
     def _register_resp_handlers(self):
@@ -69,24 +69,30 @@ class GeneveTunnel(ControllerModule):
         self._tunnels.clear()
         self.logger.info("Controller module terminating")
 
-    def _deauth_tnls(self, tnls: list):
-        for tnl in tnls:
-            self.logger.info("Deauthorizing expired tunnel %s", tnl)
-            self._tunnels.pop(tnl.tnlid, None)
+    def _deauth_tnl(self, tnl: Tunnel):
+        self._tunnels.pop(tnl.tnlid, None)
+        self.logger.info("Deauthorizing expired tunnel %s", tnl)
+        param = {
+            "UpdateType": TUNNEL_EVENTS.AuthExpired,
+            "OverlayId": tnl.overlay_id,
+            "PeerId": tnl.peer_id,
+            "TunnelId": tnl.tnlid,
+            "TapName": tnl.tap_name,
+        }
+        self._gnv_updates_publisher.post_update(param)
 
-    def _rollback_tnls(self, tnls: list):
-        for tnl in tnls:
-            self.logger.info("Removing expired tunnel %s", tnl)
-            self._tunnels.pop(tnl.tnlid, None)
-            self._remove_tunnel(tnl.tap_name)
-            param = {
-                "UpdateType": TUNNEL_EVENTS.Removed,
-                "OverlayId": tnl.overlay_id,
-                "PeerId": tnl.peer_id,
-                "TunnelId": tnl.tnlid,
-                "TapName": tnl.tap_name,
-            }
-            self._gnv_updates_publisher.post_update(param)
+    def _rollback_tnl(self, tnl: Tunnel):
+        self.logger.info("Removing expired tunnel %s", tnl)
+        self._tunnels.pop(tnl.tnlid, None)
+        self._remove_tunnel(tnl.tap_name)
+        param = {
+            "UpdateType": TUNNEL_EVENTS.Removed,
+            "OverlayId": tnl.overlay_id,
+            "PeerId": tnl.peer_id,
+            "TunnelId": tnl.tnlid,
+            "TapName": tnl.tap_name,
+        }
+        self._gnv_updates_publisher.post_update(param)
 
     def _create_tunnel(self, tap_name, vnid, remote_addr):
         self.logger.info(
@@ -145,7 +151,7 @@ class GeneveTunnel(ControllerModule):
                 False,
             )
         else:
-            tap_name = self.get_tap_name(peer_id, olid)
+            tap_name = self.get_tap_name(olid, peer_id)
             tnl = Tunnel(
                 tnlid,
                 olid,
@@ -166,9 +172,7 @@ class GeneveTunnel(ControllerModule):
                 tnlid[:7],
                 peer_id[:7],
             )
-            cbt.set_response(
-                f"Geneve tunnel authorization completed, TunnelId:{tnlid[:7]}", True
-            )
+            cbt.set_response({"Message": "Geneve tunnel authorization completed"}, True)
             event_param = {
                 "UpdateType": TUNNEL_EVENTS.Authorized,
                 "OverlayId": olid,
@@ -184,10 +188,10 @@ class GeneveTunnel(ControllerModule):
         tnlid = cbt.request.params["TunnelId"]
         loc_id = cbt.request.params["VNId"]
         peer_id = cbt.request.params["PeerId"]
-        tap_name = self.get_tap_name(peer_id, olid)
+        tap_name = self.get_tap_name(olid, peer_id)
 
         if tnlid in self._tunnels:
-            cbt.set_response(data=f"Tunnel {tnlid} already exists", status=False)
+            cbt.set_response({"Message": "Tunnel already exists"}, False)
             self.complete_cbt(cbt)
         if self._is_tap_exist(tap_name):
             # delete remenants
@@ -218,8 +222,8 @@ class GeneveTunnel(ControllerModule):
         rem_act.submit_remote_act(self, cbt)
 
     def req_handler_exchnge_endpt(self, cbt):
-        """Role B
-        Node B accepts data from node A, creates tunnel on node B and completes cbt
+        """
+        Role B
         """
         try:
             params = cbt.request.params
@@ -265,10 +269,10 @@ class GeneveTunnel(ControllerModule):
         tnlid = params["TunnelId"]
         peer_id = params["NodeId"]
         if tnlid not in self._tunnels:
-            cbt.set_response(f"Tunnel {tnlid} does not  exist", False)
+            cbt.set_response({"Message": "Tunnel does not exist"}, False)
         elif self._tunnels[tnlid].state == TUNNEL_STATES.OFFLINE:
             # the in-progress tunnel was removed in the deauth method
-            cbt.set_response("Tunnel {tnlid} failed and was destroyed", False)
+            cbt.set_response({"Message": "Tunnel failed and was destroyed"}, False)
         elif self._tunnels[tnlid].state == TUNNEL_STATES.CREATING:
             self._tunnels[tnlid].peer_mac = params["MAC"]
             # tunnel connected is simulated here, BF module will check peer liveliness
@@ -285,34 +289,26 @@ class GeneveTunnel(ControllerModule):
                 "Dataplane": self._tunnels[tnlid].dataplane,
             }
             self._gnv_updates_publisher.post_update(gnv_param)
-            cbt.set_response("Peer MAC added", True)
+            cbt.set_response({"Message": "Peer MAC added"}, True)
         else:
-            cbt.set_response(f"Invalid request for Tunnel {tnlid}", False)
+            cbt.set_response({"Message": "Invalid request for tunnel"}, False)
         self.complete_cbt(cbt)
 
-    def req_handler_abort_tunnel(self, cbt):
+    def req_handler_cancel_tunnel(self, cbt):
         """
         Role B
         Operation should always succeed.
         """
-        olid = cbt.request.params["OverlayId"]
         peer_id = cbt.request.params["PeerId"]
         tnlid = cbt.request.params["TunnelId"]
-        self.logger("Removing aborted Geneve tunnel %s to %s", peer_id, tnlid)
+        self.logger("Cancelling tunnel %s to %s", peer_id, tnlid)
         if tnlid in self._tunnels:
             tnl = self._tunnels[tnlid]
-            tap_name = tnl.tap_name
-            if self._is_tap_exist(tap_name):
-                if tnl.state in (TUNNEL_STATES.AUTHORIZED, TUNNEL_STATES.CREATING):
-                    self._deauth_tnls(
-                        [tnlid]
-                    )  # only send the auth expired event from these states
-                tnl.state = TUNNEL_STATES.OFFLINE
-        else:
-            # even if there is no tunnel in the map remove the TAP if it exists
-            tap_name = self.get_tap_name(olid, peer_id)
-            self._remove_tunnel(tap_name)
-        cbt.set_response(data=f"Tunnel aborted: {tnlid}", status=True)
+            if tnl.state == TUNNEL_STATES.AUTHORIZED:
+                self._deauth_tnl(tnl)
+            else:
+                self._rollback_tnl([tnl])
+        cbt.set_response({"Message": "Tunnel cancelled"}, True)
         self.complete_cbt(cbt)
 
     def req_handler_remove_tunnel(self, cbt):
@@ -322,23 +318,12 @@ class GeneveTunnel(ControllerModule):
         peer_id = cbt.request.params["PeerId"]
         olid = cbt.request.params["OverlayId"]
         tnlid = cbt.request.params["TunnelId"]
-        if tnlid in self._tunnels:
-            tnl = self._tunnels[tnlid]
-            tap_name = tnl.tap_name
-            if tnl.state != TUNNEL_STATES.ONLINE:
-                self.logger.warning(
-                    f"In request to remove Geneve Tunnel, it's state is not ONLINE: {str(tnl)}"
-                )
-
-            self._tunnels[tnlid].state = TUNNEL_STATES.OFFLINE
-            self._remove_tunnel(tap_name)
-            self._tunnels.pop(tnlid)
-            cbt.set_response(data=f"Tunnel deleted {tnlid}", status=True)
-        else:
-            # even if there is no tunnel in the map remove the TAP if it exists
-            tap_name = self.get_tap_name(olid, peer_id)
-            self._remove_tunnel(tap_name)
-            cbt.set_response(data=f"Tunnel deleted {tap_name}", status=True)
+        tnl = self._tunnels.pop(tnlid, None)
+        if tnl:
+            tnl.state = TUNNEL_STATES.OFFLINE
+        tap_name = self.get_tap_name(olid, peer_id)
+        self._remove_tunnel(tap_name)
+        cbt.set_response({"Message": "Tunnel removed"}, True)
         self.complete_cbt(cbt)
         gnv_param = {
             "UpdateType": TUNNEL_EVENTS.Removed,
@@ -375,7 +360,7 @@ class GeneveTunnel(ControllerModule):
                 vnid = rem_act.data["VNId"]
                 self._tunnels[tnlid].peer_mac = rem_act.data["MAC"]
                 endpnt_address = rem_act.data["EndPointAddress"]
-                tap_name = self.get_tap_name(peer_id, olid)
+                tap_name = self.get_tap_name(olid, peer_id)
                 self._create_tunnel(tap_name, vnid, endpnt_address)
                 act_code = "GNV_UPDATE_MAC"
                 self.free_cbt(cbt)
@@ -422,7 +407,7 @@ class GeneveTunnel(ControllerModule):
             }
             self._gnv_updates_publisher.post_update(gnv_param)
             self.free_cbt(cbt)
-            parent_cbt.set_response("Geneve tunnel created", True)
+            parent_cbt.set_response({"Message": "Geneve tunnel created"}, True)
             self.complete_cbt(parent_cbt)
         elif rem_act.action == "GNV_CANCEL_TUNNEL":
             self.free_cbt(cbt)
@@ -444,7 +429,7 @@ class GeneveTunnel(ControllerModule):
                 parent_cbt.set_response(cbt.response.data, False)
                 self.complete_cbt(parent_cbt)
 
-    def get_tap_name(self, peer_id, olid) -> str:
+    def get_tap_name(self, olid, peer_id) -> str:
         tap_name_prefix = self.config["Overlays"][olid].get("TapNamePrefix", olid[:5])
         end_i = self.TAPNAME_MAXLEN - len(tap_name_prefix)
         tap_name = tap_name_prefix + str(peer_id[:end_i])
@@ -454,12 +439,7 @@ class GeneveTunnel(ControllerModule):
         return bool(tnl.state == TUNNEL_STATES.ONLINE)
 
     def on_tnl_timeout(self, tnl: Tunnel, timeout: float):
-        deauth = []
-        rlbk = []
-        for tnl in self._tunnels.values():
-            if tnl.state == TUNNEL_STATES.AUTHORIZED:
-                deauth.append(tnl)
-            elif tnl.state in (TUNNEL_STATES.CREATING, TUNNEL_STATES.TNL_OFFLINE):
-                rlbk.append(tnl)
-        self._deauth_tnls(deauth)
-        self._rollback_tnls(rlbk)
+        if tnl.state == TUNNEL_STATES.AUTHORIZED:
+            self._deauth_tnl(tnl)
+        else:
+            self._rollback_tnl([tnl])
