@@ -366,7 +366,7 @@ class Topology(ControllerModule):
                 "PeerDiscoveryCoalesce", PEER_DISCOVERY_COALESCE
             ):
                 self.logger.debug(
-                    "Overlay:%s new peer %s discovered - Coalesced %s of %s, "
+                    "%s/%s discovered - coalesced %s of %s, "
                     "attempting overlay update",
                     olid,
                     peer_id,
@@ -374,10 +374,9 @@ class Topology(ControllerModule):
                     self.config.get("PeerDiscoveryCoalesce", PEER_DISCOVERY_COALESCE),
                 )
                 self._update_overlay(olid)
-            else:
+            elif self.logger.isEnabledFor(logging.INFO):
                 self.logger.info(
-                    "Overlay:%s, new peers %s discovered - Coalesced %s of %s, "
-                    "delaying overlay update",
+                    "%s/%s discovered - coalesced %s of %s",
                     olid,
                     peer_id,
                     self._net_ovls[olid].new_peer_count,
@@ -432,12 +431,12 @@ class Topology(ControllerModule):
         elif event == TUNNEL_EVENTS.Connected:
             """Roles A & B"""
             ce = ovl.adjacency_list[peer_id]
-            # assert ce.edge_state == EDGE_STATES.Created, f"Invalid edge state {ce}"
             if ce.edge_state != EDGE_STATES.Authorized:
                 raise RuntimeError(f"Invalid edge state {ce}")
             ce.edge_state = EDGE_STATES.Connected
             ce.connected_time = update["ConnectedTimestamp"]
             ovl.known_peers[peer_id].restore()
+            # record tunnel ready on receipt on connection event
             perfd.record(
                 {
                     "ReportedBy": self.name,
@@ -460,9 +459,10 @@ class Topology(ControllerModule):
             if (
                 time.time() - ce.connected_time < Topology._EDGE_PROTECTION_AGE
             ) and peer_id in ovl.known_peers:
+                # create bias against peer for disposing the tunnel too quickly
                 ovl.known_peers[peer_id].exclude()
             ce.edge_state = EDGE_STATES.Disconnected
-            # ovl.acquire()
+            # record tunnel fail on receipt on disconnection event
             perfd.record(
                 {
                     "ReportedBy": self.name,
@@ -689,6 +689,20 @@ class Topology(ControllerModule):
             edge_resp = EdgeResponse(
                 False, f"E4 - Failed to negotiate tunnel: {cbt.response.data}", None
             )
+        else:
+            # record tunnel start on node B after successful edge negotiation
+            olid = cbt.request.params["OverlayId"]
+            peer_id = cbt.request.params["PeerId"]
+            ce = self._net_ovls[olid].adjacency_list[peer_id]
+            perfd.record(
+                {
+                    "ReportedBy": self.name,
+                    "Event": "Tunnel Start",
+                    "Category": "Tunnel Lifespan",
+                    "Time": str(datetime.fromtimestamp(time.time())),
+                    "Data": ce,
+                }
+            )
         self.free_cbt(cbt)
         nego_cbt.set_response(edge_resp._asdict(), edge_resp.is_accepted)
         self.complete_cbt(nego_cbt)
@@ -752,6 +766,17 @@ class Topology(ControllerModule):
         if not cbt.response.status:
             self.logger.warning(
                 "Failed to remove topology edge. Reason: %s", cbt.response.data
+            )
+        else:
+            # record tunnel terminated on successful removal of the tunnel
+            perfd.record(
+                {
+                    "ReportedBy": self.name,
+                    "Event": "Tunnel Terminated",
+                    "Category": "Tunnel Lifespan",
+                    "Time": str(datetime.fromtimestamp(time.time())),
+                    "Data": ce,
+                }
             )
         self.free_cbt(cbt)
         ce_state = ""
@@ -839,7 +864,7 @@ class Topology(ControllerModule):
             # start a new op
             try:
                 if net_ovl.acquire():
-                    tns = net_ovl.transformation.head()
+                    tns = net_ovl.transformation.pop_head()
                     if tns.operation == OP_TYPE.Add:
                         self._initiate_negotiate_edge(net_ovl, tns.conn_edge)
                     elif tns.operation == OP_TYPE.Remove:
@@ -853,11 +878,11 @@ class Topology(ControllerModule):
                             "Unexpected transition operation encountered %s",
                             tns.operation,
                         )
+                else:
+                    break
             except Exception as excp:
-                self.logger.warning(str(excp))
+                self.logger.warning(excp, exc_info=1)
                 net_ovl.release()  # necessary as not bound to a CBT
-            finally:
-                net_ovl.transformation.pop()
 
     ################################################################################################
 
@@ -893,15 +918,6 @@ class Topology(ControllerModule):
                 edge_params,
             )
             rem_act.submit_remote_act(self, on_free=net_ovl.release)
-            perfd.record(
-                {
-                    "ReportedBy": self.name,
-                    "Event": "Tunnel Start",
-                    "Category": "Tunnel Lifespan",
-                    "Time": str(datetime.fromtimestamp(time.time())),
-                    "Data": ce,
-                }
-            )
 
     def _complete_negotiate_edge(
         self, net_ovl: NetworkOverlay, edge_nego: EdgeNegotiate
@@ -954,6 +970,16 @@ class Topology(ControllerModule):
                 # net_ovl.release()  # release on explicit negotiate fail
                 self._process_next_transition(net_ovl)
                 return
+            # record tunnel start on node A after successful edge negotiation
+            perfd.record(
+                {
+                    "ReportedBy": self.name,
+                    "Event": "Tunnel Start",
+                    "Category": "Tunnel Lifespan",
+                    "Time": str(datetime.fromtimestamp(time.time())),
+                    "Data": ce,
+                }
+            )
             ce.dataplane = edge_nego.dataplane
             self._create_tunnel(net_ovl, ce.dataplane, peer_id, edge_id)
 
