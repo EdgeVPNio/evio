@@ -32,13 +32,14 @@ try:
 except ImportError:
     import json
 
+import functools
 import random
 import socket
 from typing import Optional, Tuple, Union
 
 import broker
 import slixmpp
-from broker import CACHE_EXPIRY_INTERVAL, PRESENCE_INTERVAL
+from broker import CACHE_EXPIRY_INTERVAL, PRESENCE_INTERVAL, statement_false
 from broker.cbt import CBT
 from broker.controller_module import ControllerModule
 from broker.remote_action import RemoteAction
@@ -51,9 +52,6 @@ from slixmpp import (
     StanzaPath,
     register_stanza_plugin,
 )
-
-# CACHE_EXPIRY_INTERVAL = 60
-# PRESENCE_INTERVAL = 30
 
 
 class EvioSignal(ElementBase):
@@ -226,7 +224,7 @@ class XmppTransport(slixmpp.ClientXMPP):
             # Get the friends list for the user
             asyncio.ensure_future(self.get_roster(), loop=self.loop)
             # Send initial sign-on presence
-            self.send_presence(pstatus="ident#" + self._node_id)
+            self.send_presence_safe(pstatus="ident#" + self._node_id)
             self._init_event.set()
         except Exception as err:
             self.logger.error("XmppTransport: Exception:%s Event:%s", err, event)
@@ -351,6 +349,14 @@ class XmppTransport(slixmpp.ClientXMPP):
             self.loop.call_soon(msg.send)
         else:
             self.loop.call_soon_threadsafe(msg.send)
+
+    def send_presence_safe(self, pstatus):
+        if threading.get_ident() == self._thread_id:
+            self.loop.call_soon(functools.partial(self.send_presence, pstatus=pstatus))
+        else:
+            self.loop.call_soon_threadsafe(
+                functools.partial(self.send_presence, pstatus=pstatus)
+            )
 
     def wait_until_initialized(self):
         return self._init_event.wait(10.0)
@@ -511,8 +517,8 @@ class Signal(ControllerModule):
             xcir.start()
             self.register_timed_transaction(
                 self,
-                (lambda x: False),
-                (lambda x, y: self.announce_presence()),
+                statement_false,
+                self.on_exp_presence,
                 PRESENCE_INTERVAL * random.randint(2, 5),
             )
         self.logger.info("Controller module loaded")
@@ -525,13 +531,16 @@ class Signal(ControllerModule):
     def announce_presence(self):
         for circ in self._circles.values():
             if circ.xport and circ.xport.is_connected():
-                circ.xport.send_presence(pstatus="ident#" + self.node_id)
+                circ.xport.send_presence_safe(pstatus="ident#" + self.node_id)
             self.register_timed_transaction(
-                None,
-                (lambda x: False),
-                (lambda x, y: self.announce_presence()),
+                self,
+                statement_false,
+                self.on_exp_presence,
                 self._next_anc_interval(),
             )
+
+    def on_exp_presence(self, *_):
+        self.announce_presence()
 
     def on_presence(self, msg):
         self._presence_publisher.post_update(msg)
@@ -648,7 +657,7 @@ class Signal(ControllerModule):
             if peer_id not in out_rem_acts:
                 out_rem_acts[peer_id] = Queue(maxsize=0)
             out_rem_acts[peer_id].put((act_type, rem_act, time.time()))
-            transport.send_presence(pstatus="uid?#" + peer_id)
+            transport.send_presence_safe(pstatus="uid?#" + peer_id)
         else:
             # JID can be updated by a separate presence update,
             # send any waiting msgs in the outgoing remote act queue

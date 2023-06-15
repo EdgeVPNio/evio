@@ -23,7 +23,7 @@ import queue
 import threading
 import time
 
-from . import EVENT_PERIOD
+from . import EVENT_PERIOD, statement_false
 from .cbt import CBT
 from .timed_transactions import Transaction
 
@@ -42,7 +42,7 @@ class Nexus:
         self._pending_cbts: dict[int, CBT] = {}
         self._last_ctlr_update_ts = time.time()
         self._ctlr_update = Transaction(
-            self, (lambda x: False), self.on_timer, self._timer_interval
+            self, statement_false, self.on_timer, self._timer_interval
         )
 
     @property
