@@ -246,10 +246,13 @@ class ConnEdgeAdjacenctList(MutableMapping):
         self.add_conn_edge(peer_id, ce)
 
     def __getitem__(self, peer_id):
-        return self._conn_edges[peer_id]
+        return self._conn_edges.__getitem__(peer_id)
 
     def __delitem__(self, peer_id):
         self.remove_conn_edge(peer_id)
+
+    def __contains__(self, peer_id) -> bool:
+        return peer_id in self._conn_edges
 
     def __iter__(self):
         return iter(self._conn_edges)
@@ -383,7 +386,6 @@ class GraphTransformation:
         self, from_net_graph: ConnEdgeAdjacenctList, to_net_graph: ConnEdgeAdjacenctList
     ):
         self._edits: deque = deque()
-        self._prev_priority = 0
         self.min_successors: int = to_net_graph.min_successors
         self.max_long_distance: int = to_net_graph.max_long_distance
         self.max_ondemand: int = to_net_graph.max_ondemand
@@ -399,7 +401,7 @@ class GraphTransformation:
         return bool(self._edits)
 
     def __len__(self):
-        return self._edits
+        return len(self._edits)
 
     def __getitem__(self, index):
         return self._edits[index]
@@ -455,18 +457,17 @@ class GraphTransformation:
                     )  # 6
                     self._edits.append(op)
         if self._edits:
-            self._edits = sorted(self._edits, key=lambda x: x.priority)
-            self._prev_priority = self._edits[0].priority
+            self._edits = deque(sorted(self._edits, key=lambda x: x.priority))
 
-    def head(self):
+    def peek_head(self):
         if self._edits:
             return self._edits[0]
         return None
 
-    def pop(self):
+    def pop_head(self):
         if self._edits:
-            self._prev_priority = self._edits[0].priority
-            del self._edits[0]
+            return self._edits.popleft()
+        return None
 
     def push_back(self, update):
         self._edits.append(update)

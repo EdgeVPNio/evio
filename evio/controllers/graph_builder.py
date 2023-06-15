@@ -180,7 +180,7 @@ class GraphBuilder:
         ldl = self._get_long_dist_candidates(num_ldl)
         for peer_id in ldl:
             if peer_id not in adj_list:
-                oce = transition_adj_list.get(peer_id)
+                oce = transition_adj_list.get(peer_id, None)
                 if (oce is None) or (
                     oce is not None and oce.edge_type == EDGE_TYPE_OUT.Successor
                 ):
