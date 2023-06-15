@@ -23,8 +23,8 @@
 import hashlib
 import json
 import logging
-import logging.handlers as lh
 import os
+import queue
 import struct
 import uuid
 from collections import namedtuple
@@ -32,6 +32,7 @@ from collections import namedtuple
 # from collections.abc import MutableSet
 from datetime import datetime
 from distutils import spawn
+from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
 from typing import Optional, Set, Tuple, Union
 
 import eventlet
@@ -59,7 +60,7 @@ DataplaneTypes = namedtuple(
 
 DATAPLANE_TYPES: DataplaneTypes = DataplaneTypes()
 LOG_DIR = "/var/log/evio/"
-LOG_FILENAME = "bf.log"
+LOG_FILENAME = "bounded_flood.log"
 LOG_LEVEL = "INFO"
 DEMAND_THRESHOLD = "10M"
 FLOW_IDLE_TIMEOUT = 60
@@ -860,6 +861,7 @@ class BoundedFlood(app_manager.RyuApp):
         self.evio_portal.terminate()
         hub.joinall(self._monitors)
         self.logger.info("BoundedFlood terminated")
+        self._que_listener.stop()
         logging.shutdown()
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
@@ -1006,15 +1008,13 @@ class BoundedFlood(app_manager.RyuApp):
                     self._broadcast_frame(msg.datapath, pkt, in_port, msg)
                 elif in_port not in sw.leaf_ports and is_multiricepient(eth.dst):
                     self.logger.info(
-                        "Raw multirecipient frame ingressed on peer port, discarding frame. "
-                        "Ingress=%s/%s",
+                        "Discarding ingressed multirecipient frame on peer port %s/%s",
                         sw.name,
                         in_port,
                     )
                 else:
                     self.logger.info(
-                        "No forwarding route to %s in LT, discarding frame. "
-                        "Ingress=%s/%s",
+                        "No forwarding route to %s in LT, discarding frame. Ingress=%s/%s",
                         eth.dst,
                         sw.name,
                         in_port,
@@ -1157,17 +1157,13 @@ class BoundedFlood(app_manager.RyuApp):
     ##################################################################################
 
     def _setup_logger(self):
-        fqname = os.path.join(
-            self.config.get("LogDir", LOG_DIR),
-            self.config.get("LogFilename", LOG_FILENAME),
-        )
-        if os.path.isfile(fqname):
-            os.remove(fqname)
-        self.logger = logging.getLogger(self.LOGGER_NAME)
-        level = getattr(logging, self.config.get("LogLevel", LOG_LEVEL))
-        self.logger.setLevel(level)
-        handler = lh.RotatingFileHandler(
-            filename=fqname,
+        cm_name = ("BoundedFlood", LOG_FILENAME)
+        logname = os.path.join(self.config.get("LogDir", LOG_DIR), f"{cm_name[1]}")
+        # if os.path.isfile(logname):
+        #     os.remove(logname)
+        level = self.config.get("LogLevel", LOG_LEVEL)
+        file_handler = RotatingFileHandler(
+            filename=logname,
             maxBytes=self.config.get("MaxBytes", MAX_FILE_SIZE_BYTES),
             backupCount=self.config.get("BackupCount", BACKUP_COUNT),
         )
@@ -1175,9 +1171,17 @@ class BoundedFlood(app_manager.RyuApp):
             "[%(asctime)s.%(msecs)03d] %(levelname)s %(message)s",
             datefmt="%Y%m%d %H:%M:%S",
         )
-        logging.Formatter.converter = time.localtime
-        handler.setFormatter(formatter)
-        self.logger.addHandler(handler)
+        file_handler.setFormatter(formatter)
+        file_handler.setLevel(level)
+        que = queue.Queue()
+        que_handler = QueueHandler(que)
+        self._que_listener = QueueListener(
+            que, file_handler, respect_handler_level=True
+        )
+        self.logger = logging.getLogger(cm_name[0])
+        self.logger.setLevel(level)
+        self.logger.addHandler(que_handler)
+        self._que_listener.start()
 
     def _load_config(self):
         if CONF["bf"]["config_file"]:
