@@ -186,7 +186,7 @@ class EvioPortal:
             }
         finally:
             self._sock.close()
-        return resp
+            return resp
 
     def terminate(self):
         if self._sock:

@@ -567,15 +567,14 @@ class Topology(ControllerModule):
                     )
                 cbt.set_response("On-demand request accepted", True)
         except ValueError as verr:
-            cbt.set_response("", False)
             self.logger.warning(verr)
         except KeyError as kerr:
-            cbt.set_response("", False)
             self.logger.warning(kerr)
         except RuntimeError as rte:
-            cbt.set_response("", False)
             self.logger.warning(rte)
-        self.complete_cbt(cbt)
+        finally:
+            cbt.set_response("", False)
+            self.complete_cbt(cbt)
 
     def req_handler_negotiate_edge(self, edge_cbt: CBT):
         """Role B1, decide if the request for an incoming edge is accepted or rejected"""
