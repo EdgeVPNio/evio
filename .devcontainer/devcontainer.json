@@ -1,0 +1,28 @@
+{
+  "name": "evio dev container",
+  "build": { "dockerfile": "evio-dev.Dockerfile", "context": "." },
+  "mounts": ["source=/var/log/evio,target=/var/log/evio,type=bind,consistency=cached"],
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.profiles.linux": {
+          "bash": {
+            "path": "/usr/bin/bash",
+            "overrideName": true
+          }
+        },
+        "terminal.integrated.defaultProfile.linux": "bash"
+      },
+      "extensions": [
+        "ms-python.black-formatter",
+        "ms-python.isort",
+        "ms-python.vscode-pylance",
+        "ms-python.python",
+        "ms-python.flake8",
+        "VisualStudioExptTeam.vscodeintellicode"
+      ]
+    }
+  },
+  "workspaceFolder": "/workspace/EdgeVPNio/evio",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace/EdgeVPNio/evio,type=bind,consistency=cached"
+}
