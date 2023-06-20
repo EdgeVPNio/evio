@@ -296,7 +296,7 @@ def run_proc(cmd: list[str]) -> subprocess.CompletedProcess:
     """Run a shell command"""
     # print(cmd)
     return subprocess.run(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, timeout=3.2
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, timeout=30.0
     )
 
 
