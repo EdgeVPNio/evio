@@ -638,7 +638,7 @@ class Signal(ControllerModule):
         if peer_id in out_rem_acts:
             transport = self._circles[overlay_id].xport
             ra_que = out_rem_acts.get(peer_id)
-            while not ra_que.empty():
+            while not ra_que.qsize() > 0:
                 entry = ra_que.get()
                 msg_type, msg_data = entry[0], dict(entry[1])
                 transport.send_msg(peer_jid, msg_type, json.dumps(msg_data))
@@ -742,7 +742,7 @@ class Signal(ControllerModule):
                 )
         for peer_id in peer_ids:
             rem_act_que = outgoing_rem_acts.pop(peer_id, Queue())
-            while not rem_act_que.empty():
+            while not rem_act_que.qsize() > 0:
                 entry = rem_act_que.get()
                 rem_act_que.task_done()
                 self.logger.info("failed to send remote action response %s", entry)

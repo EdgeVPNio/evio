@@ -25,6 +25,7 @@ import time
 
 from . import EVENT_PERIOD, statement_false
 from .cbt import CBT
+from .process_proxy import ProxyMsg
 from .timed_transactions import Transaction
 
 
@@ -33,6 +34,7 @@ class Nexus:
 
     def __init__(self, broker_object, **kwargs):
         self._cm_queue: queue.Queue[CBT] = queue.Queue()  # CBT work queue
+        self._ipc_queue: queue.Queue[CBT] = queue.Queue()
         self._controller = None
         self._cm_thread = None
         self._broker = broker_object  # broker object reference
@@ -125,23 +127,24 @@ class Nexus:
         # get CBT from the local queue and call process_cbt() of the
         # recipient with the CBT as an argument
         while True:
-            cbt = self._cm_queue.get()
-            # Terminate when CBT is None
-            if cbt is None:
-                self._controller.terminate()
-                self._cm_queue.task_done()
-                break
-            else:
-                try:
+            try:
+                cbt = self._cm_queue.get()
+                # Terminate when CBT is None
+                if cbt is None:
+                    self._controller.terminate()
+                    break
+                elif isinstance(cbt, CBT):
                     if not cbt.is_completed:
                         self._pending_cbts[cbt.tag] = cbt
                     self._controller.process_cbt(cbt)
-                except RuntimeError as err:
-                    self._controller.logger.warning(
-                        "Process CBT exception: %s\nCBT: %s", err, cbt, exc_info=True
-                    )
-                finally:
-                    self._cm_queue.task_done()
+                elif isinstance(cbt, ProxyMsg):
+                    self._controller.handle_ipc(cbt)
+            except RuntimeError as err:
+                self._controller.logger.warning(
+                    "Process CBT exception: %s\nCBT: %s", err, cbt, exc_info=True
+                )
+            finally:
+                self._cm_queue.task_done()
 
     def on_cbt_expired(self, cbt: CBT, time_expired: float):
         """Callback from the TimedTransaction to indicate a CBT has expired.
@@ -212,3 +215,6 @@ class Nexus:
                 lifespan=lifespan,
             )
         )
+
+    def send_ipc(self, msg: ProxyMsg):
+        self._broker.send_ipc(msg)

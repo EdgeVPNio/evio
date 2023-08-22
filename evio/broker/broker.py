@@ -56,6 +56,7 @@ from . import (
 from .cbt import CBT
 from .controller_module import ControllerModule
 from .nexus import Nexus
+from .process_proxy import ProcessProxy, ProxyMsg
 from .subscription import Subscription
 from .timed_transactions import TimedTransactions, Transaction
 
@@ -93,7 +94,8 @@ class Broker:
         self._subscriptions: dict[str, list[Subscription]] = {}
         self._node_id: str = self._set_node_id()
         self._load_order: list[str] = []
-        self.timers = TimedTransactions()
+        self._timers = TimedTransactions()
+        self._ipc = ProcessProxy(self.dispach_proxy_msg, self.logger)
 
     def __enter__(self):
         self.initialize()
@@ -238,7 +240,8 @@ class Broker:
         for ctrl_name in self._load_order:
             self.load_module(ctrl_name)
 
-        self.timers.start()
+        self._ipc.start()
+        self._timers.start()
         # intialize the the CMs via their respective nexus
         for ctrl_name in self._load_order:
             self._nexus_map[ctrl_name].initialize()
@@ -349,7 +352,7 @@ class Broker:
         signal.pause()
 
     def terminate(self):
-        self.timers.terminate()
+        self._timers.terminate()
         with self._nexus_lock:
             for ctrl_name in reversed(self._load_order):
                 wn = self._nexus_map[ctrl_name]._cm_thread.name
@@ -358,9 +361,11 @@ class Broker:
                 wn = self._nexus_map[ctrl_name]._cm_thread.name
                 self._nexus_map[ctrl_name]._cm_thread.join()
                 self.logger.info("%s exited", wn)
+            self._ipc.terminate()
             for ql in self._cm_qlisteners:
                 ql.stop()
-        self._rlistener.stop()
+
+        self._que_listener.stop()
         logging.shutdown()
         return True
 
@@ -373,6 +378,8 @@ class Broker:
                 val = self._node_id
             elif param_name == "Overlays":
                 val = self._config["Broker"]["Overlays"]
+            elif param_name == "ProcessProxyAddress":
+                val = self._ipc.address
             elif param_name == "Model":
                 val = self.model
             elif param_name == "DebugCBTs":
@@ -423,7 +430,7 @@ class Broker:
             if cbt.is_pending:
                 initiator = cbt.request.initiator
                 owner = self._nexus_map[initiator]
-                self.timers.register(
+                self._timers.register(
                     Transaction(cbt, is_cmplt, owner.on_cbt_expired, cbt.lifespan)
                 )
 
@@ -480,7 +487,26 @@ class Broker:
             sub.remove_subscriber(sink)
 
     def register_timed_transaction(self, entry: Transaction):
-        self.timers.register(entry)
+        self._timers.register(entry)
+
+    def dispach_proxy_msg(self, msg: ProxyMsg):
+        # task structure
+        # dict(Request=dict(Target=CM, Action=None, Params=None),
+        #      Response=dict(Status=False, Data=None))
+        task = msg.json
+        if "Response" in task:
+            tgt = task["Response"].get("Recipient")
+        else:
+            tgt = task["Request"].get("Recipient")
+        if tgt is None:
+            self.logger.warning("No recipient specified in IPC message")
+            return
+        with self._nexus_lock:
+            nexus = self._nexus_map[tgt]
+            nexus._cm_queue.put(msg)
+
+    def send_ipc(self, msg: ProxyMsg):
+        self._ipc.tx_que.put(msg)
 
 
 if __name__ == "__main__":

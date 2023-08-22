@@ -28,10 +28,12 @@ except ImportError:
 import copy
 import logging
 import signal
-import socket
-import socketserver
+
+# import socket
+# import select
+# import time
+# import socketserver
 import threading
-import time
 from abc import ABCMeta, abstractmethod
 from collections.abc import MutableMapping
 from distutils import spawn
@@ -46,12 +48,11 @@ from broker import (
     MTU,
     NAME_PREFIX_APP_BR,
     NAME_PREFIX_EVI,
-    PROXY_LISTEN_ADDRESS,
-    PROXY_LISTEN_PORT,
     SDN_CONTROLLER_PORT,
 )
 from broker.cbt import CBT
 from broker.controller_module import ControllerModule
+from broker.process_proxy import ProxyMsg
 from pyroute2 import IPRoute
 
 from .tunnel import DATAPLANE_TYPES, TUNNEL_EVENTS
@@ -74,14 +75,15 @@ class BridgeABC:
     bridge_type = NotImplemented
 
     def __init__(self, name, ip_addr, prefix_len, mtu):
-        self.name = name
-        self.ip_addr = ip_addr
-        self.prefix_len = prefix_len
-        self.mtu = mtu
-        self.ports = set()
+        self.name: str = name
+        self.ip_addr: str = ip_addr
+        self.prefix_len: int = prefix_len
+        self.mtu: int = mtu
+        self.ports: set[str] = set()
+        self.port_descriptors: dict[str, dict] = {}
 
     @abstractmethod
-    def add_port(self, port_name):
+    def add_port(self, port_name, port_descr):
         pass
 
     @abstractmethod
@@ -101,7 +103,10 @@ class BridgeABC:
         return self.__repr__()
 
     def flush_ip_addresses(self, port_name):
-        broker.run_proc(["sysctl", f"net.ipv6.conf.{port_name}.disable_ipv6=1"])
+        # try:
+        #     broker.run_proc(["sysctl", f"net.ipv6.conf.{port_name}.disable_ipv6=1"])
+        # except Exception:
+        #     pass
         with IPRoute() as ipr:
             ipr.flush_addr(label=port_name)
 
@@ -180,7 +185,7 @@ class OvsBridge(BridgeABC):
 
         broker.run_proc([OvsBridge.brctl, "--if-exists", "del-br", self.name])
 
-    def add_port(self, port_name):
+    def add_port(self, port_name, port_descr):
         self.flush_ip_addresses(self.name)
         with IPRoute() as ipr:
             idx = ipr.link_lookup(ifname=port_name)[0]
@@ -189,6 +194,7 @@ class OvsBridge(BridgeABC):
             [OvsBridge.brctl, "--may-exist", "add-port", self.name, port_name]
         )
         self.ports.add(port_name)
+        self.port_descriptors[port_name] = port_descr
 
     def del_port(self, port_name):
         broker.run_proc(
@@ -196,6 +202,7 @@ class OvsBridge(BridgeABC):
         )
         if port_name in self.ports:
             self.ports.remove(port_name)
+        self.port_descriptors.pop(port_name, None)
 
     def stp(self, enable):
         """Enables spanning tree protocol on bridge, as opposed to BoundedFlood"""
@@ -269,12 +276,13 @@ class LinuxBridge(BridgeABC):
             ipr.link("set", index=idx, state="down")
             ipr.link("del", ifname=self.name, kind="bridge")
 
-    def add_port(self, port_name):
+    def add_port(self, port_name, port_descr):
         with IPRoute() as ipr:
             idx = ipr.link_lookup(ifname=port_name)[0]
             ipr.link("set", index=idx, mtu=self.mtu)
             ipr.link("set", index=idx, master=ipr.link_lookup(ifname=self.name)[0])
         self.ports.add(port_name)
+        self.port_descriptors[port_name] = port_descr
 
     def del_port(self, port_name):
         with IPRoute() as ipr:
@@ -284,6 +292,7 @@ class LinuxBridge(BridgeABC):
             ipr.link("del", index=idx)
         if port_name in self.ports:
             self.ports.remove(port_name)
+        self.port_descriptors.pop(port_name, None)
 
     def stp(self, val):
         """Turn STP protocol on/off. Recommended to be on for Linux Bridge in a fabric"""
@@ -323,92 +332,6 @@ class VNIC(BridgeABC):
             idx = ipr.link_lookup(ifname="port_name")[0]
             ipr.link("set", index=idx, state="down")
             ipr.link("del", index=idx)
-
-
-###################################################################################################
-
-
-class BoundedFloodProxy(socketserver.ThreadingMixIn, socketserver.TCPServer):
-    """
-    Starts the TCP proxy listener
-    Starts the Ryu engine and module
-    Supports interactions between BF Ryu module and evio controller
-    """
-
-    socketserver.TCPServer.allow_reuse_address = True
-    RyuManager = spawn.find_executable("ryu-manager")
-    if RyuManager is None:
-        raise RuntimeError("RyuManager was not found, is it installed?")
-
-    def __init__(self, host_port_tuple: tuple, bf_config: dict, streamhandler, br_ctrl):
-        super().__init__(host_port_tuple, streamhandler)
-        self.config = bf_config
-        self.br_ctrl = br_ctrl
-        self._bf_proc = None
-
-    def start_bf_client_module(self):
-        cmd = [
-            BoundedFloodProxy.RyuManager,
-            "--nouse-stderr",
-            "--user-flags",
-            "controllers/bfflags.py",
-            "--bf-config-string",
-            json.dumps(self.config),
-            "controllers/bounded_flood.py",
-        ]
-        self._bf_proc = broker.create_process(cmd)
-        self.config = None
-
-    def server_close(self):
-        if hasattr(self, "_bf_proc"):
-            if self._bf_proc:
-                self._bf_proc.send_signal(signal.SIGINT)
-                self._bf_proc.wait()
-        socketserver.TCPServer.server_close(self)
-
-
-class BFRequestHandler(socketserver.BaseRequestHandler):
-    def handle(self):
-        data = self.request.recv(65536)
-        if not data:
-            return
-        task = json.loads(data.decode("utf-8"))
-        task = self.process_task(task)
-        self.request.sendall(bytes(json.dumps(task) + "\n", "utf-8"))
-
-    def process_task(self, task: dict):
-        # task structure
-        # dict(Request=dict(Action=None, Params=None),
-        #      Response=dict(Status=False, Data=None))
-        if task["Request"]["Action"] == "GetTunnelData":
-            task = self._handle_get_tunnel_data(task)
-        elif task["Request"]["Action"] == "GetNodeId":
-            task["Response"] = dict(
-                Status=True, Data=dict(NodeId=str(self.server.br_ctrl.node_id))
-            )
-        elif task["Request"]["Action"] == "TunnelRquest":
-            task["Response"] = dict(
-                Status=True, Data=dict(StatusMsg="Request shall be considered")
-            )
-            self.server.br_ctrl.logger.info(
-                "On-demand tunnel request recvd %s", task["Request"]
-            )
-            self.server.br_ctrl.tunnel_request(
-                task["Request"]["Params"]
-            )  # op is ADD/REMOVE
-        else:
-            self.server.br_ctrl.logger.warning(
-                "An unrecognized SDNI task was discarded %s", task
-            )
-            task["Response"] = dict(
-                Status=False, Data=dict(ErrorMsg="Unsupported request")
-            )
-        return task
-
-    def _handle_get_tunnel_data(self, task):
-        topo = self.server.br_ctrl.get_tunnels()
-        task["Response"] = dict(Status=bool(topo), Data=topo)
-        return task
 
 
 ###################################################################################################
@@ -525,8 +448,8 @@ class BridgeController(ControllerModule):
 
     def __init__(self, nexus, module_config):
         super().__init__(nexus, module_config)
-        self._bfproxy = None
-        self._server_thread = None
+        # self._bfproxy = None
+        # self._bfproxy_thread = None
         self._ovl_net: dict[str, Union[VNIC, LinuxBridge, OvsBridge]] = {}
         self._appbr: dict[str, Union[LinuxBridge, OvsBridge]] = {}
         # self._lock = threading.Lock()
@@ -597,9 +520,6 @@ class BridgeController(ControllerModule):
         }
 
     def _start_bf_proxy_server(self):
-        proxy_listen_port = self.config["BoundedFlood"].get(
-            "ProxyListenPort", PROXY_LISTEN_PORT
-        )
         bf_config = self.config["BoundedFlood"]
         bf_config["NodeId"] = self.node_id
         bf_ovls = bf_config.pop("Overlays")
@@ -611,28 +531,27 @@ class BridgeController(ControllerModule):
             )
             bf_config[br_name] = bf_ovls[olid]
             bf_config[br_name]["OverlayId"] = olid
-        while True:
-            try:
-                self._bfproxy: BoundedFloodProxy = BoundedFloodProxy(
-                    (PROXY_LISTEN_ADDRESS, proxy_listen_port),
-                    bf_config,
-                    BFRequestHandler,
-                    self,
-                )
-                self._server_thread: threading.Thread = threading.Thread(
-                    target=self._bfproxy.serve_forever, name="BFProxyServer"
-                )
-                break
-            except socket.error as err:
-                self.logger.warning(
-                    "Failed to start the BoundedFlood Proxy, will retry. Error msg= %s",
-                    err,
-                )
-                time.sleep(10)
-        self._server_thread.setDaemon(True)
-        self._server_thread.start()
+        # while True:
+        #     try:
+        #         self._bfproxy = BoundedFloodProxy(
+        #             bf_config,
+        #             self,
+        #         )
+        #         self._bfproxy_thread = threading.Thread(
+        #             target=self._bfproxy.serve_forever, name="BFProxyServer"
+        #         )
+        #         break
+        #     except socket.error as err:
+        #         self.logger.warning(
+        #             "Failed to start the BoundedFlood Proxy, will retry. Error msg= %s",
+        #             err,
+        #         )
+        #         time.sleep(10)
+        # self._server_thread.setDaemon(True)
+        # self._bfproxy_thread.start()
         # start the BF RYU module
-        self._bfproxy.start_bf_client_module()
+        # self._bfproxy.start_bf_client_module()
+        self.start_bf_client_module(bf_config)
 
     def _create_overlay_bridges(self) -> dict:
         ign_br_names = {}
@@ -656,12 +575,12 @@ class BridgeController(ControllerModule):
             self.register_cbt("LinkManager", "LNK_ADD_IGN_INF", ign_br_names)
         return ign_br_names
 
-    def _add_tunnel(self, overlay_id: str, port_name: str, tnl_data: dict):
+    def _add_tunnel_port(self, overlay_id: str, port_name: str, tnl_data: dict):
         try:
             bridge = self._ovl_net[overlay_id]
             mac = tnl_data["MAC"]
             peer_mac = tnl_data["PeerMac"]
-            self._tunnels[overlay_id][port_name] = {
+            descr = {
                 "PeerId": tnl_data["PeerId"],
                 "TunnelId": tnl_data["TunnelId"],
                 "ConnectedTimestamp": tnl_data["ConnectedTimestamp"],
@@ -672,13 +591,13 @@ class BridgeController(ControllerModule):
                 else broker.delim_mac_str(peer_mac),
                 "Dataplane": tnl_data["Dataplane"],
             }
-            bridge.add_port(port_name)
+            self._tunnels[overlay_id][port_name] = descr
+            bridge.add_port(port_name, descr)
+            self.logger.info("Port %s added to bridge %s", port_name, str(bridge))
         except Exception as err:
             self._tunnels[overlay_id].pop(port_name, None)
             bridge.del_port(port_name)
-            self.logger.warning(
-                "Failed to add port %s. %s", tnl_data, err, exc_info=True
-            )
+            self.logger.info("Failed to add port %s. %s", tnl_data, err, exc_info=True)
 
     def req_handler_manage_bridge(self, cbt: CBT):
         try:
@@ -686,15 +605,11 @@ class BridgeController(ControllerModule):
             bridge = self._ovl_net[olid]
             port_name = cbt.request.params.get("TapName")
             if cbt.request.params["UpdateType"] == TUNNEL_EVENTS.Connected:
-                self._add_tunnel(olid, port_name, cbt.request.params)
-                self.logger.info("Port %s added to bridge %s", port_name, str(bridge))
+                self._add_tunnel_port(olid, port_name, cbt.request.params)
             elif cbt.request.params["UpdateType"] == TUNNEL_EVENTS.Removed:
                 self._tunnels[olid].pop(port_name, None)
-                if bridge.bridge_type == OvsBridge.bridge_type:
-                    bridge.del_port(port_name)
-                    self.logger.info(
-                        "Port %s removed from bridge %s", port_name, bridge
-                    )
+                bridge.del_port(port_name)
+                self.logger.info("Port %s removed from bridge %s", port_name, bridge)
         except Exception as err:
             self.logger.warning("Manage bridge error %s", err, exc_info=True)
         cbt.set_response(None, True)
@@ -705,18 +620,16 @@ class BridgeController(ControllerModule):
             sid = cbt.request.params["SessionId"]
             for olid, br in self._ovl_net.items():
                 self.logger.info("Clearing Tincan TAPs from %s for session %s", br, sid)
-                rml = []
-                for port_name, port in self._tunnels[olid].items():
+                for port_name in [*br.ports]:
                     if (
-                        br.bridge_type == OvsBridge.bridge_type
-                        and port["Dataplane"] == DATAPLANE_TYPES.Tincan
-                        and port_name in br.ports
+                        br.port_descriptors[port_name]["Dataplane"]
+                        == DATAPLANE_TYPES.Tincan
                     ):
-                        rml.append(port_name)
-                for port_name in rml:
-                    br.del_port(port_name)
-                    self._tunnels[olid].pop(port_name, None)
-                    self.logger.info("Port %s removed from bridge %s", port_name, br)
+                        br.del_port(port_name)
+                        self._tunnels[olid].pop(port_name, None)
+                        self.logger.info(
+                            "Port %s removed from bridge %s", port_name, br
+                        )
         cbt.set_response(data=None, status=True)
         self.complete_cbt(cbt)
 
@@ -745,9 +658,11 @@ class BridgeController(ControllerModule):
 
     def terminate(self):
         try:
-            if self._bfproxy:
-                self._bfproxy.server_close()
-                self._bfproxy.shutdown()
+            # if self._bfproxy:
+            #     self._bfproxy.stop_bf_module()
+            #     self._bfproxy.server_close()
+            #     self._bfproxy_thread.join()
+            self.stop_bf_module()
             for olid, bridge in self._ovl_net.items():
                 if self.overlays[olid]["NetDevice"].get(
                     "AutoDelete", BRIDGE_AUTO_DELETE
@@ -756,9 +671,8 @@ class BridgeController(ControllerModule):
                     if olid in self._appbr:
                         self._appbr[olid].del_br()
                 else:
-                    if bridge.bridge_type == OvsBridge.bridge_type:
-                        for port in [*bridge.ports]:
-                            bridge.del_port(port)
+                    for port in [*bridge.ports]:
+                        bridge.del_port(port)
         except RuntimeError as err:
             self.logger.warning("Terminate error %s", err, exc_info=True)
         self.logger.info("Controller module terminating")
@@ -823,3 +737,49 @@ class BridgeController(ControllerModule):
     def tunnel_request(self, req_params: dict):
         """Forwards the on demand tunnel request to Topology controller"""
         self.register_cbt("Topology", "TOP_REQUEST_OND_TUNNEL", req_params)
+
+    def handle_ipc(self, msg: ProxyMsg):
+        task = msg.json
+        # task structure
+        # dict(Request=dict(Action=None, Params=None),
+        #      Response=dict(Status=False, Data=None))
+        if task["Request"]["Action"] == "GetTunnelData":
+            topo = self.get_tunnels()
+            task["Response"] = dict(Status=bool(topo), Data=topo)
+            self.logger.debug("Task response: %s", task)
+        elif task["Request"]["Action"] == "TunnelRquest":
+            task["Response"] = dict(
+                Status=True, Data=dict(StatusMsg="Request shall be considered")
+            )
+            self.logger.info("On-demand tunnel request recvd %s", task["Request"])
+            self.tunnel_request(task["Request"]["Params"])  # op is ADD/REMOVE
+        else:
+            self.logger.warning("An unrecognized SDNI task was discarded %s", task)
+            task["Response"] = dict(
+                Status=False, Data=dict(ErrorMsg="Unsupported request")
+            )
+        msg.data = json.dumps(task).encode("utf-8")
+        # resp = ProxyMsg(msg.fileno, json.dumps(task).encode("utf-8"))
+        self.send_ipc(msg)
+
+    def start_bf_client_module(self, bf_config):
+        RyuManager = spawn.find_executable("ryu-manager")
+        if RyuManager is None:
+            raise RuntimeError("RyuManager was not found, is it installed?")
+        bf_config["ProxyAddress"] = self.process_proxy_address
+        cmd = [
+            RyuManager,
+            "--nouse-stderr",
+            "--user-flags",
+            "controllers/bfflags.py",
+            "--bf-config-string",
+            json.dumps(bf_config),
+            "controllers/bounded_flood.py",
+        ]
+        self._bf_proc = broker.create_process(cmd)
+
+    def stop_bf_module(self):
+        if hasattr(self, "_bf_proc"):
+            if self._bf_proc:
+                self._bf_proc.send_signal(signal.SIGINT)
+                self._bf_proc.wait()

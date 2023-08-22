@@ -26,6 +26,7 @@ import logging
 import os
 import queue
 import struct
+import sys
 import uuid
 from collections import namedtuple
 
@@ -70,8 +71,6 @@ MAX_ONDEMAND_EDGES = 3
 TRAFFIC_ANALYSIS_INTERVAL = 10
 STATE_LOGGING_INTERVAL = 60
 STATE_TRACING_ENABLED = False
-PROXY_LISTEN_ADDRESS = "127.0.0.1"
-PROXY_LISTEN_PORT = 5802
 BACKUP_COUNT = 2
 MAX_FILE_SIZE_BYTES = 10000000
 CONF = cfg.CONF  # RYU environment
@@ -126,13 +125,15 @@ class EvioOp:
 class EvioPortal:
     MAX_ATTEMPTS = 3
 
-    def __init__(self, svr_addr: tuple, logger):
+    def __init__(self, svr_addr: str, logger):
         self._logger = logger
-        self._svr_addr = svr_addr
+        self._svr_addr: str = svr_addr
         self._sock = None
+        self._is_shutdown: bool = False
 
-    def connect(self):
+    def connect(self, sock):
         attempts = 0
+        self._sock = sock
         while attempts < self.MAX_ATTEMPTS:
             try:
                 attempts += 1
@@ -145,7 +146,8 @@ class EvioPortal:
                         attempts,
                         str(err),
                     )
-                    hub.sleep(1)
+                    self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+                    hub.sleep(2)
                 else:
                     self._logger.error(
                         "Aborting attempts to connect to evio portal. Error: %s",
@@ -155,10 +157,12 @@ class EvioPortal:
 
     def send(self, req):
         send_data = json.dumps(req)
-        self._sock.sendall(bytes(send_data + "\n", "utf-8"))
+        self._sock.sendall(len(send_data).to_bytes(2, sys.byteorder))
+        self._sock.sendall(bytes(send_data, "utf-8"))
 
     def recv(self):
-        recv_data = str(self._sock.recv(65536), "utf-8")
+        recv_len = int.from_bytes(self._sock.recv(2), sys.byteorder)
+        recv_data = str(self._sock.recv(recv_len), "utf-8")
         if not recv_data:
             return {
                 "Response": {
@@ -171,8 +175,15 @@ class EvioPortal:
 
     def send_recv(self, req):
         resp = None
-        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.connect()
+        if self._is_shutdown:
+            return {
+                "Response": {
+                    "Status": False,
+                    "Data": "Terminating",
+                }
+            }
+        if self._sock is None:
+            self.connect(socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET))
         try:
             self.send(req)
             resp = self.recv()
@@ -184,12 +195,14 @@ class EvioPortal:
                     "Data": "The send/recv operation to the evio controller failed.",
                 }
             }
-        finally:
             self._sock.close()
-            return resp
+            self._sock = None
+        return resp
 
     def terminate(self):
+        self._is_shutdown = True
         if self._sock:
+            self._sock.shutdown(socket.SHUT_RDWR)
             self._sock.close()
 
 
@@ -834,10 +847,7 @@ class BoundedFlood(app_manager.RyuApp):
         )
         self._setup_logger()
         self.evio_portal = EvioPortal(
-            (
-                self.config.get("ProxyListenAddress", PROXY_LISTEN_ADDRESS),
-                self.config.get("ProxyListenPort", PROXY_LISTEN_PORT),
-            ),
+            self.config.get("ProxyAddress"),
             self.logger,
         )
         self.dpset = kwargs["dpset"]
@@ -850,7 +860,6 @@ class BoundedFlood(app_manager.RyuApp):
         ]
         if self.config.get("StateTracingEnabled", STATE_TRACING_ENABLED):
             self._monitors.append(hub.spawn(self.log_state))
-
         self.logger.info("BoundedFlood: Module loaded")
 
     def close(self):
@@ -861,8 +870,10 @@ class BoundedFlood(app_manager.RyuApp):
         self.evio_portal.terminate()
         hub.joinall(self._monitors)
         self.logger.info("BoundedFlood terminated")
-        self._que_listener.stop()
-        logging.shutdown()
+        print("BoundedFlood terminated")
+        os.makedirs("/var/log/evio/bfterm", exist_ok=True)
+        # self._que_listener.stop()
+        # logging.shutdown()
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -979,8 +990,8 @@ class BoundedFlood(app_manager.RyuApp):
         sw: EvioSwitch = self._lt[dpid]
         port: PortDescriptor = sw.port_descriptor(in_port)
         try:
-            if self.logger.isEnabledFor(logging.DEBUG):
-                self.logger.debug(f"packet_in[{in_port}]<=={pkt}")
+            # if self.logger.isEnabledFor(logging.DEBUG):
+            #     self.logger.debug(f"packet_in[{in_port}]<=={pkt}")
 
             if not sw.is_valid_port(in_port):
                 if self.logger.isEnabledFor(logging.DEBUG):
@@ -1199,7 +1210,13 @@ class BoundedFlood(app_manager.RyuApp):
             raise RuntimeError("No valid configuration found")
 
     def _query_evio_tunnel_data(self, overlay_id=None):
-        req = dict(Request=dict(Action="GetTunnelData", Params=dict()))
+        req = {
+            "Request": {
+                "Recipient": "BridgeController",
+                "Action": "GetTunnelData",
+                "Params": {},
+            }
+        }
         resp = self.evio_portal.send_recv(req)
         if not resp["Response"]["Status"]:
             self.logger.warning("Failed to update tunnel data")
@@ -1213,7 +1230,13 @@ class BoundedFlood(app_manager.RyuApp):
             reqs.append(
                 {"OverlayId": overlay_id, "PeerId": ond_op[0], "Operation": ond_op[1]}
             )
-        req = {"Request": {"Action": "TunnelRquest", "Params": reqs}}
+        req = {
+            "Request": {
+                "Recipient": "BridgeController",
+                "Action": "TunnelRquest",
+                "Params": reqs,
+            }
+        }
         self.evio_portal.send_recv(req)
 
     def _log_state(self):

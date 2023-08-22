@@ -38,6 +38,7 @@ __all__ = [
     "BROKER_LOG_NAME",
     "TINCAN_LOG_NAME",
     "PERFDATA_LOG_NAME",
+    "TINCAN_CHK_INTERVAL",
     "MAX_FILE_SIZE",
     "MAX_ARCHIVES",
     "CONSOLE_LEVEL",
@@ -55,16 +56,8 @@ __all__ = [
     "BRIDGE_AUTO_DELETE",
     "DEFAULT_BRIDGE_PROVIDER",
     "DEFAULT_SWITCH_PROTOCOL",
-    "PROXY_LISTEN_ADDRESS",
-    "PROXY_LISTEN_PORT",
     "SDN_CONTROLLER_PORT",
     "GENEVE_SETUP_TIMEOUT",
-    "MAX_READ_SIZE",
-    "SOCKET_READ_WAIT_TIME",
-    "RCV_SERVICE_ADDRESS",
-    "SND_SERVICE_ADDRESS",
-    "CTRL_RECV_PORT",
-    "CTRL_SEND_PORT",
     "MIN_SUCCESSORS",
     "MAX_ON_DEMAND_EDGES",
     "PEER_DISCOVERY_COALESCE",
@@ -99,6 +92,7 @@ LOG_DIRECTORY = "/var/log/evio/"
 BROKER_LOG_LEVEL = "INFO"
 BROKER_LOG_NAME = "broker.log"
 TINCAN_LOG_NAME = "tincan_log"
+TINCAN_CHK_INTERVAL: Literal[5] = 5
 PERFDATA_LOG_NAME = "perf.data"
 MAX_FILE_SIZE = 10000000  # 10MB sized log files
 MAX_ARCHIVES = 5
@@ -117,16 +111,8 @@ MTU: Literal[1410] = 1410
 BRIDGE_AUTO_DELETE: Literal[True] = True
 DEFAULT_BRIDGE_PROVIDER: Literal["OVS"] = "OVS"
 DEFAULT_SWITCH_PROTOCOL: Literal["BF"] = "BF"
-PROXY_LISTEN_ADDRESS: Literal["127.0.0.1"] = "127.0.0.1"
-PROXY_LISTEN_PORT: Literal[5802] = 5802
 SDN_CONTROLLER_PORT: Literal[6633] = 6633
 GENEVE_SETUP_TIMEOUT: Literal[180] = 180
-MAX_READ_SIZE: Literal[6557] = 65507  # Max buffer size for Tincan Messages
-SOCKET_READ_WAIT_TIME: Literal[5] = 5  # Socket read wait time for Tincan Messages
-RCV_SERVICE_ADDRESS: Literal["127.0.0.1"] = "127.0.0.1"  # Controller server address
-SND_SERVICE_ADDRESS: Literal["127.0.0.1"] = "127.0.0.1"  # Tincan server address
-CTRL_RECV_PORT: Literal[5801] = 5801  # Controller Listening Port
-CTRL_SEND_PORT: Literal[5800] = 5800  # Tincan Listening Port
 MIN_SUCCESSORS: Literal[2] = 2
 MAX_ON_DEMAND_EDGES: Literal[3] = 3
 PEER_DISCOVERY_COALESCE: Literal[1] = 1
@@ -167,128 +153,94 @@ CONFIG = {
     },
 }
 
-CTL_CREATE_CTRL_LINK = {
-    "EVIO": {
-        "ProtocolVersion": EVIO_VER_CTL,
-        "TransactionId": 0,
-        "ControlType": "TincanRequest",
-        "Request": {
-            "Command": "CreateCtrlRespLink",
-            "AddressFamily": "af_inetv6",
-            "Protocol": "proto_datagram",
-            "IP": "::1",
-            "Port": 5801,
-        },
-    }
-}
 CTL_CONFIGURE_LOGGING = {
-    "EVIO": {
-        "ProtocolVersion": EVIO_VER_CTL,
-        "TransactionId": 0,
-        "ControlType": "TincanRequest",
-        "Request": {
-            "Command": "ConfigureLogging",
-            "Level": "DEBUG",
-            "Device": "All",
-            "Directory": "./logs/",
-            "Filename": "tincan_log",
-            "MaxArchives": 10,
-            "MaxFileSize": 1048576,
-            "ConsoleLevel": "DEBUG",
-        },
-    }
+    "ProtocolVersion": EVIO_VER_CTL,
+    "TransactionId": 0,
+    "ControlType": "Request",
+    "Request": {
+        "Command": "ConfigureLogging",
+        "Level": "INFO",
+        "Device": "All",
+        "Directory": "./logs/",
+        "Filename": "tincan_log",
+        "MaxArchives": 10,
+        "MaxFileSize": 1048576,
+        "ConsoleLevel": "WARNING",
+    },
 }
 CTL_ECHO = {
-    "EVIO": {
-        "ProtocolVersion": EVIO_VER_CTL,
-        "TransactionId": 0,
-        "ControlType": "TincanRequest",
-        "Request": {"Command": "Echo", "Message": "ECHO TEST"},
-    }
+    "ProtocolVersion": EVIO_VER_CTL,
+    "TransactionId": 0,
+    "ControlType": "Request",
+    "Request": {"Command": "Echo", "Message": "ECHO TEST"},
 }
 CTL_QUERY_TUNNEL_INFO = {
-    "EVIO": {
-        "ProtocolVersion": EVIO_VER_CTL,
-        "TransactionId": 0,
-        "ControlType": "TincanRequest",
-        "Request": {"Command": "QueryOverlayInfo", "OverlayId": "", "TunnelId": ""},
-    }
+    "ProtocolVersion": EVIO_VER_CTL,
+    "TransactionId": 0,
+    "ControlType": "Request",
+    "Request": {"Command": "QueryOverlayInfo", "OverlayId": "", "TunnelId": ""},
 }
 CTL_CREATE_TUNNEL = {
-    "EVIO": {
-        "ProtocolVersion": EVIO_VER_CTL,
-        "ControlType": "TincanRequest",
-        "TransactionId": 0,
-        "Request": {
-            "Command": "CreateTunnel",
-            "OverlayId": "",
-            "NodeId": "",
-            "TunnelId": "",
-            "TapName": "",
-            "StunServers": [],
-            "TurnServers": [],
-            "Type": "",
-        },
-    }
+    "ProtocolVersion": EVIO_VER_CTL,
+    "ControlType": "Request",
+    "TransactionId": 0,
+    "Request": {
+        "Command": "CreateTunnel",
+        "OverlayId": "",
+        "NodeId": "",
+        "TunnelId": "",
+        "TapName": "",
+        "StunServers": [],
+        "TurnServers": [],
+        "Type": "",
+    },
 }
 CTL_CREATE_LINK = {
-    "EVIO": {
-        "ProtocolVersion": EVIO_VER_CTL,
-        "TransactionId": 0,
-        "ControlType": "TincanRequest",
-        "Request": {
-            "Command": "CreateLink",
-            "OverlayId": "",
-            "TunnelId": "",
-            "LinkId": "",
-            "PeerInfo": {"UID": "", "MAC": "", "FPR": ""},
-        },
-    }
+    "ProtocolVersion": EVIO_VER_CTL,
+    "TransactionId": 0,
+    "ControlType": "Request",
+    "Request": {
+        "Command": "CreateLink",
+        "OverlayId": "",
+        "TunnelId": "",
+        "LinkId": "",
+        "PeerInfo": {"UID": "", "MAC": "", "FPR": ""},
+    },
 }
 CTL_REMOVE_TUNNEL = {
-    "EVIO": {
-        "ProtocolVersion": EVIO_VER_CTL,
-        "TransactionId": 0,
-        "ControlType": "TincanRequest",
-        "Request": {"Command": "RemoveTunnel", "OverlayId": "", "TunnelId": ""},
-    }
+    "ProtocolVersion": EVIO_VER_CTL,
+    "TransactionId": 0,
+    "ControlType": "Request",
+    "Request": {"Command": "RemoveTunnel", "OverlayId": "", "TunnelId": ""},
 }
 CTL_REMOVE_LINK = {
-    "EVIO": {
-        "ProtocolVersion": EVIO_VER_CTL,
-        "TransactionId": 0,
-        "ControlType": "TincanRequest",
-        "Request": {"Command": "RemoveLink", "OverlayId": "", "LinkId": ""},
-    }
+    "ProtocolVersion": EVIO_VER_CTL,
+    "TransactionId": 0,
+    "ControlType": "Request",
+    "Request": {"Command": "RemoveLink", "OverlayId": "", "LinkId": ""},
 }
 RESP = {
-    "EVIO": {
-        "ProtocolVersion": EVIO_VER_CTL,
-        "TransactionId": 0,
-        "ControlType": "TincanResponse",
-        "Request": {},
-        "Response": {"Success": True, "Message": "description"},
-    }
+    "ProtocolVersion": EVIO_VER_CTL,
+    "TransactionId": 0,
+    "ControlType": "Response",
+    "Request": {},
+    "Response": {"Success": True, "Message": "description"},
 }
 CTL_QUERY_LINK_STATS = {
-    "EVIO": {
-        "ProtocolVersion": EVIO_VER_CTL,
-        "TransactionId": 0,
-        "ControlType": "TincanRequest",
-        "Request": {"Command": "QueryLinkStats", "TunnelIds": []},
-    }
+    "ProtocolVersion": EVIO_VER_CTL,
+    "TransactionId": 0,
+    "ControlType": "Request",
+    "Request": {"Command": "QueryLinkStats", "TunnelIds": []},
 }
 CTL_QUERY_CAS = {
-    "EVIO": {
-        "ProtocolVersion": EVIO_VER_CTL,
-        "TransactionId": 0,
-        "ControlType": "TincanRequest",
-        "Request": {
-            "Command": "QueryCandidateAddressSet",
-            "OverlayId": "",
-            "LinkId": "",
-        },
-    }
+    "ProtocolVersion": EVIO_VER_CTL,
+    "TransactionId": 0,
+    "ControlType": "Request",
+    "Request": {
+        "Command": "QueryCandidateAddressSet",
+        "OverlayId": "",
+        "LinkId": "",
+    },
 }
 
 

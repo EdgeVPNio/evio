@@ -145,6 +145,7 @@ class LinkManager(ControllerModule):
         self.logger.info("Controller module terminating")
 
     def abort_handler_tunnel(self, cbt: CBT):
+        self.logger.debug("Aborting CBT %s", cbt)
         if isinstance(cbt.request.params, RemoteAction):
             tnlid = cbt.request.params.params["TunnelId"]
         else:
@@ -182,7 +183,7 @@ class LinkManager(ControllerModule):
                 LINK_SETUP_TIMEOUT,
             )
             self.logger.debug(
-                "TunnelId:%s auth for peer:%s completed", tnlid[:7], peer_id[:7]
+                "Tunnel %s authorized for peer %s.", tnlid[:7], peer_id[:7]
             )
             cbt.set_response(
                 "Authorization completed, TunnelId:{0}".format(tnlid[:7]), True
@@ -265,7 +266,7 @@ class LinkManager(ControllerModule):
         self._assign_link_to_tunnel(tnlid, lnkid, 0xA1)
 
         self.logger.debug(
-            "Create Link:%s Phase 1/5 Node A - Peer: %s", lnkid[:7], peer_id[:7]
+            "Creating link %s to peer %s (1/5 Initiator)", lnkid[:7], peer_id[:7]
         )
         params = {
             "OverlayId": olid,
@@ -306,11 +307,14 @@ class LinkManager(ControllerModule):
         self._tunnels[tnlid].tunnel_state = TUNNEL_STATES.CREATING
         self._tunnels[tnlid].dp_instance_id = self.tc_session_id
         self._assign_link_to_tunnel(tnlid, lnkid, 0xB1)
-        self.logger.debug("Create Link:%s Phase 1/4 Node B", lnkid[:7])
+        self.logger.debug(
+            "Creating link %s to peer %s (1/4 Target)", lnkid[:7], peer_id[:7]
+        )
         # Send request to Tincan
         tap_name = self._gen_tap_name(olid, peer_id)
         self.logger.debug(
-            "IgnoredNetInterfaces: %s", self._get_ignored_tap_names(olid, tap_name)
+            "Ignored Network Interfaces: %s",
+            self._get_ignored_tap_names(olid, tap_name),
         )
         create_link_params = {
             "OverlayId": olid,
@@ -351,7 +355,7 @@ class LinkManager(ControllerModule):
             return
         self._tunnels[tnlid].link.creation_state = 0xB3
         self.logger.debug(
-            "Create Link:%s Phase 3/4 Node B - Peer: %s", lnkid[:7], peer_id[:7]
+            "Creating link %s to peer %s (3/4 Target)", lnkid[:7], peer_id[:7]
         )
         params["TincanId"] = self._tunnels[tnlid].dp_instance_id
         self.register_cbt("TincanTunnel", "TCI_CREATE_LINK", params, cbt)
@@ -366,7 +370,7 @@ class LinkManager(ControllerModule):
             if (cbt.request.params["Data"] == "LINK_STATE_DOWN") and (
                 self._tunnels[tnlid].tunnel_state != TUNNEL_STATES.QUERYING
             ):
-                self.logger.debug("LINK %s STATE is DOWN cbt=%s", tnlid, cbt)
+                self.logger.debug("Link %s is DOWN cbt=%s", tnlid, cbt)
                 # issue a link state check only if it not already being done
                 self._tunnels[tnlid].tunnel_state = TUNNEL_STATES.QUERYING
                 cbt.set_response(data=None, status=True)
@@ -599,7 +603,9 @@ class LinkManager(ControllerModule):
         self._tunnels[tnlid].link.creation_state = 0xA2
         # store the overlay data
         overlay_id = cbt.request.params["OverlayId"]
-        self.logger.debug("Create Link:%s Phase 2/5 Node A", lnkid[:7])
+        self.logger.debug(
+            "Creating link %s to peer %s (2/5 Initiator)", lnkid[:7], None
+        )
         self._update_tunnel_descriptor(resp_data, tnlid)
         # create and send remote action to request endpoint from peer
         params = {"OverlayId": overlay_id, "TunnelId": tnlid, "LinkId": lnkid}
@@ -873,7 +879,7 @@ class LinkManager(ControllerModule):
             return
         self._tunnels[tnlid].link.creation_state = 0xA3
         self.logger.debug(
-            "Create Link:%s Phase 3/5 Node A - Peer: %s", lnkid[:7], peer_id[:7]
+            "Creating link %s to peer %s (3/5 Initiator)", lnkid[:7], peer_id[:7]
         )
         node_data = rem_act.data["NodeData"]
         olid = rem_act.overlay_id
@@ -907,11 +913,11 @@ class LinkManager(ControllerModule):
         lnkid = self.link_id(tnlid)
         self._tunnels[tnlid].link.creation_state = 0xC0
         self.logger.debug(
-            "Create Link:%s Phase 5/5 Node A - Peer: %s", tnlid[:7], peer_id[:7]
+            "Creating link %s to peer %s (5/5 Initiator)", tnlid[:7], peer_id[:7]
         )
         parent_cbt.set_response(data={"LinkId": lnkid}, status=True)
         self.complete_cbt(parent_cbt)
-        self.logger.debug(
+        self.logger.info(
             "Tunnel %s created: %s:%s->%s",
             lnkid[:7],
             olid[:7],
@@ -939,7 +945,7 @@ class LinkManager(ControllerModule):
             self._rollback_link_creation_changes(tnlid)
             return
         self.logger.debug(
-            "Create Link:%s Phase 2/4 Node B - Peer: %s", lnkid[:7], peer_id[:7]
+            "Creating link %s to peer %s (2/4 Target)", lnkid[:7], peer_id[:7]
         )
         self._tunnels[tnlid].link.creation_state = 0xB2
         # store the overlay data
@@ -971,7 +977,7 @@ class LinkManager(ControllerModule):
         peer_id = params["NodeData"]["UID"]
         self._tunnels[tnlid].link.creation_state = 0xC0
         self.logger.debug(
-            "Create Link:%s Phase 4/4 Node B - Peer: %s", lnkid[:7], peer_id[:7]
+            "Creating link %s to peer %s (4/4 Target)", lnkid[:7], peer_id[:7]
         )
         peer_id = params["NodeData"]["UID"]
         olid = params["OverlayId"]
@@ -1007,7 +1013,7 @@ class LinkManager(ControllerModule):
         peer_id = cbt.request.params["NodeData"]["UID"]
         self._tunnels[tnlid].link.creation_state = 0xA4
         self.logger.debug(
-            "Create Link:%s Phase 4/5 Node A - Peer: %s", lnkid[:7], peer_id[:7]
+            "Creating link %s to peer %s (4/5 Initiator)", lnkid[:7], peer_id[:7]
         )
         local_cas = cbt.response.data["CAS"]
         parent_cbt = cbt.parent
@@ -1058,7 +1064,7 @@ class LinkManager(ControllerModule):
         tnl = self._tunnels[tnlid]
         if tnl.link:
             creation_state = tnl.link.creation_state
-            if creation_state < 0xC0:
+            if creation_state < 0xC0 and tnl.tap_name:
                 olid = self._tunnels[tnlid].overlay_id
                 peer_id = self._tunnels[tnlid].peer_id
                 lnkid = self.link_id(tnlid)
@@ -1067,13 +1073,13 @@ class LinkManager(ControllerModule):
                     "PeerId": peer_id,
                     "TunnelId": tnlid,
                     "LinkId": lnkid,
-                    "TapName": self._tunnels[tnlid].tap_name,
+                    "TapName": tnl.tap_name,
                     "TincanId": self.tc_session_id,
                 }
                 self.logger.info(
-                    "Initiating removal of incomplete link: "
-                    "PeerId: %s, LinkId: %s, CreateState: %s",
-                    peer_id[:7],
+                    "Initiating removal of incomplete tunnnel: "
+                    "Tap: %s, TnlId: %s, CreateState: %s",
+                    tnl.tap_name,
                     tnlid[:7],
                     format(creation_state, "02X"),
                 )

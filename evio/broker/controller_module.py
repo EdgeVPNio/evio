@@ -27,6 +27,7 @@ from typing import Callable
 from . import introspect
 from .cbt import CBT
 from .nexus import Nexus
+from .process_proxy import ProxyMsg
 
 # abstract ControllerModule (CM) class
 # all CM implementations must override the abstract methods declared here
@@ -134,6 +135,10 @@ class ControllerModule:
     @property
     def log_config(self):
         return self._nexus.query_param("LogConfig")
+
+    @property
+    def process_proxy_address(self):
+        return self._nexus.query_param("ProcessProxyAddress")
 
     def req_handler_default(self, cbt):
         self.logger.warning("Unsupported CBT action %s", cbt)
@@ -249,3 +254,10 @@ class ControllerModule:
         if is_completed(obj):
             raise ValueError(f"Object already marked as completed {obj}")
         self._nexus.register_timed_transaction(obj, is_completed, on_expired, lifespan)
+
+    @abstractmethod
+    def handle_ipc(self, msg: ProxyMsg):
+        NotImplemented
+
+    def send_ipc(self, msg: ProxyMsg):
+        self._nexus.send_ipc(msg)

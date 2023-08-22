@@ -27,7 +27,7 @@ from . import CBT_LIFESPAN, introspect
 
 
 class CBT:
-    tag_counter: int = int(uuid.uuid4().hex[:15], base=16)
+    _tag_counter: int = int(uuid.uuid4().hex[:15], base=16)
     _REFLECT: list[str] = [
         "tag",
         "parent",
@@ -42,6 +42,11 @@ class CBT:
         "time_freed",
         "age",
     ]
+
+    @classmethod
+    def tag_counter(cls) -> int:
+        cls._tag_counter += 1
+        return cls._tag_counter
 
     class Request:
         def __init__(
@@ -103,8 +108,7 @@ class CBT:
         parent=None,
         **kwargs
     ):
-        self.tag: int = CBT.tag_counter
-        CBT.tag_counter += 1
+        self.tag: int = CBT.tag_counter()
         self.deps: set = set()
         self.set_parent(parent)
         self.op_type: str = str("Request")
