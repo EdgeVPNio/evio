@@ -134,16 +134,16 @@ class DiscoveredPeer:
 
 class NetworkOverlay:
     _REFLECT: list[str] = [
-        "_max_concurrent_edits",
         "node_id",
         "overlay_id",
-        "new_peer_count",
-        "_graph_transformation",
-        "known_peers_list",
-        "ond_peers",
-        "adjacency_list",
         "_loc_id",
-        "_encr_req",
+        "_max_concurrent_edits",
+        "num_active_edits",
+        "new_peer_count",
+        "known_peers",
+        "ond_peers",
+        "_graph_transformation",
+        "adjacency_list",
     ]
 
     def __init__(self, node_id: str, overlay_id: str, **kwargs):
@@ -180,6 +180,10 @@ class NetworkOverlay:
     def transformation(self):
         return self._graph_transformation
 
+    @property
+    def num_active_edits(self):
+        return self._max_concurrent_edits - self._bsemp._value
+
     @transformation.setter
     def transformation(self, new_transformation):
         """
@@ -198,6 +202,12 @@ class NetworkOverlay:
     @property
     def known_peers_list(self):
         return [*self.known_peers.keys()]
+
+    @property
+    def available_peers(self) -> list:
+        return [
+            peer_id for peer_id, disc in self.known_peers.items() if disc.is_available
+        ]
 
     def acquire(self) -> bool:
         return self._bsemp.acquire(blocking=False)
@@ -816,14 +826,11 @@ class Topology(ControllerModule):
                     ovl.new_peer_count = 0
                     ovl_cfg = self.config["Overlays"][olid]
                     enf_lnks = ovl_cfg.get("StaticEdges", [])
-                    peer_list = [
-                        peer_id
-                        for peer_id in ovl.known_peers
-                        if ovl.known_peers[peer_id].is_available
-                    ]
+                    peer_list = ovl.available_peers
                     if not peer_list:
-                        ovl.release()  # necessary as not bound to a CBT
-                        return
+                        raise ValueError(
+                            "No peers are available to produce a new Network Graph"
+                        )
                     min_succ = int(ovl_cfg.get("MinSuccessors", MIN_SUCCESSORS))
                     max_ond = int(ovl_cfg.get("MaxOnDemandEdges", MAX_ON_DEMAND_EDGES))
                     num_peers = len(peer_list) if len(peer_list) > 1 else 2
@@ -854,8 +861,9 @@ class Topology(ControllerModule):
                         peer_list, ovl.get_adj_list(), ovl.ond_peers
                     )
                 ovl.release()  # necessary as not bound to a CBT
-            except Exception:
+            except Exception as excp:
                 ovl.release()
+                self.logger.info(excp)
         self._process_next_transition(ovl)
 
     def _process_next_transition(self, net_ovl: NetworkOverlay):

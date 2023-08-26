@@ -150,8 +150,7 @@ class LinkManager(ControllerModule):
             tnlid = cbt.request.params.params["TunnelId"]
         else:
             tnlid = cbt.request.params["TunnelId"]
-        tnl = self._tunnels.get(tnlid)
-        self._cleanup_failed_tunnel_data(tnl)
+        self._rollback_link_creation_changes(tnlid)
 
     def req_handler_auth_tunnel(self, cbt: CBT):
         """Node B"""
@@ -719,7 +718,7 @@ class LinkManager(ControllerModule):
         self.free_cbt(cbt)
 
     def on_tnl_timeout(self, tnl: Tunnel, timeout: float):
-        self._cleanup_failed_tunnel_data(tnl)
+        self._rollback_link_creation_changes(tnl.tnlid)
 
     def _register_abort_handlers(self):
         self._abort_handler_tbl = {

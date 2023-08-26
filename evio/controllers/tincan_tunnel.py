@@ -157,9 +157,10 @@ class TincanTunnel(ControllerModule):
         self.send_control(json.dumps(ctl))
 
     def req_handler_query_link_stats(self, cbt: CBT):
-        if not self._is_request_current(cbt):
-            self.complete_cbt(cbt)
-            return
+        # if not self._is_request_current(cbt):
+        # Todo: TypeError - list indices must be integers or slices, not str
+        #     self.complete_cbt(cbt)
+        #     return
         msg = cbt.request.params
         ctl = broker.CTL_QUERY_LINK_STATS
         ctl["TransactionId"] = cbt.tag
