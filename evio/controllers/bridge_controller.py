@@ -27,12 +27,7 @@ except ImportError:
 
 import copy
 import logging
-import signal
-
-# import socket
-# import select
-# import time
-# import socketserver
+import subprocess
 import threading
 from abc import ABCMeta, abstractmethod
 from collections.abc import MutableMapping
@@ -55,18 +50,7 @@ from broker.controller_module import ControllerModule
 from broker.process_proxy import ProxyMsg
 from pyroute2 import IPRoute
 
-from .tunnel import DATAPLANE_TYPES, TUNNEL_EVENTS
-
-# BR_NAME_MAX_LENGTH: Literal[15] = 15
-# NAME_PREFIX_EVI: Literal["evi"] = "evi"
-# NAME_PREFIX_APP_BR: Literal["app"] = "app"
-# MTU: Literal[1410] = 1410
-# BRIDGE_AUTO_DELETE: bool = True
-# DEFAULT_BRIDGE_PROVIDER: Literal["OVS"] = "OVS"
-# DEFAULT_SWITCH_PROTOCOL: Literal["BF"] = "BF"
-# PROXY_LISTEN_ADDRESS: Literal["127.0.0.1"] = "127.0.0.1"
-# PROXY_LISTEN_PORT: Literal[5802] = 5802
-# SDN_CONTROLLER_PORT: Literal[6633] = 6633
+from .tunnel import TUNNEL_EVENTS
 
 
 class BridgeABC:
@@ -186,6 +170,7 @@ class OvsBridge(BridgeABC):
         broker.run_proc([OvsBridge.brctl, "--if-exists", "del-br", self.name])
 
     def add_port(self, port_name, port_descr):
+        self.del_port(port_name)
         self.flush_ip_addresses(self.name)
         with IPRoute() as ipr:
             idx = ipr.link_lookup(ifname=port_name)[0]
@@ -448,14 +433,12 @@ class BridgeController(ControllerModule):
 
     def __init__(self, nexus, module_config):
         super().__init__(nexus, module_config)
-        # self._bfproxy = None
-        # self._bfproxy_thread = None
         self._ovl_net: dict[str, Union[VNIC, LinuxBridge, OvsBridge]] = {}
         self._appbr: dict[str, Union[LinuxBridge, OvsBridge]] = {}
-        # self._lock = threading.Lock()
         self._tunnels: dict[str, TunnelsLog] = {}
 
     def initialize(self):
+        self._bf_proc = None
         self._register_abort_handlers()
         self._register_req_handlers()
         self._register_resp_handlers()
@@ -468,17 +451,6 @@ class BridgeController(ControllerModule):
         # create and configure the bridge for each overlay
         _ = self._create_overlay_bridges()
         publishers = self.get_registered_publishers()
-        if (
-            "TincanTunnel" not in publishers
-            or "TCI_TINCAN_MSG_NOTIFY"
-            not in self.get_available_subscriptions("TincanTunnel")
-        ):
-            raise RuntimeError(
-                "The TincanTunnel MESSAGE NOTIFY subscription is not available."
-                "Link Manager cannot continue."
-            )
-        self.start_subscription("TincanTunnel", "TCI_TINCAN_MSG_NOTIFY")
-
         if (
             "LinkManager" not in publishers
             or "LNK_TUNNEL_EVENTS"
@@ -510,7 +482,6 @@ class BridgeController(ControllerModule):
             "GNV_TUNNEL_EVENTS": self.req_handler_manage_bridge,
             "LNK_TUNNEL_EVENTS": self.req_handler_manage_bridge,
             "VIS_DATA_REQ": self.req_handler_vis_data,
-            "TCI_TINCAN_MSG_NOTIFY": self.req_handler_tincan_notify,
         }
 
     def _register_resp_handlers(self):
@@ -531,26 +502,6 @@ class BridgeController(ControllerModule):
             )
             bf_config[br_name] = bf_ovls[olid]
             bf_config[br_name]["OverlayId"] = olid
-        # while True:
-        #     try:
-        #         self._bfproxy = BoundedFloodProxy(
-        #             bf_config,
-        #             self,
-        #         )
-        #         self._bfproxy_thread = threading.Thread(
-        #             target=self._bfproxy.serve_forever, name="BFProxyServer"
-        #         )
-        #         break
-        #     except socket.error as err:
-        #         self.logger.warning(
-        #             "Failed to start the BoundedFlood Proxy, will retry. Error msg= %s",
-        #             err,
-        #         )
-        #         time.sleep(10)
-        # self._server_thread.setDaemon(True)
-        # self._bfproxy_thread.start()
-        # start the BF RYU module
-        # self._bfproxy.start_bf_client_module()
         self.start_bf_client_module(bf_config)
 
     def _create_overlay_bridges(self) -> dict:
@@ -615,53 +566,12 @@ class BridgeController(ControllerModule):
         cbt.set_response(None, True)
         self.complete_cbt(cbt)
 
-    def req_handler_tincan_notify(self, cbt: CBT):
-        if cbt.request.params["Command"] == "ResetTincanTunnels":
-            sid = cbt.request.params["SessionId"]
-            for olid, br in self._ovl_net.items():
-                self.logger.info("Clearing Tincan TAPs from %s for session %s", br, sid)
-                for port_name in [*br.ports]:
-                    if (
-                        br.port_descriptors[port_name]["Dataplane"]
-                        == DATAPLANE_TYPES.Tincan
-                    ):
-                        br.del_port(port_name)
-                        self._tunnels[olid].pop(port_name, None)
-                        self.logger.info(
-                            "Port %s removed from bridge %s", port_name, br
-                        )
-        cbt.set_response(data=None, status=True)
-        self.complete_cbt(cbt)
-
     def on_timer_event(self):
         for tnl in self._tunnels.values():
             tnl.trim()
 
-    # def abort_handler(self, cbt: CBT):
-    #     """Additional resouce clean here, eg., fail edge negotiate or create"""
-    #     self.free_cbt(cbt)
-
-    def process_cbt(self, cbt):
-        if cbt.is_expired:
-            self.abort_handler(cbt)
-        elif cbt.is_pending:
-            if cbt.request.action in ("LNK_TUNNEL_EVENTS", "GNV_TUNNEL_EVENTS"):
-                self.req_handler_manage_bridge(cbt)
-            elif cbt.request.action == "VIS_DATA_REQ":
-                self.req_handler_vis_data(cbt)
-            elif cbt.request.action == "TCI_TINCAN_MSG_NOTIFY":
-                self.req_handler_tincan_notify(cbt)
-            else:
-                self.req_handler_default(cbt)
-        elif cbt.is_completed:
-            self.resp_handler_default(cbt)
-
     def terminate(self):
         try:
-            # if self._bfproxy:
-            #     self._bfproxy.stop_bf_module()
-            #     self._bfproxy.server_close()
-            #     self._bfproxy_thread.join()
             self.stop_bf_module()
             for olid, bridge in self._ovl_net.items():
                 if self.overlays[olid]["NetDevice"].get(
@@ -759,7 +669,6 @@ class BridgeController(ControllerModule):
                 Status=False, Data=dict(ErrorMsg="Unsupported request")
             )
         msg.data = json.dumps(task).encode("utf-8")
-        # resp = ProxyMsg(msg.fileno, json.dumps(task).encode("utf-8"))
         self.send_ipc(msg)
 
     def start_bf_client_module(self, bf_config):
@@ -776,10 +685,26 @@ class BridgeController(ControllerModule):
             json.dumps(bf_config),
             "controllers/bounded_flood.py",
         ]
-        self._bf_proc = broker.create_process(cmd)
+        self._bf_proc = subprocess.Popen(cmd)
 
-    def stop_bf_module(self):
-        if hasattr(self, "_bf_proc"):
-            if self._bf_proc:
-                self._bf_proc.send_signal(signal.SIGINT)
-                self._bf_proc.wait()
+    def stop_bf_module(self, wt: int = 1.15):
+        if self._bf_proc is not None:
+            try:
+                exit_code = self._bf_proc.poll()
+                if exit_code is None:
+                    self._bf_proc.terminate()
+                    self._bf_proc.wait()
+                else:
+                    self.logger.debug(
+                        "BoundedFlood process %s already exited with %s",
+                        self._bf_proc.pid,
+                        exit_code,
+                    )
+            except subprocess.TimeoutExpired:
+                exit_code = self._bf_proc.poll()
+                if exit_code is None:
+                    self.logger.info(
+                        "Killing unresponsive BoundedFlood: %s", self._bf_proc.pid
+                    )
+                    self._bf_proc.kill()
+        self.logger.info("BoundedFlood terminated")

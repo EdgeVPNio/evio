@@ -370,6 +370,11 @@ class ConnEdgeAdjacenctList(MutableMapping):
         for peer_id in rml:
             self.remove_conn_edge(peer_id)
 
+    def remove_edge_by_id(self, edge_id: str):
+        for ce in self._conn_edges.values():
+            if ce.edge_id == edge_id:
+                self.remove_conn_edge(ce.peer_id)
+
 
 class GraphEdit:
     def __init__(self, conn_edge: ConnectionEdge, op_type: str, priority: int):

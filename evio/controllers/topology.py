@@ -140,7 +140,6 @@ class NetworkOverlay:
         "_max_concurrent_edits",
         "num_active_edits",
         "new_peer_count",
-        "known_peers",
         "ond_peers",
         "_graph_transformation",
         "adjacency_list",
@@ -150,16 +149,12 @@ class NetworkOverlay:
         # used to limit number of concurrent operations initiated
         self._max_concurrent_edits = kwargs.get("MaxConcurrentOps", MAX_CONCURRENT_OPS)
         self._bsemp = threading.BoundedSemaphore(self._max_concurrent_edits)
-        # self._refc: int = self._max_concurrent_edits
-        # self._reflk = threading.Lock()
         self.node_id: str = node_id
         self.overlay_id: str = overlay_id
         self.logger: logging.Logger = kwargs["Logger"]
         self.new_peer_count: int = 0
         self._graph_transformation: GraphTransformation = None
-        # self.transformation: GraphTransformation = None
         self.known_peers: dict[str, DiscoveredPeer] = {}
-        # self.pending_auth: dict[str, EdgeResponse] = {}
         self.ond_peers: list[dict] = []
         self.adjacency_list = ConnEdgeAdjacenctList(overlay_id, node_id)
         self._loc_id: int = kwargs.get("LocationId")
@@ -248,16 +243,6 @@ class Topology(ControllerModule):
             )
         self.start_subscription("Signal", "SIG_PEER_PRESENCE_NOTIFY")
         if (
-            "TincanTunnel" not in publishers
-            or "TCI_TINCAN_MSG_NOTIFY"
-            not in self.get_available_subscriptions("TincanTunnel")
-        ):
-            raise RuntimeError(
-                "The TincanTunnel MESSAGE NOTIFY subscription is not available."
-                "Link Manager cannot continue."
-            )
-        self.start_subscription("TincanTunnel", "TCI_TINCAN_MSG_NOTIFY")
-        if (
             "LinkManager" not in publishers
             or "LNK_TUNNEL_EVENTS"
             not in self.get_available_subscriptions("LinkManager")
@@ -318,7 +303,6 @@ class Topology(ControllerModule):
             "TOP_NEGOTIATE_EDGE": self.req_handler_negotiate_edge,
             "TOP_QUERY_KNOWN_PEERS": self.req_handler_query_known_peers,
             "_TOPOLOGY_UPDATE_": self._req_handler_manage_topology,
-            "TCI_TINCAN_MSG_NOTIFY": self.req_handler_tincan_notify,
         }
 
     def _register_resp_handlers(self):
@@ -375,23 +359,13 @@ class Topology(ControllerModule):
             if self._net_ovls[olid].new_peer_count >= self.config.get(
                 "PeerDiscoveryCoalesce", PEER_DISCOVERY_COALESCE
             ):
-                self.logger.debug(
-                    "%s/%s discovered - coalesced %s of %s, "
-                    "attempting overlay update",
-                    olid,
-                    peer_id,
+                self.logger.info(
+                    "Coalesced %d of %d discovered peers, attempting update on overlay %s",
                     self._net_ovls[olid].new_peer_count,
                     self.config.get("PeerDiscoveryCoalesce", PEER_DISCOVERY_COALESCE),
+                    olid,
                 )
                 self._update_overlay(olid)
-            elif self.logger.isEnabledFor(logging.INFO):
-                self.logger.info(
-                    "%s/%s discovered - coalesced %s of %s",
-                    olid,
-                    peer_id,
-                    self._net_ovls[olid].new_peer_count,
-                    self.config.get("PeerDiscoveryCoalesce", PEER_DISCOVERY_COALESCE),
-                )
         cbt.set_response(None, True)
         self.complete_cbt(cbt)
 
@@ -456,9 +430,6 @@ class Topology(ControllerModule):
                     "Data": ce,
                 }
             )
-            # if ce.edge_type in EDGE_TYPE_OUT:
-            #     ovl.release()
-            #     self._process_next_transition(ovl)
         elif event == TUNNEL_EVENTS.Disconnected:
             ce = ovl.adjacency_list[peer_id]
             if ce.edge_state != EDGE_STATES.Connected:
@@ -484,57 +455,10 @@ class Topology(ControllerModule):
             )
             self._remove_tunnel(ovl, ce.dataplane, peer_id, ce.edge_id)
         elif event == TUNNEL_EVENTS.Removed:
-            """Role B"""
-            ce = ovl.adjacency_list.get(peer_id, None)
-            if (
-                ce
-                and ce.role == CONNECTION_ROLE.Target
-                and ce.edge_state == EDGE_STATES.Authorized
-            ):
-                # Tunnel/Link cm handles creating the tunnel. Only need to remove CE from adj list.
-                ovl.adjacency_list.pop(peer_id, None)
-            # if (
-            #     ce
-            #     and ce.role == CONNECTION_ROLE.Initiator
-            #     and ce.edge_state == EDGE_STATES.Authorized
-            # ):
-            #     # ce will be none as the resp handler for the failed create tunnel
-            #     # would have removed the CE
-            #     # raise RuntimeError(
-            #     #     f"Tunnel removed event is invalid for authorized initiator CE= {ce}"
-            #     # )
-            #     pass
-            # elif (
-            #     ce
-            #     and ce.role == CONNECTION_ROLE.Initiator
-            #     and ce.edge_state == EDGE_STATES.Connected
-            # ):  # topo initiated the removal
-            #     raise RuntimeError(
-            #         f"Expected ce as None, resp handler remove tnl should clean up but got {ce}"
-            #     )
-            # elif ce and ce.edge_state == EDGE_STATES.Disconnected:
-            #     ce.edge_state = EDGE_STATES.Deleting
-            # elif (
-            #     ce
-            #     and ce.role == CONNECTION_ROLE.Target
-            #     and ce.edge_state == EDGE_STATES.Authorized
-            # ):
-            #     # Tunnel/Link cm handles creating the tunnel. Only need to remove CE from adj list.
-            #     ovl.adjacency_list.pop(peer_id, None)
-            #     # raise RuntimeError(f"Tunnel removed event is invalid for auth tgt since tnl cm
-            #     # handles creating the tunnel {ce}")
-            # elif (
-            #     ce
-            #     and ce.role == CONNECTION_ROLE.Target
-            #     and ce.edge_state == EDGE_STATES.Connected
-            # ):  # the peer disconnected
-            #     raise RuntimeError(
-            #         f"The target node should not initiate removal on connect edges {ce}"
-            #     )
-            # elif ce:
-            #     self.logger.error(
-            #         "Tunnel event remove is unexpected for conn edge %s", ce
-            #     )
+            """The removed event is also generated for tincan process failure"""
+            ce = ovl.adjacency_list.pop(peer_id, None)
+            if ce:
+                self.logger.info("Edge %s removed from adjacency list", ce.edge_id)
         else:
             self.logger.warning("Invalid UpdateType specified for event %s", event)
 
@@ -605,9 +529,6 @@ class Topology(ControllerModule):
             "leaf".casefold(),
             ROLES,
         ):
-            self.logger.info(
-                "The edge request was refused as this is a pendant device."
-            )
             edge_cbt.set_response(
                 "E6 - Not accepting incoming connections, leaf device", False
             )
@@ -615,7 +536,13 @@ class Topology(ControllerModule):
             return
         net_ovl = self._net_ovls[olid]
         edge_resp: EdgeResponse = None
-        self.logger.debug("Rcvd EdgeRequest=%s", str(edge_req))
+        self.logger.info(
+            "Received %s EdgeRequest=%s/%s from %s",
+            edge_req.edge_type,
+            edge_req.overlay_id,
+            edge_req.edge_id,
+            edge_req.initiator_id,
+        )
         peer_id = edge_req.initiator_id
         if peer_id in net_ovl.adjacency_list:
             edge_resp = self._resolve_request_collision(
@@ -625,8 +552,6 @@ class Topology(ControllerModule):
             edge_resp = self._negotiate_response(net_ovl, edge_req)
 
         if edge_resp and edge_resp.is_accepted:
-            # net_ovl.pending_auth[peer_id] = edge_resp
-            # edge_cbt.add_context("pending_auth", edge_resp)
             if edge_resp.message[:2] == "E0":
                 net_ovl.adjacency_list.pop(peer_id)
             et = transpose_edge_type(edge_req.edge_type)
@@ -673,19 +598,6 @@ class Topology(ControllerModule):
                     if peer.is_available:
                         ovl_peers[olid].append(peer_id)
         cbt.set_response(ovl_peers, True)
-        self.complete_cbt(cbt)
-
-    def req_handler_tincan_notify(self, cbt: CBT):
-        if cbt.request.params["Command"] == "ResetTincanTunnels":
-            sid = cbt.request.params["SessionId"]
-            for olid, ovl in self._net_ovls.items():
-                self.logger.info(
-                    "Clearing Tincan CE's from %s for session %s", olid, sid
-                )
-                ovl.adjacency_list.clear_tincan_ces()
-                if ovl.transformation:
-                    ovl.transformation.clear()
-        cbt.set_response(data=None, status=True)
         self.complete_cbt(cbt)
 
     def resp_handler_auth_tunnel(self, cbt: CBT):
@@ -916,7 +828,13 @@ class Topology(ControllerModule):
                 capability=dp_types,
             )
             edge_params = er._asdict()
-            self.logger.info("Initiating %s", er)
+            self.logger.info(
+                "Initiating %s EdgeRequest to %s/%s to %s",
+                er.edge_type,
+                er.overlay_id,
+                er.edge_id,
+                er.recipient_id,
+            )
             rem_act = RemoteAction(
                 net_ovl.overlay_id,
                 er.recipient_id,
@@ -930,7 +848,13 @@ class Topology(ControllerModule):
         self, net_ovl: NetworkOverlay, edge_nego: EdgeNegotiate
     ):
         """Role A2"""
-        self.logger.debug("Completing %s", str(edge_nego))
+        self.logger.info(
+            "Completing %s EdgeNegotiate of %s/%s to %s",
+            edge_nego.edge_type,
+            edge_nego.overlay_id,
+            edge_nego.edge_id[:7],
+            edge_nego.recipient_id[:7],
+        )
         if edge_nego.recipient_id not in net_ovl.adjacency_list:
             self.logger.warning(
                 "The peer specified in edge negotiation %s is not in current "
@@ -949,7 +873,6 @@ class Topology(ControllerModule):
                 ce.edge_state = EDGE_STATES.Deleting
                 del net_ovl.adjacency_list[ce.peer_id]
             net_ovl.known_peers[peer_id].exclude()
-            # net_ovl.release()  # release on explicit negotiate fail
             self._process_next_transition(net_ovl)
         else:
             if ce.edge_state != EDGE_STATES.PreAuth:
@@ -974,7 +897,6 @@ class Topology(ControllerModule):
                 ce.edge_state = EDGE_STATES.Deleting
                 del net_ovl.adjacency_list[ce.peer_id]
                 net_ovl.known_peers[peer_id].exclude()
-                # net_ovl.release()  # release on explicit negotiate fail
                 self._process_next_transition(net_ovl)
                 return
             # record tunnel start on node A after successful edge negotiation
@@ -999,9 +921,9 @@ class Topology(ControllerModule):
         neg_edge_cbt: CBT,
         edge_resp: EdgeResponse,
     ):
-        """->Role B1"""
+        """Role B1"""
         self.logger.info(
-            "Authorizing peer edge %s from %s:%s->%s",
+            "Authorizing incoming peer edge %s from %s:%s->%s",
             edge_id,
             net_ovl.overlay_id,
             peer_id[:7],
@@ -1163,7 +1085,7 @@ class Topology(ControllerModule):
                 )  # succ threshold -> at/below the min required
             ):
                 raise ValueError("Successor threshold not met")
-            self.logger.info("Removing edge %s", ce)
+            self.logger.debug("Removing edge %s", ce)
             self._remove_tunnel(net_ovl, ce.dataplane, ce.peer_id, ce.edge_id)
             return True
         return False
@@ -1180,7 +1102,12 @@ class Topology(ControllerModule):
             "PeerId": peer_id,
             "TunnelId": tunnel_id,
         }
-        self.logger.info("Removing tunnel %s to %s", tunnel_id[:7], peer_id[:7])
+        self.logger.info(
+            "Removing tunnel %s/%s to %s",
+            net_ovl.overlay_id,
+            tunnel_id[:7],
+            peer_id[:7],
+        )
         if dataplane == DATAPLANE_TYPES.Geneve:
             self.register_cbt("GeneveTunnel", "GNV_REMOVE_TUNNEL", params)
         elif dataplane == DATAPLANE_TYPES.Tincan:
@@ -1201,15 +1128,11 @@ class Topology(ControllerModule):
 
     def _cleanup_expired_incomplete_edge(self, cbt: CBT):
         self.logger.debug("Abort CBT %s", cbt)
-        olid = cbt.request.params.get("OverlayId", None)
-        if not olid:
-            self.logger.warning("No overlay ID found in expired CBT")
-            return
+        olid = cbt.request.params["OverlayId"]
         net_ovl = self._net_ovls[olid]
         cbt.pop_context("pending_auth")
-        peer_id = cbt.request.params.get("PeerId", None)
-        if peer_id:
-            net_ovl.adjacency_list.pop(peer_id, None)
+        peer_id = cbt.request.params["PeerId"]
+        net_ovl.adjacency_list.pop(peer_id, None)
         self.free_cbt(cbt)
 
     def _abort_handler_remote_action(self, cbt: CBT):

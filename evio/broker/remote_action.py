@@ -66,8 +66,6 @@ class RemoteAction:
     def submit_remote_act(self, cm, parent_cbt=None, **kwargs):
         self.initiator_id = cm.node_id
         self.initiator_cm = cm.name
-        cbt = cm.create_cbt(
-            cm.name, "Signal", "SIG_REMOTE_ACTION", self, parent_cbt, **kwargs
-        )
+        cbt = cm.create_cbt("Signal", "SIG_REMOTE_ACTION", self, parent_cbt, **kwargs)
         self.action_tag = cbt.tag
         cm.submit_cbt(cbt)

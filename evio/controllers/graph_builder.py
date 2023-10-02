@@ -273,6 +273,7 @@ class GraphBuilder:
         request_list: Optional[list[dict]],
         relink: bool = False,
     ) -> GraphTransformation:
+        self.logger.debug("Using peer list: %s", peers)
         new_adj_list = self.build_adj_list(
             peers, initial_adj_list, request_list, relink
         )

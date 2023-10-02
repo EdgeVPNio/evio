@@ -112,7 +112,6 @@ class XmppTransport(slixmpp.ClientXMPP):
     ):  # param for coressponding XmppCircle
         slixmpp.ClientXMPP.__init__(self, jid, password, sasl_mech=sasl_mech)
         self._overlay_id = None
-        # self._sig: Signal = None
         self._node_id = None
         self.logger = None
         self.on_presence = None
@@ -421,10 +420,10 @@ class XmppTransport(slixmpp.ClientXMPP):
     ):
         self.logger.debug("Initiating shutdown of XMPP overlay=%s", self._overlay_id)
         self.loop.call_soon_threadsafe(self.disconnect(reason="controller shutdown"))
+        self.logger.debug("Disconnect of XMPP overlay=%s", self._overlay_id)
 
 
 class XmppCircle:
-    # _REFLECT: list[str] = [ ]
     def __init__(
         self, node_id: str, overlay_id: str, ovl_config: dict, **kwargs
     ) -> None:
@@ -442,7 +441,6 @@ class XmppCircle:
         self.xport: XmppTransport = None
         self._xport_thread = threading.Thread(
             target=self._setup_transport_instance,
-            # kwargs={"overlay_id": overlay_id},
             daemon=True,
             name="XMPP.Client",
         )
@@ -571,9 +569,7 @@ class Signal(ControllerModule):
                 "A mis-delivered remote action was discarded: %s", rem_act
             )
             return
-        n_cbt = self.create_cbt(
-            self.name, rem_act.recipient_cm, rem_act.action, rem_act.params
-        )
+        n_cbt = self.create_cbt(rem_act.recipient_cm, rem_act.action, rem_act.params)
         # store the remote action for completion
         with self._lck:
             self._recv_remote_acts_invk_locally[n_cbt.tag] = rem_act

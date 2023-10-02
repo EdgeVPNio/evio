@@ -84,17 +84,15 @@ class ProcessProxy:
     the controller modules and external local processes.
     """
 
-    def __init__(
-        self,
-        dispatch_msg_cb,
-        logger: logging.Logger,
-    ):
+    def __init__(self, dispatch_msg_cb, logger: logging.Logger, create_svc_thread=True):
         self.logger = logger
         self.tx_que = queue.Queue()
         self.dispatch_msg = dispatch_msg_cb
-        self._svr_thread = threading.Thread(
-            target=self.serve, name="ProcessProxyServer", daemon=False
-        )
+        self._svr_thread = None
+        if create_svc_thread:
+            self._svr_thread = threading.Thread(
+                target=self.serve, name="ProcessProxyServer", daemon=False
+            )
         self._exit_ev = threading.Event()
         self._server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         self._server_sock.setblocking(0)

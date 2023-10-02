@@ -68,6 +68,7 @@ __all__ = [
     "SUCCESSIVE_FAIL_INCR",
     "SUCCESSIVE_FAIL_DECR",
     "STALE_INTERVAL",
+    "MAX_HEARTBEATS",
     "perfd",
     "CONFIG",
     "CTL_CREATE_CTRL_LINK",
@@ -123,6 +124,8 @@ MAX_CONCURRENT_OPS: Literal[1] = 1
 SUCCESSIVE_FAIL_INCR: Literal[1] = 1
 SUCCESSIVE_FAIL_DECR: Literal[2] = 2
 STALE_INTERVAL = float(2 * 3600)  # 2 hrs
+MAX_HEARTBEATS: Literal[5] = 3
+
 perfd = PerformanceData(LogFile=os.path.join(LOG_DIRECTORY, PERFDATA_LOG_NAME))
 
 CONFIG = {
@@ -174,25 +177,18 @@ CTL_ECHO = {
     "ControlType": "Request",
     "Request": {"Command": "Echo", "Message": "ECHO TEST"},
 }
-CTL_QUERY_TUNNEL_INFO = {
-    "ProtocolVersion": EVIO_VER_CTL,
-    "TransactionId": 0,
-    "ControlType": "Request",
-    "Request": {"Command": "QueryOverlayInfo", "OverlayId": "", "TunnelId": ""},
-}
+
 CTL_CREATE_TUNNEL = {
     "ProtocolVersion": EVIO_VER_CTL,
     "ControlType": "Request",
     "TransactionId": 0,
     "Request": {
         "Command": "CreateTunnel",
-        "OverlayId": "",
         "NodeId": "",
         "TunnelId": "",
         "TapName": "",
         "StunServers": [],
         "TurnServers": [],
-        "Type": "",
     },
 }
 CTL_CREATE_LINK = {
@@ -201,7 +197,6 @@ CTL_CREATE_LINK = {
     "ControlType": "Request",
     "Request": {
         "Command": "CreateLink",
-        "OverlayId": "",
         "TunnelId": "",
         "LinkId": "",
         "PeerInfo": {"UID": "", "MAC": "", "FPR": ""},
@@ -211,13 +206,13 @@ CTL_REMOVE_TUNNEL = {
     "ProtocolVersion": EVIO_VER_CTL,
     "TransactionId": 0,
     "ControlType": "Request",
-    "Request": {"Command": "RemoveTunnel", "OverlayId": "", "TunnelId": ""},
+    "Request": {"Command": "RemoveTunnel", "TunnelId": ""},
 }
 CTL_REMOVE_LINK = {
     "ProtocolVersion": EVIO_VER_CTL,
     "TransactionId": 0,
     "ControlType": "Request",
-    "Request": {"Command": "RemoveLink", "OverlayId": "", "LinkId": ""},
+    "Request": {"Command": "RemoveLink", "TunnelId": "", "LinkId": ""},
 }
 RESP = {
     "ProtocolVersion": EVIO_VER_CTL,
@@ -230,7 +225,7 @@ CTL_QUERY_LINK_STATS = {
     "ProtocolVersion": EVIO_VER_CTL,
     "TransactionId": 0,
     "ControlType": "Request",
-    "Request": {"Command": "QueryLinkStats", "TunnelIds": []},
+    "Request": {"Command": "QueryLinkStats", "TunnelId": ""},
 }
 CTL_QUERY_CAS = {
     "ProtocolVersion": EVIO_VER_CTL,
@@ -238,7 +233,6 @@ CTL_QUERY_CAS = {
     "ControlType": "Request",
     "Request": {
         "Command": "QueryCandidateAddressSet",
-        "OverlayId": "",
         "LinkId": "",
     },
 }

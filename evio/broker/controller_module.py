@@ -168,14 +168,14 @@ class ControllerModule:
                 self.logger.info("controller state: %s", state)
 
     def register_cbt(
-        self, _recipient, _action, _params=None, parent_cbt=None, **kwargs
+        self, _recipient, _action, _params=None, _parent_cbt=None, **kwargs
     ):
         cbt = self._nexus.create_cbt(
             initiator=self.name,
             recipient=_recipient,
             action=_action,
             params=_params,
-            parent_cbt=parent_cbt,
+            parent_cbt=_parent_cbt,
             **kwargs,
         )
         self._nexus.submit_req_cbt(cbt)
@@ -192,10 +192,15 @@ class ControllerModule:
         self._nexus.submit_req_cbt(cbt)
 
     def create_cbt(
-        self, initiator, recipient, action, params=None, parent_cbt=None, **kwargs
+        self, _recipient, _action, _params=None, _parent_cbt=None, **kwargs
     ) -> CBT:
         return self._nexus.create_cbt(
-            initiator, recipient, action, params, parent_cbt, **kwargs
+            initiator=self.name,
+            recipient=_recipient,
+            action=_action,
+            params=_params,
+            parent_cbt=_parent_cbt,
+            **kwargs,
         )
 
     def complete_cbt(self, cbt: CBT):

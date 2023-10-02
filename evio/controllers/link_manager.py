@@ -60,7 +60,6 @@ class Tunnel:
         peer_id: str,
         tnl_state,
         dataplane,
-        dp_instance_id: int,
     ):
         self.tnlid = tnlid
         self.overlay_id = overlay_id
@@ -72,7 +71,6 @@ class Tunnel:
         self.peer_mac = None
         self._tunnel_state = tnl_state
         self.dataplane = dataplane
-        self.dp_instance_id = dp_instance_id
 
     def __repr__(self):
         return broker.introspect(self)
@@ -97,7 +95,6 @@ class LinkManager(ControllerModule):
         self._lock = threading.Lock()  # serializes access to _overlays, _links
         self._link_updates_publisher = None
         self._ignored_net_interfaces = dict()
-        self._tc_session_id: int = 0
 
     def initialize(self):
         self._register_abort_handlers()
@@ -107,14 +104,14 @@ class LinkManager(ControllerModule):
         publishers = self.get_registered_publishers()
         if (
             "TincanTunnel" not in publishers
-            or "TCI_TINCAN_MSG_NOTIFY"
+            or "TCI_TUNNEL_EVENT"
             not in self.get_available_subscriptions("TincanTunnel")
         ):
             raise RuntimeError(
                 "The TincanTunnel MESSAGE NOTIFY subscription is not available."
                 "Link Manager cannot continue."
             )
-        self.start_subscription("TincanTunnel", "TCI_TINCAN_MSG_NOTIFY")
+        self.start_subscription("TincanTunnel", "TCI_TUNNEL_EVENT")
         if (
             "OverlayVisualizer" in publishers
             and "VIS_DATA_REQ" in self.get_available_subscriptions("OverlayVisualizer")
@@ -131,15 +128,6 @@ class LinkManager(ControllerModule):
                     self._ignored_net_interfaces[olid].add(ign_inf)
 
         self.logger.info("Controller module loaded")
-
-    @property
-    def tc_session_id(self):
-        return self._tc_session_id
-
-    @tc_session_id.setter
-    def tc_session_id(self, val: int):
-        self.logger.info("Updating Tincan session ID %s->%s", self.tc_session_id, val)
-        self._tc_session_id = val
 
     def terminate(self):
         self.logger.info("Controller module terminating")
@@ -172,7 +160,6 @@ class LinkManager(ControllerModule):
                 peer_id,
                 tnl_state=TUNNEL_STATES.AUTHORIZED,
                 dataplane=DATAPLANE_TYPES.Tincan,
-                dp_instance_id=self.tc_session_id,
             )
             self._tunnels[tnlid] = tnl
             self.register_timed_transaction(
@@ -260,7 +247,6 @@ class LinkManager(ControllerModule):
             peer_id,
             tnl_state=TUNNEL_STATES.CREATING,
             dataplane=DATAPLANE_TYPES.Tincan,
-            dp_instance_id=self.tc_session_id,
         )
         self._assign_link_to_tunnel(tnlid, lnkid, 0xA1)
 
@@ -304,7 +290,6 @@ class LinkManager(ControllerModule):
             return
         lnkid = tnlid
         self._tunnels[tnlid].tunnel_state = TUNNEL_STATES.CREATING
-        self._tunnels[tnlid].dp_instance_id = self.tc_session_id
         self._assign_link_to_tunnel(tnlid, lnkid, 0xB1)
         self.logger.debug(
             "Creating link %s to peer %s (1/4 Target)", lnkid[:7], peer_id[:7]
@@ -330,7 +315,6 @@ class LinkManager(ControllerModule):
                 "MAC": node_data["MAC"],
                 "UID": node_data["UID"],
             },
-            "TincanId": self.tc_session_id,
         }
         if self.config.get("Turn"):
             create_link_params["TurnServers"] = self.config["Turn"]
@@ -356,61 +340,69 @@ class LinkManager(ControllerModule):
         self.logger.debug(
             "Creating link %s to peer %s (3/4 Target)", lnkid[:7], peer_id[:7]
         )
-        params["TincanId"] = self._tunnels[tnlid].dp_instance_id
         self.register_cbt("TincanTunnel", "TCI_CREATE_LINK", params, cbt)
 
     def req_handler_tincan_msg(self, cbt: CBT):
         lts = time.time()
-        if cbt.request.params["Command"] == "LinkStateChange":
+        tnlid = cbt.request.params["TunnelId"]
+        if tnlid not in self._tunnels:
+            cbt.set_response(data=None, status=True)
+            self.complete_cbt(cbt)
+            return
+        elif cbt.request.params["Command"] == "LinkConnected":
             lnkid = cbt.request.params["LinkId"]
-            tnlid = cbt.request.params["TunnelId"]
-            if tnlid not in self._tunnels:
-                return
-            if (cbt.request.params["Data"] == "LINK_STATE_DOWN") and (
-                self._tunnels[tnlid].tunnel_state != TUNNEL_STATES.QUERYING
-            ):
-                self.logger.debug("Link %s is DOWN cbt=%s", tnlid, cbt)
+            self.logger.debug("Link %s is connected", lnkid)
+            olid = self._tunnels[tnlid].overlay_id
+            peer_id = self._tunnels[tnlid].peer_id
+            lnk_status = self._tunnels[tnlid].tunnel_state
+            self._tunnels[tnlid].tunnel_state = TUNNEL_STATES.ONLINE
+            if lnk_status != TUNNEL_STATES.QUERYING:
+                param = {
+                    "UpdateType": TUNNEL_EVENTS.Connected,
+                    "OverlayId": olid,
+                    "PeerId": peer_id,
+                    "TunnelId": tnlid,
+                    "LinkId": lnkid,
+                    "ConnectedTimestamp": lts,
+                    "TapName": self._tunnels[tnlid].tap_name,
+                    "MAC": self._tunnels[tnlid].mac,
+                    "PeerMac": self._tunnels[tnlid].peer_mac,
+                    "Dataplane": self._tunnels[tnlid].dataplane,
+                }
+                self._link_updates_publisher.post_update(param)
+            elif lnk_status == TUNNEL_STATES.QUERYING:
+                # Do not post a notification if the the connection state was being queried
+                self._tunnels[tnlid].link.status_retry = 0
+        elif cbt.request.params["Command"] == "LinkDisconnected":
+            if self._tunnels[tnlid].tunnel_state != TUNNEL_STATES.QUERYING:
+                self.logger.debug("Link %s is disconnected", tnlid)
                 # issue a link state check only if it not already being done
                 self._tunnels[tnlid].tunnel_state = TUNNEL_STATES.QUERYING
                 cbt.set_response(data=None, status=True)
-                self.register_cbt("TincanTunnel", "TCI_QUERY_LINK_STATS", [tnlid])
-            elif cbt.request.params["Data"] == "LINK_STATE_UP":
-                tnlid = self.tunnel_id(lnkid)
-                olid = self._tunnels[tnlid].overlay_id
-                peer_id = self._tunnels[tnlid].peer_id
-                lnk_status = self._tunnels[tnlid].tunnel_state
-                self._tunnels[tnlid].tunnel_state = TUNNEL_STATES.ONLINE
-                if lnk_status != TUNNEL_STATES.QUERYING:
-                    param = {
-                        "UpdateType": TUNNEL_EVENTS.Connected,
-                        "OverlayId": olid,
-                        "PeerId": peer_id,
-                        "TunnelId": tnlid,
-                        "LinkId": lnkid,
-                        "ConnectedTimestamp": lts,
-                        "TapName": self._tunnels[tnlid].tap_name,
-                        "MAC": self._tunnels[tnlid].mac,
-                        "PeerMac": self._tunnels[tnlid].peer_mac,
-                        "Dataplane": self._tunnels[tnlid].dataplane,
-                    }
-                    self._link_updates_publisher.post_update(param)
-                elif lnk_status == TUNNEL_STATES.QUERYING:
-                    # Do not post a notification if the the connection state was being queried
-                    self._tunnels[tnlid].link.status_retry = 0
-            cbt.set_response(data=None, status=True)
-        elif cbt.request.params["Command"] == "TincanReady":
-            self.tc_session_id = cbt.request.params.get("SessionId", self.tc_session_id)
-            cbt.set_response(data=None, status=True)
-        elif cbt.request.params["Command"] == "ResetTincanTunnels":
-            self.logger.info(
-                "Clearing Tincan tunnels for session %s", self.tc_session_id
-            )
-            self._tunnels.clear()
-            self._links.clear()
-            self.tc_session_id = 0
-            cbt.set_response(data=None, status=True)
+                self.register_cbt(
+                    "TincanTunnel", "TCI_QUERY_LINK_INFO", {"TunnelId": tnlid}
+                )
+        elif cbt.request.params["Command"] == "TincanTunnelFailed":
+            lnkid = self.link_id(tnlid)
+            if lnkid:
+                self._links.pop(lnkid, None)
+            tnl = self._tunnels.pop(tnlid)
+            tnl.tunnel_state = TUNNEL_STATES.FAILED
+            param = {
+                "UpdateType": TUNNEL_EVENTS.Removed,
+                "OverlayId": tnl.overlay_id,
+                "PeerId": tnl.peer_id,
+                "TunnelId": tnlid,
+                "LinkId": lnkid,
+                "TapName": tnl.tap_name,
+            }
+            self._link_updates_publisher.post_update(param)
         else:
-            cbt.set_response(data=None, status=True)
+            self.logger.warning(
+                "Unexpected Tincan event command received %s",
+                cbt.request.params["Command"],
+            )
+        cbt.set_response(data=None, status=True)
         self.complete_cbt(cbt)
 
     def req_handler_query_tunnels_info(self, cbt: CBT):
@@ -449,7 +441,6 @@ class LinkManager(ControllerModule):
                     "TunnelId": tnlid,
                     "PeerId": peer_id,
                     "TapName": tn,
-                    "TincanId": self.tc_session_id,
                 }
                 self.register_cbt("TincanTunnel", "TCI_REMOVE_TUNNEL", params, cbt)
             else:
@@ -526,8 +517,6 @@ class LinkManager(ControllerModule):
             if parent_cbt:
                 parent_cbt.set_response(resp_data, False)
                 self.complete_cbt(parent_cbt)
-            if resp_data and "CurrentId" in resp_data:
-                self.tc_session_id = resp_data["CurrentId"]
             return
 
         if parent_cbt.request.action == "LNK_REQ_LINK_ENDPT":
@@ -595,8 +584,6 @@ class LinkManager(ControllerModule):
                 "The create tunnel operation failed: %s or the parent expired",
                 resp_data,
             )
-            if resp_data and "CurrentId" in resp_data:
-                self.tc_session_id = resp_data["CurrentId"]
             return
         # transistion connection connection state
         self._tunnels[tnlid].link.creation_state = 0xA2
@@ -622,9 +609,6 @@ class LinkManager(ControllerModule):
         peer_id = rmv_tnl_cbt.request.params["PeerId"]
         olid = rmv_tnl_cbt.request.params["OverlayId"]
         tap_name = rmv_tnl_cbt.request.params["TapName"]
-        resp_data = rmv_tnl_cbt.response.data
-        if resp_data and "CurrentId" in resp_data:
-            self.tc_session_id = resp_data["CurrentId"]
         self._tunnels.pop(tnlid, None)
         self._links.pop(lnkid, None)
         self.free_cbt(rmv_tnl_cbt)
@@ -654,67 +638,42 @@ class LinkManager(ControllerModule):
         if not cbt.response.status:
             self.logger.warning("Link stats update error: %s", cbt.response.data)
             self.free_cbt(cbt)
-            if resp_data and "CurrentId" in resp_data:
-                self.tc_session_id = resp_data["CurrentId"]
             return
         # Handle any connection failures and update tracking data
-        for tnlid in resp_data:
-            for lnkid in resp_data[tnlid]:
-                if resp_data[tnlid][lnkid]["Status"] == "UNKNOWN":
-                    self._tunnels.pop(tnlid, None)
-                elif tnlid in self._tunnels:
-                    tnl = self._tunnels[tnlid]
-                    if resp_data[tnlid][lnkid]["Status"] == "OFFLINE":
-                        # tincan indicates offline so recheck the link status
-                        retry = tnl.link.status_retry
-                        if retry >= 2 and tnl.tunnel_state == TUNNEL_STATES.CREATING:
-                            # link is stuck creating so destroy it
-                            olid = tnl.overlay_id
-                            peer_id = tnl.peer_id
-                            params = {
-                                "OverlayId": olid,
-                                "TunnelId": tnlid,
-                                "LinkId": lnkid,
-                                "PeerId": peer_id,
-                                "TapName": tnl.tap_name,
-                                "TincanId": self.tc_session_id,
-                            }
-                            self.register_cbt(
-                                "TincanTunnel", "TCI_REMOVE_TUNNEL", params
-                            )
-                        elif (tnl.tunnel_state == TUNNEL_STATES.QUERYING) or (
-                            retry >= 1 and tnl.tunnel_state == TUNNEL_STATES.ONLINE
-                        ):
-                            # LINK_STATE_DOWN event or QUERY_LNK_STATUS response - post notify
-                            tnl.tunnel_state = TUNNEL_STATES.OFFLINE
-                            olid = tnl.overlay_id
-                            peer_id = tnl.peer_id
-                            param = {
-                                "UpdateType": TUNNEL_EVENTS.Disconnected,
-                                "OverlayId": olid,
-                                "PeerId": peer_id,
-                                "TunnelId": tnlid,
-                                "LinkId": lnkid,
-                                "TapName": tnl.tap_name,
-                            }
-                            self._link_updates_publisher.post_update(param)
-                        else:
-                            self.logger.warning(
-                                "Link %s is offline, no further attempts to to query its stats will"
-                                "be made.",
-                                tnlid,
-                            )
-                    elif resp_data[tnlid][lnkid]["Status"] == "ONLINE":
-                        tnl.tunnel_state = TUNNEL_STATES.ONLINE
-                        tnl.link.stats = resp_data[tnlid][lnkid]["Stats"]
-                        tnl.link.status_retry = 0
-                    else:
-                        self.logger.warning(
-                            "Unrecognized tunnel state ",
-                            "%s:%s",
-                            lnkid,
-                            resp_data[tnlid][lnkid]["Status"],
-                        )
+        tnlid = resp_data["TunnelId"]
+        lnkid = resp_data["LinkId"]
+        if tnlid in self._tunnels:
+            tnl = self._tunnels[tnlid]
+            if resp_data["Status"] == "OFFLINE":
+                # tincan indicates offline so recheck the link status
+                retry = tnl.link.status_retry
+                if (tnl.tunnel_state == TUNNEL_STATES.QUERYING) or (
+                    retry >= 1 and tnl.tunnel_state == TUNNEL_STATES.ONLINE
+                ):
+                    # LINK_STATE_DOWN event or QUERY_LNK_STATUS response - post notify
+                    tnl.tunnel_state = TUNNEL_STATES.OFFLINE
+                    olid = tnl.overlay_id
+                    peer_id = tnl.peer_id
+                    param = {
+                        "UpdateType": TUNNEL_EVENTS.Disconnected,
+                        "OverlayId": olid,
+                        "PeerId": peer_id,
+                        "TunnelId": tnlid,
+                        "LinkId": lnkid,
+                        "TapName": tnl.tap_name,
+                    }
+                    self._link_updates_publisher.post_update(param)
+            elif resp_data["Status"] == "ONLINE":
+                tnl.tunnel_state = TUNNEL_STATES.ONLINE
+                tnl.link.stats = resp_data["Stats"]
+                tnl.link.status_retry = 0
+            else:
+                self.logger.warning(
+                    "Unrecognized tunnel state ",
+                    "%s:%s",
+                    lnkid,
+                    resp_data["Status"],
+                )
         self.free_cbt(cbt)
 
     def on_tnl_timeout(self, tnl: Tunnel, timeout: float):
@@ -726,7 +685,7 @@ class LinkManager(ControllerModule):
             "TCI_CREATE_LINK": self.abort_handler_tunnel,
             "TCI_CREATE_TUNNEL": self.abort_handler_tunnel,
             "TCI_REMOVE_TUNNEL": self.abort_handler_tunnel,
-            "TCI_QUERY_LINK_STATS": self.abort_handler_default,
+            "TCI_QUERY_LINK_INFO": self.abort_handler_default,
             "TCI_REMOVE_LINK": self.abort_handler_default,
             "LNK_TUNNEL_EVENTS": self.abort_handler_default,
         }
@@ -739,7 +698,7 @@ class LinkManager(ControllerModule):
             "LNK_REMOVE_TUNNEL": self.req_handler_remove_tnl,
             "LNK_QUERY_TUNNEL_INFO": self.req_handler_query_tunnels_info,
             "VIS_DATA_REQ": self.req_handler_query_viz_data,
-            "TCI_TINCAN_MSG_NOTIFY": self.req_handler_tincan_msg,
+            "TCI_TUNNEL_EVENT": self.req_handler_tincan_msg,
             "LNK_ADD_IGN_INF": self.req_handler_add_ign_inf,
             "LNK_AUTH_TUNNEL": self.req_handler_auth_tunnel,
         }
@@ -749,7 +708,7 @@ class LinkManager(ControllerModule):
             "SIG_REMOTE_ACTION": self.resp_handler_remote_action,
             "TCI_CREATE_LINK": self.resp_handler_create_link_endpt,
             "TCI_CREATE_TUNNEL": self.resp_handler_create_tunnel,
-            "TCI_QUERY_LINK_STATS": self.resp_handler_query_link_stats,
+            "TCI_QUERY_LINK_INFO": self.resp_handler_query_link_stats,
             "TCI_REMOVE_TUNNEL": self.resp_handler_remove_tunnel,
         }
 
@@ -781,16 +740,6 @@ class LinkManager(ControllerModule):
 
     def is_link_completed(self, tnl: Tunnel) -> bool:
         return bool(tnl.link and tnl.link.creation_state == 0xC0)
-
-    def _query_link_stats(self):
-        """Query the status of links that have completed creation process"""
-        params = []
-        for tnlid in self._tunnels:
-            link = self._tunnels[tnlid].link
-            if link and link.creation_state == 0xC0:
-                params.append(tnlid)
-        if params:
-            self.register_cbt("TincanTunnel", "TCI_QUERY_LINK_STATS", params)
 
     def _remove_link_from_tunnel(self, tnlid):
         tnl = self._tunnels.get(tnlid)
@@ -834,7 +783,6 @@ class LinkManager(ControllerModule):
             "IgnoredNetInterfaces": list(
                 self._get_ignored_tap_names(overlay_id, tap_name)
             ),
-            "TincanId": self.tc_session_id,
         }
         if self.config.get("Turn"):
             create_tnl_params["TurnServers"] = self.config["Turn"]
@@ -894,7 +842,6 @@ class LinkManager(ControllerModule):
                 "CAS": node_data["CAS"],
                 "FPR": node_data["FPR"],
             },
-            "TincanId": self._tunnels[tnlid].dp_instance_id,
         }
         self.register_cbt("TincanTunnel", "TCI_CREATE_LINK", cbt_params, parent_cbt)
 
@@ -997,9 +944,8 @@ class LinkManager(ControllerModule):
         self.free_cbt(cbt)
         self.complete_cbt(parent_cbt)
         self.logger.info(
-            "Tunnel %s Link %s accepted: %s:%s<-%s",
+            "Tunnel %s accepted: %s:%s<-%s",
             tnlid[:7],
-            lnkid[:7],
             olid[:7],
             self.node_id[:7],
             peer_id[:7],
@@ -1073,7 +1019,6 @@ class LinkManager(ControllerModule):
                     "TunnelId": tnlid,
                     "LinkId": lnkid,
                     "TapName": tnl.tap_name,
-                    "TincanId": self.tc_session_id,
                 }
                 self.logger.info(
                     "Initiating removal of incomplete tunnnel: "
@@ -1093,7 +1038,7 @@ class LinkManager(ControllerModule):
             self._links.pop(lnkid, None)
 
 
-"""
+""" TODO: OUTDATED, NEED TO BE UPDATED
 ###################################################################################################
 Link Manager state and event specifications
 ###################################################################################################
@@ -1120,10 +1065,10 @@ tunnel descriptor is removed. Tunnel must be in TUNNEL_STATES.ONLINE or TUNNEL_S
 (1) TUNNEL_STATES.AUTHORIZED - After a successful completion of CBT LNK_AUTH_TUNNEL, the tunnel
 descriptor exists.
 (2) TUNNEL_STATES.CREATING - entered on reception of CBT LNK_CREATE_TUNNEL.
-(3) TUNNEL_STATES.QUERYING - entered before issuing CBT TCI_QUERY_LINK_STATS. Happens when
+(3) TUNNEL_STATES.QUERYING - entered before issuing CBT TCI_QUERY_LINK_INFO. Happens when
 LinkStateChange is LINK_STATE_DOWN and state is not already TUNNEL_STATES.QUERYING; OR
-TCI_QUERY_LINK_STATS is OFFLINE and state is not already TUNNEL_STATES.QUERYING.
-(4) TUNNEL_STATES.ONLINE - entered when CBT TCI_QUERY_LINK_STATS is ONLINE or LinkStateChange is
+TCI_QUERY_LINK_INFO is OFFLINE and state is not already TUNNEL_STATES.QUERYING.
+(4) TUNNEL_STATES.ONLINE - entered when CBT TCI_QUERY_LINK_INFO is ONLINE or LinkStateChange is
 LINK_STATE_UP.
 (5) TUNNEL_STATES.OFFLINE - entered when QUERY_LNK_STATUS is OFFLINE or LinkStateChange is
 LINK_STATE_DOWN event.

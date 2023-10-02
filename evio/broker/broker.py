@@ -60,6 +60,8 @@ from .process_proxy import ProcessProxy, ProxyMsg
 from .subscription import Subscription
 from .timed_transactions import TimedTransactions, Transaction
 
+# import faulthandler
+
 
 class Broker:
     @staticmethod
@@ -103,7 +105,7 @@ class Broker:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type:
-            print(exc_type, exc_val, exc_tb)
+            print("__exit__: ", exc_type, exc_val, exc_tb)
         return self.terminate()
 
     def parse_config(self):
@@ -172,13 +174,18 @@ class Broker:
             "[%(asctime)s.%(msecs)03d] %(levelname)s:%(name)s: %(message)s",
             datefmt="%Y%m%d %H:%M:%S",
         )
-        file_handler = TimedRotatingFileHandler(
-            filename=bkr_logname, when="midnight", backupCount=7, utc=True
+        file_handler = RotatingFileHandler(
+            filename=bkr_logname,
+            maxBytes=self._config["Broker"].get("MaxFileSize", MAX_FILE_SIZE),
+            backupCount=self._config["Broker"].get("MaxArchives", MAX_ARCHIVES),
         )
         broker_log_level = self._config["Broker"].get(
             "BrokerLogLevel", BROKER_LOG_LEVEL
         )
-        file_handler.setLevel(broker_log_level)
+        file_handler.setLevel(
+            "DEBUG"
+        )  # the root file handler has the broadest capture level
+        # file_handler.setLevel(broker_log_level)
         file_handler.setFormatter(formatter)
         handlers.append(file_handler)
         # console logging
@@ -203,10 +210,8 @@ class Broker:
         # if os.path.isfile(logname):
         #     os.remove(logname)
         level = self._config["Broker"].get("LogLevel", def_log_level)
-        file_handler = RotatingFileHandler(
-            filename=logname,
-            maxBytes=self._config["Broker"].get("MaxFileSize", MAX_FILE_SIZE),
-            backupCount=self._config["Broker"].get("MaxArchives", MAX_ARCHIVES),
+        file_handler = TimedRotatingFileHandler(
+            filename=logname, when="midnight", backupCount=7, utc=True
         )
         file_handler.setFormatter(formatter)
         file_handler.setLevel(level)
@@ -348,12 +353,13 @@ class Broker:
     def run(self):
         for sig in [signal.SIGINT, signal.SIGTERM]:
             signal.signal(sig, Broker.__handler)
-        # sleeps until exit signal is received
-        signal.pause()
+        signo = signal.sigwait([signal.SIGINT, signal.SIGTERM])
+        self.logger.debug("Received Signal: %s", signal.Signals(signo).name)
 
     def terminate(self):
-        self._timers.terminate()
         with self._nexus_lock:
+            self._timers.terminate()
+            self._ipc.terminate()
             for ctrl_name in reversed(self._load_order):
                 wn = self._nexus_map[ctrl_name]._cm_thread.name
                 self._nexus_map[ctrl_name].work_queue.put(None)
@@ -361,7 +367,6 @@ class Broker:
                 wn = self._nexus_map[ctrl_name]._cm_thread.name
                 self._nexus_map[ctrl_name]._cm_thread.join()
                 self.logger.info("%s exited", wn)
-            self._ipc.terminate()
             for ql in self._cm_qlisteners:
                 ql.stop()
 
@@ -499,7 +504,7 @@ class Broker:
         else:
             tgt = task["Request"].get("Recipient")
         if tgt is None:
-            self.logger.warning("No recipient specified in IPC message")
+            self.logger.warning("No recipient specified in IPC message %s", msg)
             return
         with self._nexus_lock:
             nexus = self._nexus_map[tgt]
@@ -512,3 +517,5 @@ class Broker:
 if __name__ == "__main__":
     cf = Broker()
     cf.initialize()
+    cf.run()
+    cf.terminate()

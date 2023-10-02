@@ -22,6 +22,7 @@
 import time
 
 from broker import GENEVE_SETUP_TIMEOUT
+from broker.cbt import CBT
 from broker.controller_module import ControllerModule
 from broker.remote_action import RemoteAction
 from pyroute2 import IPRoute
@@ -94,7 +95,7 @@ class GeneveTunnel(ControllerModule):
         }
         self._gnv_updates_publisher.post_update(param)
 
-    def _create_tunnel(self, tap_name, vnid, remote_addr):
+    def _create_tunnel(self, tap_name: str, vnid: int, remote_addr: str):
         self.logger.info(
             "Creating Geneve tunnel %s vnid=%s, remote addr=%s",
             tap_name,
@@ -112,9 +113,9 @@ class GeneveTunnel(ControllerModule):
             idx = ipr.link_lookup(ifname=tap_name)[0]
             ipr.link("set", index=idx, state="up")
 
-    def _remove_tunnel(self, tap_name):
+    def _remove_tunnel(self, tap_name: str):
         try:
-            self.logger.info("Removing Geneve tunnel %s", tap_name)
+            self.logger.info("Removing Geneve TAP %s", tap_name)
             with IPRoute() as ipr:
                 idx = ipr.link_lookup(ifname=tap_name)
                 if len(idx) > 0:
@@ -123,23 +124,23 @@ class GeneveTunnel(ControllerModule):
                     ipr.link("del", index=idx)
         except Exception as e:
             self.logger.warning(
-                "Failed to remove geneve tunnel %s, error code: %s", tap_name, e
+                "Failed to remove Geneve tunnel %s, error code: %s", tap_name, e
             )
 
-    def _is_tap_exist(self, tap_name):
+    def _is_tap_exist(self, tap_name: str) -> bool:
         with IPRoute() as ipr:
             idx = ipr.link_lookup(ifname=tap_name)
             if len(idx) == 1:
                 return True
         return False
 
-    def _is_tunnel_authorized(self, tunnel_id):
+    def _is_tunnel_authorized(self, tunnel_id: str) -> bool:
         tnl = self._tunnels.get(tunnel_id)
         if tnl and tnl.state == TUNNEL_STATES.AUTHORIZED:
             return True
         return False
 
-    def req_handler_auth_tunnel(self, cbt):
+    def req_handler_auth_tunnel(self, cbt: CBT):
         """Node B"""
         olid = cbt.request.params["OverlayId"]
         peer_id = cbt.request.params["PeerId"]
@@ -182,7 +183,7 @@ class GeneveTunnel(ControllerModule):
             self._gnv_updates_publisher.post_update(event_param)
         self.complete_cbt(cbt)
 
-    def req_handler_create_tunnel(self, cbt):
+    def req_handler_create_tunnel(self, cbt: CBT):
         """Role A. Issued from local Topology."""
         olid = cbt.request.params["OverlayId"]
         tnlid = cbt.request.params["TunnelId"]
@@ -193,6 +194,7 @@ class GeneveTunnel(ControllerModule):
         if tnlid in self._tunnels:
             cbt.set_response({"Message": "Tunnel already exists"}, False)
             self.complete_cbt(cbt)
+            return
         if self._is_tap_exist(tap_name):
             # delete remenants
             self._remove_tunnel(tap_name)
@@ -221,7 +223,7 @@ class GeneveTunnel(ControllerModule):
         )
         rem_act.submit_remote_act(self, cbt)
 
-    def req_handler_exchnge_endpt(self, cbt):
+    def req_handler_exchnge_endpt(self, cbt: CBT):
         """
         Role B
         """
@@ -262,7 +264,7 @@ class GeneveTunnel(ControllerModule):
             cbt.set_response(msg, False)
             self.complete_cbt(cbt)
 
-    def req_handler_update_peer_mac(self, cbt):
+    def req_handler_update_peer_mac(self, cbt: CBT):
         """Role B"""
         params = cbt.request.params
         olid = params["OverlayId"]
@@ -294,7 +296,7 @@ class GeneveTunnel(ControllerModule):
             cbt.set_response({"Message": "Invalid request for tunnel"}, False)
         self.complete_cbt(cbt)
 
-    def req_handler_cancel_tunnel(self, cbt):
+    def req_handler_cancel_tunnel(self, cbt: CBT):
         """
         Role B
         Operation should always succeed.
@@ -311,7 +313,7 @@ class GeneveTunnel(ControllerModule):
         cbt.set_response({"Message": "Tunnel cancelled"}, True)
         self.complete_cbt(cbt)
 
-    def req_handler_remove_tunnel(self, cbt):
+    def req_handler_remove_tunnel(self, cbt: CBT):
         """
         Issued from local Topology. Operation always succeed.
         """
@@ -334,7 +336,7 @@ class GeneveTunnel(ControllerModule):
         }
         self._gnv_updates_publisher.post_update(gnv_param)
 
-    def resp_handler_remote_action(self, cbt):
+    def resp_handler_remote_action(self, cbt: CBT):
         """Role A"""
         parent_cbt = cbt.parent
         rem_act = cbt.request.params
@@ -412,7 +414,7 @@ class GeneveTunnel(ControllerModule):
         elif rem_act.action == "GNV_CANCEL_TUNNEL":
             self.free_cbt(cbt)
 
-    def abort_handler_remote_action(self, cbt):
+    def abort_handler_remote_action(self, cbt: CBT):
         parent_cbt = cbt.parent
         rem_act = cbt.request.params
         if rem_act.action == "GNV_EXCHANGE_ENDPT":
@@ -429,7 +431,7 @@ class GeneveTunnel(ControllerModule):
                 parent_cbt.set_response(cbt.response.data, False)
                 self.complete_cbt(parent_cbt)
 
-    def get_tap_name(self, olid, peer_id) -> str:
+    def get_tap_name(self, olid, peer_id: str) -> str:
         tap_name_prefix = self.config["Overlays"][olid].get("TapNamePrefix", olid[:5])
         end_i = self.TAPNAME_MAXLEN - len(tap_name_prefix)
         tap_name = tap_name_prefix + str(peer_id[:end_i])

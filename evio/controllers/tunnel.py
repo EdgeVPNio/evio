@@ -42,13 +42,14 @@ TUNNEL_EVENTS = TunnelEvents()
 
 TunnelStates = namedtuple(
     "TUNNEL_STATES",
-    ["AUTHORIZED", "CREATING", "QUERYING", "ONLINE", "OFFLINE"],
+    ["AUTHORIZED", "CREATING", "QUERYING", "ONLINE", "OFFLINE", "FAILED"],
     defaults=[
         "TNL_AUTHORIZED",
         "TNL_CREATING",
         "TNL_QUERYING",
         "TNL_ONLINE",
         "TNL_OFFLINE",
+        "TNL_FAILED",
     ],
 )
 TUNNEL_STATES = TunnelStates()

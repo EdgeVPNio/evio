@@ -60,6 +60,10 @@ class Nexus:
         return self._cm_queue
 
     def submit_req_cbt(self, cbt):
+        if cbt is None:
+            self._controller.logger.warning(
+                "None is not a permissible CBT value for submit_req_cbt"
+            )
         if cbt.is_request and not cbt.is_submited:
             cbt.time_submited = time.time()
             self._broker.submit_cbt(cbt)
@@ -93,6 +97,10 @@ class Nexus:
         cbt.time_freed = time.time()
 
     def complete_cbt(self, cbt):
+        if cbt is None:
+            self._controller.logger.warning(
+                "None is not a permissible CBT value for complete_cbt"
+            )
         self._pending_cbts.pop(cbt.tag, None)
         cbt.time_completed = time.time()
         self._broker.submit_cbt(cbt)
@@ -141,7 +149,17 @@ class Nexus:
                     self._controller.handle_ipc(cbt)
             except RuntimeError as err:
                 self._controller.logger.warning(
-                    "Process CBT exception: %s\nCBT: %s", err, cbt, exc_info=True
+                    "Process CBT RuntimeError exception: %s\nCBT: %s",
+                    err,
+                    cbt,
+                    exc_info=True,
+                )
+            except KeyError as kerr:
+                self._controller.logger.warning(
+                    "Process CBT KeyError exception: %s\nCBT: %s",
+                    kerr,
+                    cbt,
+                    exc_info=True,
                 )
             finally:
                 self._cm_queue.task_done()
@@ -159,7 +177,7 @@ class Nexus:
             self.work_queue.put(cbt)
         else:
             self._controller.logger.info(
-                f"Unexpected CBT state when expired event. {cbt}"
+                f"Unexpected CBT state for expired event. {cbt}"
             )
 
     def _schedule_ctlr_update(self):

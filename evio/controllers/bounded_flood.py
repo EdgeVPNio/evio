@@ -666,6 +666,7 @@ class EvioSwitch:
             )
         elif in_port in self._leaf_prts:
             self._leaf_macs.add(src_mac)
+        else:
             self.logger.debug(
                 f"learn sw:{self.name}, leaf_mac:{src_mac}, ingress:{in_port}"
             )
@@ -870,10 +871,8 @@ class BoundedFlood(app_manager.RyuApp):
         self.evio_portal.terminate()
         hub.joinall(self._monitors)
         self.logger.info("BoundedFlood terminated")
-        print("BoundedFlood terminated")
-        os.makedirs("/var/log/evio/bfterm", exist_ok=True)
-        # self._que_listener.stop()
-        # logging.shutdown()
+        self._que_listener.stop()
+        logging.shutdown()
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -1012,9 +1011,9 @@ class BoundedFlood(app_manager.RyuApp):
             else:
                 """Vanilla Ethernet frame but the destination MAC is not in our LT. Currently, only
                 broadcast addresses originating from local leaf ports are broadcasted using FRB.
-                Multiricepient frames that ingress on a link port is a protocol logic error, and
+                Multiricepient frames that ingress on a link port is a protocol violation, and
                 flooding unicast frames which have no LT info, prevents accumulating enough port
-                data to ever create a flow rule"""
+                data to create a flow rule"""
                 if in_port in sw.leaf_ports and is_multiricepient(eth.dst):
                     self._broadcast_frame(msg.datapath, pkt, in_port, msg)
                 elif in_port not in sw.leaf_ports and is_multiricepient(eth.dst):
@@ -1294,7 +1293,9 @@ class BoundedFlood(app_manager.RyuApp):
             ofproto = datapath.ofproto
             parser = datapath.ofproto_parser
             inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
-            self.logger.debug("Adding flow rule %s: %s", datapath.id, match)
+            self.logger.debug(
+                "Adding flow rule %s: %s", self._lt[datapath.id].name, match
+            )
             mod = parser.OFPFlowMod(
                 datapath=datapath,
                 priority=priority,
