@@ -629,12 +629,11 @@ class Signal(ControllerModule):
         self.free_cbt(cbt)
 
     def _send_waiting_remote_acts(self, overlay_id, peer_id, peer_jid):
-        # out_rem_acts = self._circles[overlay_id]["OutgoingRemoteActs"]
         out_rem_acts = self._circles[overlay_id].transmit_queue
         if peer_id in out_rem_acts:
             transport = self._circles[overlay_id].xport
             ra_que = out_rem_acts.get(peer_id)
-            while not ra_que.qsize() > 0:
+            while ra_que.not_empty:
                 entry = ra_que.get()
                 msg_type, msg_data = entry[0], dict(entry[1])
                 transport.send_msg(peer_jid, msg_type, json.dumps(msg_data))
