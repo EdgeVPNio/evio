@@ -729,7 +729,7 @@ class EvioSwitch:
             )
             self._root_sw_tbl[src_mac] = pd
             self.logger.debug(
-                f"learn sw:{self.name}, leaf_mac:{src_mac}, ingress:{in_port}, peerid:{rnid}"
+                f"learn sw:{self.name}, leaf_mac:{src_mac}, ingress:{in_port}, peerid:{rnid[:7]}"
             )
         elif in_port in self._leaf_prts:
             self._leaf_macs.add(src_mac)
@@ -1859,11 +1859,13 @@ class BoundedFlood(app_manager.RyuApp):
         out_bounds = sw.get_flooding_bounds(rcvd_frb.frb_type, rcvd_frb, [in_port])
         if out_bounds:
             if self.logger.isEnabledFor(logging.DEBUG):
+                in_frb = f"ingress:{in_port}-{sw._port_tbl[in_port].name} root:{rcvd_frb.root_nid[:7]} bound:{rcvd_frb.bound_nid[:7]}"
                 log_msg = ""
                 for egress, frb in out_bounds:
-                    log_msg += f"\n\tegress:{egress}-{sw._port_tbl[egress].name} root:{frb.root_nid} "
-                    f"bound:{frb.bound_nid} type:{frb.TYPE_DESCR[frb.frb_type]} hops:{frb.hop_count}"
-                self.logger.debug("Derived FRB(s) %s %s", sw.name, log_msg)
+                    log_msg += f"\n\tegress:{egress}-{sw._port_tbl[egress].name} bound:{frb.bound_nid[:7]}"
+                self.logger.debug(
+                    "FRB(s) Derived from %s %s %s", sw.name, in_frb, log_msg
+                )
             self.do_bounded_flood(datapath, in_port, out_bounds, src, payload)
 
     def _forward_frame(self, datapath, pkt, in_port, msg):
@@ -1913,8 +1915,7 @@ class BoundedFlood(app_manager.RyuApp):
             if self.logger.isEnabledFor(logging.DEBUG):
                 log_msg = ""
                 for egress, frb in out_bounds:
-                    log_msg += f"\n\tegress:{egress}-{sw._port_tbl[egress].name} root:{frb.root_nid} "
-                    f"bound:{frb.bound_nid} type:{frb.TYPE_DESCR[frb.frb_type]} hops:{frb.hop_count}"
+                    log_msg += f"\n\tegress:{egress}-{sw._port_tbl[egress].name} bound:{frb.bound_nid[:7]}"
                 self.logger.debug("Generated FRB(s) %s %s", sw.name, log_msg)
             self.do_bounded_flood(datapath, in_port, out_bounds, eth.src, msg.data)
 
