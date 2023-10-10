@@ -222,7 +222,8 @@ class EvioPortal:
                         "Aborting attempts to connect to evio portal. Error: %s",
                         str(err),
                     )
-                    raise err
+                    sys.exit(-1)
+                    # raise err
 
     def send(self, req):
         send_data = json.dumps(req)
@@ -1309,7 +1310,7 @@ class BoundedFlood(app_manager.RyuApp):
         new_digest = hashlib.sha256(state.encode("utf-8")).hexdigest()
         if BF_STATE_DIGEST != new_digest:
             BF_STATE_DIGEST = new_digest
-            self.logger.info(f'{{"state trace": {{{state}}}}}\n')
+            self.logger.info(f'{{"controller state": {{{state}}}}}\n')
 
     def _collect_counters(self, dpid, counter_vals: dict):
         total_hops = 0
@@ -1417,11 +1418,15 @@ class BoundedFlood(app_manager.RyuApp):
         sw: EvioSwitch = self._lt[dpid]
         parser = datapath.ofproto_parser
         for mac in sw.leaf_macs(peer_id):
-            # rules for flows going out to the remote peer
+            # update exusting rules for flows going out to the remote peer
             self._update_outbound_flow_rules(
                 datapath=datapath, dst_mac=mac, new_egress=port_no, tblid=0
             )
-            # create new inbound flow rule, old ones will expire Todo: Incorrect. doesn't expire, peer keeps sending on this path as it doesn't have RNID data
+            # create new inbound flow rules
+            # Todo (bug): The old ones will not expire. If the peer doesn't have RNID LT data for our
+            # local leaf MACs, it cannot update its outbound flow rules (see above) and keeps sending on
+            # the old path. This causes the new rules to expire since they are unused and deleting the
+            # old ones would immediately get recreated.
             for dst_mac in sw.local_leaf_macs:
                 local_port_no = sw.get_ingress_port(dst_mac)
                 if local_port_no:
@@ -1604,10 +1609,14 @@ class BoundedFlood(app_manager.RyuApp):
                 instructions=inst,
                 idle_timeout=sw.idle_timeout,
             )
-            self.logger.debug(
-                "Attempting to update outflow matching %s/%s", sw.name, mt
+            self.logger.info(
+                "Attempting to update outflow matching %s/%s to egress %s",
+                sw.name,
+                mt,
+                new_egress,
             )
-            datapath.send_msg(mod)
+            for _ in range(3):
+                datapath.send_msg(mod)
 
     # def _update_leaf_macs(self, dpid, rnid, macs, num_items):
     #     sw: EvioSwitch = self._lt[dpid]

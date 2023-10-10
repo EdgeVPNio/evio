@@ -42,16 +42,18 @@ from typing import Any
 from . import (
     BROKER_LOG_LEVEL,
     BROKER_LOG_NAME,
-    CBT_LIFESPAN,
     CONFIG,
     CONSOLE_LEVEL,
     CONTROLLER_TIMER_INTERVAL,
     DEVICE,
     EVIO_VER_REL,
+    JID_RESOLUTION_TIMEOUT,
     LOG_DIRECTORY,
+    LOG_LEVEL,
     MAX_ARCHIVES,
     MAX_FILE_SIZE,
     TINCAN_LOG_NAME,
+    ConfigurationError,
 )
 from .cbt import CBT
 from .controller_module import ControllerModule
@@ -103,9 +105,11 @@ class Broker:
         self.initialize()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type:
-            print("__exit__: ", exc_type, exc_val, exc_tb)
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        if exc_type or exc_val or exc_tb:
+            self.logger.warning(
+                "type: %s, value: %s, traceback: %s", exc_type, exc_val, exc_tb
+            )
         return self.terminate()
 
     def parse_config(self):
@@ -127,8 +131,7 @@ class Broker:
         args = parser.parse_args()
         if args.config_file:
             while not os.path.isfile(args.config_file):
-                print("Waiting on config file ", args.config_file)
-                # self.logger.info("Waiting on config file %s", args.config_file)
+                print("Waiting on config file ", args.config_file, file=sys.stderr)
                 time.sleep(10)
             # load the configuration file
             with open(args.config_file, encoding="utf-8") as cfg_file:
@@ -201,25 +204,27 @@ class Broker:
         self.logger.addHandler(que_handler)
         self._que_listener.start()
         for k, v in self.cfg_controllers.items():
-            self._setup_controller_logger((k, v["Module"]), formatter, broker_log_level)
+            ctr_lgl = self._config["Broker"].get("LogLevel", LOG_LEVEL)
+            if "LogLevel" in self._controller_config(k):
+                ctr_lgl = self._controller_config(k)["LogLevel"]
+            self._setup_controller_logger((k, v["Module"]), formatter, ctr_lgl)
 
     def _setup_controller_logger(
-        self, cm_name: tuple[str, str], formatter: logging.Formatter, def_log_level: int
+        self, cm_name: tuple[str, str], formatter: logging.Formatter, log_level: int
     ):
         logname = os.path.join(LOG_DIRECTORY, f"{cm_name[1]}.log")
         # if os.path.isfile(logname):
         #     os.remove(logname)
-        level = self._config["Broker"].get("LogLevel", def_log_level)
         file_handler = TimedRotatingFileHandler(
             filename=logname, when="midnight", backupCount=7, utc=True
         )
         file_handler.setFormatter(formatter)
-        file_handler.setLevel(level)
+        file_handler.setLevel(log_level)
         que = queue.Queue()
         que_handler = QueueHandler(que)
         que_listener = QueueListener(que, file_handler, respect_handler_level=True)
         logger = logging.getLogger(cm_name[0])
-        logger.setLevel(level)
+        logger.setLevel(log_level)
         logger.addHandler(que_handler)
         que_listener.start()
         self._cm_qlisteners.append(que_listener)
@@ -232,29 +237,33 @@ class Broker:
     def cfg_overlays(self) -> list[str]:
         return self._config["Broker"]["Overlays"]
 
-    def _controller_config(self, ctrl) -> dict:
+    def _controller_config(self, ctrl: str) -> dict:
         return self._config.get(ctrl, {})
 
     def initialize(self):
-        self.logger.info("Version %s loaded", EVIO_VER_REL)
-        # check for controller cyclic dependencies
-        self._validate_controller_deps()
+        try:
+            # check for controller cyclic dependencies
+            self._validate_controller_deps()
 
-        # order and load the controllers
-        self.build_load_order()
-        for ctrl_name in self._load_order:
-            self.load_module(ctrl_name)
-
-        self._ipc.start()
-        self._timers.start()
-        # intialize the the CMs via their respective nexus
-        for ctrl_name in self._load_order:
-            self._nexus_map[ctrl_name].initialize()
-
-        # start all the worker and timer threads
-        with self._nexus_lock:
+            # order and load the controllers
+            self.build_load_order()
             for ctrl_name in self._load_order:
-                self._nexus_map[ctrl_name].start_controller()
+                self.load_module(ctrl_name)
+
+            self._ipc.start()
+            self._timers.start()
+            # intialize the the CMs via their respective nexus
+            for ctrl_name in self._load_order:
+                self._nexus_map[ctrl_name].initialize()
+
+            # start all the worker and timer threads
+            with self._nexus_lock:
+                for ctrl_name in self._load_order:
+                    self._nexus_map[ctrl_name].start_controller()
+        except ConfigurationError as err:
+            self.logger.exception(err)
+            sys.exit(-1)
+        self.logger.info("Version %s loaded", EVIO_VER_REL)
 
     def _validate_controller_deps(self):
         dependency_graph = {}
@@ -263,8 +272,9 @@ class Broker:
             if "Dependencies" in cfg:
                 dependency_graph[ctrl] = cfg["Dependencies"]
         if Broker.detect_cyclic_dependency(dependency_graph):
-            msg = "Circular dependency detected in config.json. Correct and restart the service"
-            raise RuntimeError(msg)
+            raise ConfigurationError(
+                "Circular dependency detected in controller dependencies"
+            )
 
     def build_load_order(self):
         # create the controller load order based on their dependencies
@@ -369,7 +379,6 @@ class Broker:
                 self.logger.info("%s exited", wn)
             for ql in self._cm_qlisteners:
                 ql.stop()
-
         self._que_listener.stop()
         logging.shutdown()
         return True
@@ -389,8 +398,10 @@ class Broker:
                 val = self.model
             elif param_name == "DebugCBTs":
                 val = self._config["Broker"].get("DebugCBTs", False)
-            elif param_name == "RequestTimeout":
-                val = self._config["Broker"].get("RequestTimeout", CBT_LIFESPAN)
+            elif param_name == "JidResolutionTimeout":
+                val = self._config["Broker"].get(
+                    "JidResolutionTimeout", JID_RESOLUTION_TIMEOUT
+                )
             elif param_name == "LogConfig":
                 broker_log_level = self._config["Broker"].get(
                     "BrokerLogLevel", BROKER_LOG_LEVEL

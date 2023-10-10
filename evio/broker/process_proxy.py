@@ -72,7 +72,7 @@ class ProxyNode:
         self.skt: socket = connection
         self.tx_deque: deque = deque()
         self.event: int = event
-        self.is_error: bool = False
+        self.is_rdhup: bool = False
 
     def __repr__(self) -> str:
         return introspect(self)
@@ -147,10 +147,14 @@ class ProcessProxy:
                             self._epoll.register(node.skt.fileno(), node.event)
                         elif event & select.EPOLLRDHUP:
                             node = connections[fileno]
+                            node.is_rdhup = True
                             node.event &= ~select.EPOLLIN
                             self._epoll.modify(fileno, node.event)
+                            self.logger.warning(
+                                "Node %s IPC read hangup", node.skt.fileno()
+                            )
                             if not node.tx_deque:
-                                node.skt.shutdown(socket.SHUT_WR)
+                                self.close_client(node)
                         elif event & select.EPOLLHUP:
                             node = connections.pop(fileno)
                             self.close_client(node)
@@ -165,9 +169,8 @@ class ProcessProxy:
                                     node.skt.shutdown(socket.SHUT_WR)
                                 elif bufsz > 65507:
                                     node = connections[fileno]
-                                    node.is_error = True
-                                    node.event = select.EPOLLOUT
-                                    self._epoll.modify(node.skt.fileno(), node.event)
+                                    connections.pop(fileno)
+                                    self.close_client(node)
                                 else:
                                     requests[fileno] = ProxyMsg(fileno, rdsz=bufsz)
                             else:
@@ -179,18 +182,19 @@ class ProcessProxy:
                             entry = node.tx_deque.popleft()
                             _ = node.skt.send(entry)
                             if not node.tx_deque:
-                                if node.is_error:
-                                    self.logger.info("Node IPC error ")
+                                if node.is_rdhup:
                                     connections.pop(fileno)
                                     self.close_client(node)
                                 else:
                                     node.event = select.EPOLLIN
                                     self._epoll.modify(fileno, node.event)
+            except BrokenPipeError as bperr:
+                connections.pop(fileno)
+                self.close_client(node)
+                self.logger.exception(bperr)
             except Exception as ex:
                 self.logger.exception("Process Proxy Server exception %s", ex)
-            finally:
                 self.server_close()
-                continue
 
     def close_client(self, node):
         self.logger.debug("Closing connection %s", node.skt.fileno())

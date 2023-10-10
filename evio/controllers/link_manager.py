@@ -451,9 +451,6 @@ class LinkManager(ControllerModule):
             self.complete_cbt(cbt)
 
     def _update_tunnel_descriptor(self, tnl_desc, tnlid):
-        """
-        Update the tunnel desc with with lock owned
-        """
         self._tunnels[tnlid].mac = tnl_desc["MAC"]
         self._tunnels[tnlid].tap_name = tnl_desc["TapName"]
         self._tunnels[tnlid].fpr = tnl_desc["FPR"]
@@ -509,7 +506,7 @@ class LinkManager(ControllerModule):
         resp_data = cbt.response.data
         if not cbt.response.status or parent_cbt is None:
             self.logger.warning(
-                "Create link endpoint failed :%s or the parent expired", cbt
+                "Create link endpoint failed or the parent expired CBT:%s ", cbt
             )
             lnkid = cbt.request.params["LinkId"]
             self._rollback_link_creation_changes(lnkid)

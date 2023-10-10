@@ -23,7 +23,7 @@ import queue
 import threading
 import time
 
-from . import EVENT_PERIOD, statement_false
+from . import CONTROLLER_TIMER_INTERVAL, EVENT_PERIOD, statement_false
 from .cbt import CBT
 from .process_proxy import ProxyMsg
 from .timed_transactions import Transaction
@@ -39,7 +39,9 @@ class Nexus:
         self._cm_thread = None
         self._broker = broker_object  # broker object reference
         self._exit_event = threading.Event()
-        self.update_timer_interval(kwargs.get("timer_interval", 0))
+        self.update_timer_interval(
+            kwargs.get("timer_interval", CONTROLLER_TIMER_INTERVAL)
+        )
         self._timer_loop_cnt: int = 1
         self._pending_cbts: dict[int, CBT] = {}
         self._last_ctlr_update_ts = time.time()
@@ -182,7 +184,6 @@ class Nexus:
 
     def _schedule_ctlr_update(self):
         self._ctlr_update.lifespan = self._timer_interval
-        self._ctlr_update.time_expired = 0.0
         self._broker.register_timed_transaction(self._ctlr_update)
 
     def on_timer(self, nexus, time_expired: float):

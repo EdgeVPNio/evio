@@ -43,6 +43,7 @@ from broker import (
     SUCCESSIVE_FAIL_DECR,
     SUCCESSIVE_FAIL_INCR,
     TRIM_CHECK_INTERVAL,
+    ConfigurationError,
     perfd,
 )
 from broker.cbt import CBT
@@ -238,7 +239,7 @@ class Topology(ControllerModule):
             or "SIG_PEER_PRESENCE_NOTIFY"
             not in self.get_available_subscriptions("Signal")
         ):
-            raise RuntimeError(
+            raise ConfigurationError(
                 "The Signal PEER PRESENCE subscription is not available. Topology cannot continue."
             )
         self.start_subscription("Signal", "SIG_PEER_PRESENCE_NOTIFY")
@@ -247,7 +248,7 @@ class Topology(ControllerModule):
             or "LNK_TUNNEL_EVENTS"
             not in self.get_available_subscriptions("LinkManager")
         ):
-            raise RuntimeError(
+            raise ConfigurationError(
                 "LinkManager's TUNNEL EVENTS subscription is unavailable. Topology cannot continue."
             )
         self.start_subscription("LinkManager", "LNK_TUNNEL_EVENTS")
@@ -843,17 +844,20 @@ class Topology(ControllerModule):
                 edge_params,
             )
             rem_act.submit_remote_act(self, on_free=net_ovl.release)
+        else:
+            net_ovl.release()
 
     def _complete_negotiate_edge(
         self, net_ovl: NetworkOverlay, edge_nego: EdgeNegotiate
     ):
         """Role A2"""
         self.logger.info(
-            "Completing %s EdgeNegotiate of %s/%s to %s",
+            "Completing EdgeNegotiate of %s %s/%s to %s - %s",
             edge_nego.edge_type,
             edge_nego.overlay_id,
             edge_nego.edge_id[:7],
             edge_nego.recipient_id[:7],
+            edge_nego.message,
         )
         if edge_nego.recipient_id not in net_ovl.adjacency_list:
             self.logger.warning(

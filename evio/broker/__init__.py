@@ -34,7 +34,9 @@ from .version import (
 
 __all__ = [
     "EVIO_VER_REL",
-    "LOG_DIRECTORY" "BROKER_LOG_LEVEL",
+    "LOG_DIRECTORY",
+    "BROKER_LOG_LEVEL",
+    "LOG_LEVEL",
     "BROKER_LOG_NAME",
     "TINCAN_LOG_NAME",
     "PERFDATA_LOG_NAME",
@@ -46,6 +48,7 @@ __all__ = [
     "EVENT_PERIOD",
     "CBT_LIFESPAN",
     "LINK_SETUP_TIMEOUT",
+    "JID_RESOLUTION_TIMEOUT",
     "CONTROLLER_TIMER_INTERVAL",
     "CACHE_EXPIRY_INTERVAL",
     "PRESENCE_INTERVAL",
@@ -91,8 +94,9 @@ __all__ = [
 EVIO_VER_REL: str = f"{EVIO_VER_MJR}.{EVIO_VER_MNR}.{EVIO_VER_REV}.{EVIO_VER_BLD}"
 LOG_DIRECTORY = "/var/log/evio/"
 BROKER_LOG_LEVEL = "INFO"
+LOG_LEVEL = "INFO"
 BROKER_LOG_NAME = "broker.log"
-TINCAN_LOG_NAME = "tincan_log"
+TINCAN_LOG_NAME = "tincan"
 TINCAN_CHK_INTERVAL: Literal[5] = 5
 PERFDATA_LOG_NAME = "perf.data"
 MAX_FILE_SIZE = 10000000  # 10MB sized log files
@@ -101,6 +105,7 @@ CONSOLE_LEVEL = None
 DEVICE = "File"
 EVENT_PERIOD: Literal[1] = 1
 CBT_LIFESPAN: Literal[180] = 180
+JID_RESOLUTION_TIMEOUT: Literal[15] = 15
 LINK_SETUP_TIMEOUT: Literal[180] = 180
 CONTROLLER_TIMER_INTERVAL: Literal[30] = 30
 CACHE_EXPIRY_INTERVAL: Literal[60] = 60
@@ -138,7 +143,12 @@ CONFIG = {
             "GeneveTunnel": {"Module": "geneve_tunnel"},
             "Topology": {
                 "Module": "topology",
-                "Dependencies": ["TincanTunnel", "LinkManager", "GeneveTunnel"],
+                "Dependencies": [
+                    "Signal",
+                    "TincanTunnel",
+                    "LinkManager",
+                    "GeneveTunnel",
+                ],
             },
             "BridgeController": {
                 "Module": "bridge_controller",
@@ -236,6 +246,12 @@ CTL_QUERY_CAS = {
         "LinkId": "",
     },
 }
+
+
+class ConfigurationError(ValueError):
+    def __init__(self, message):
+        super().__init__(message)
+        self.msgfmt = message
 
 
 def run_proc(cmd: list[str]) -> subprocess.CompletedProcess:

@@ -708,3 +708,6 @@ class BridgeController(ControllerModule):
                     )
                     self._bf_proc.kill()
         self.logger.info("BoundedFlood terminated")
+
+
+# Todo: check if BF process exited and restart if not shutting down

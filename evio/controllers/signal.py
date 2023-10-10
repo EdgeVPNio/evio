@@ -25,7 +25,7 @@ import os
 import ssl
 import threading
 import time
-from queue import Queue
+from queue import Empty, Queue
 
 try:
     import simplejson as json
@@ -105,7 +105,7 @@ class JidCache:
 
 
 class XmppTransport(slixmpp.ClientXMPP):
-    _REFLECT: list[str] = ["_overlay_id", "_node_id"]
+    _REFLECT: list[str] = ["boundjid"]
 
     def __init__(
         self, jid: Union[str, JID], password: str, sasl_mech
@@ -122,8 +122,6 @@ class XmppTransport(slixmpp.ClientXMPP):
         # TLS enabled by default.
         self._enable_tls = True
         self._enable_ssl = False
-        self.xmpp_thread: Optional[threading.Thread] = None
-        self._init_event = threading.Event()
         self._thread_id: int = threading.get_ident()
 
     def __repr__(self):
@@ -224,7 +222,6 @@ class XmppTransport(slixmpp.ClientXMPP):
             asyncio.ensure_future(self.get_roster(), loop=self.loop)
             # Send initial sign-on presence
             self.send_presence_safe(pstatus="ident#" + self._node_id)
-            self._init_event.set()
         except Exception as err:
             self.logger.error("XmppTransport: Exception:%s Event:%s", err, event)
 
@@ -256,7 +253,7 @@ class XmppTransport(slixmpp.ClientXMPP):
                             PresenceTimestamp=pts,
                         )
                     )
-                    self.logger.debug(
+                    self.logger.info(
                         "Resolved from %s, %s@%s->%s",
                         pstatus,
                         node_id[:7],
@@ -312,7 +309,7 @@ class XmppTransport(slixmpp.ClientXMPP):
                         PresenceTimestamp=pts,
                     )
                 )
-                self.logger.debug(
+                self.logger.info(
                     "Resolved from %s, %s@%s->%s",
                     msg_type,
                     peer_id[:7],
@@ -343,8 +340,7 @@ class XmppTransport(slixmpp.ClientXMPP):
         msg["type"] = "chat"
         msg["evio"]["type"] = msg_type
         msg["evio"]["payload"] = payload
-        thread_id = threading.get_ident()
-        if thread_id == self._thread_id:
+        if threading.get_ident() == self._thread_id:
             self.loop.call_soon(msg.send)
         else:
             self.loop.call_soon_threadsafe(msg.send)
@@ -356,9 +352,6 @@ class XmppTransport(slixmpp.ClientXMPP):
             self.loop.call_soon_threadsafe(
                 functools.partial(self.send_presence, pstatus=pstatus)
             )
-
-    def wait_until_initialized(self):
-        return self._init_event.wait(10.0)
 
     def _check_network(self):
         # handle boot time start where the network is not yet available
@@ -375,22 +368,17 @@ class XmppTransport(slixmpp.ClientXMPP):
         return bool(res)
 
     def run(self):
-        tries: int = 0
         is_net_ready: bool = self._check_network()
         while not is_net_ready:
-            if tries >= 5:
-                self.logger.error("Failure to resolve XMPP server address")
-                self._init_event.set()
-                return
             time.sleep(4)
             is_net_ready = self._check_network()
 
         try:
             self.connect(address=(self._host, int(self._port)))
-            self.process(forever=True)
-            # Do not show `asyncio.CancelledError` exceptions during shutdown
+            self.loop.run_forever()
 
             def shutdown_exception_handler(loop, context):
+                # Do not show `asyncio.CancelledError` exceptions during shutdown
                 if "exception" not in context or not isinstance(
                     context["exception"], asyncio.CancelledError
                 ):
@@ -401,7 +389,7 @@ class XmppTransport(slixmpp.ClientXMPP):
             tasks = asyncio.gather(
                 *asyncio.all_tasks(loop=self.loop),
                 loop=self.loop,
-                return_exceptions=True
+                return_exceptions=True,
             )
             tasks.add_done_callback(lambda t: self.loop.stop())
             tasks.cancel()
@@ -411,7 +399,7 @@ class XmppTransport(slixmpp.ClientXMPP):
         except Exception as err:
             self.logger.error("XMPPTransport run exception %s", err)
         finally:
-            self.loop.run_until_complete(self.loop.shutdown_asyncgens())
+            # self.loop.run_until_complete(self.loop.shutdown_asyncgens())
             self.loop.close()
             self.logger.debug("Event loop closed on XMPP overlay=%s", self._overlay_id)
 
@@ -419,11 +407,14 @@ class XmppTransport(slixmpp.ClientXMPP):
         self,
     ):
         self.logger.debug("Initiating shutdown of XMPP overlay=%s", self._overlay_id)
-        self.loop.call_soon_threadsafe(self.disconnect(reason="controller shutdown"))
+        self.disconnect(reason="controller shutdown", ignore_send_queue=True)
+        # self.loop.call_soon_threadsafe(self.disconnect(reason="controller shutdown", ignore_send_queue=True))
         self.logger.debug("Disconnect of XMPP overlay=%s", self._overlay_id)
 
 
 class XmppCircle:
+    _REFLECT: list[str] = ["xport", "_transmission_queue", "jid_cache"]
+
     def __init__(
         self, node_id: str, overlay_id: str, ovl_config: dict, **kwargs
     ) -> None:
@@ -434,23 +425,26 @@ class XmppCircle:
         self.on_presence = kwargs["on_presence"]
         self.on_remote_action = kwargs["on_remote_action"]
         self.on_peer_jid_updated = kwargs["on_peer_jid_updated"]
-        self._transmission_queue: dict[str, Queue] = {}
+        self._transmission_queues: dict[str, Queue] = {}
         self.jid_cache: JidCache = JidCache(
             ovl_config.get("CacheExpiry", CACHE_EXPIRY_INTERVAL)
         )
         self.xport: XmppTransport = None
         self._xport_thread = threading.Thread(
             target=self._setup_transport_instance,
-            daemon=True,
+            daemon=False,
             name="XMPP.Client",
         )
 
+    def __repr__(self):
+        return broker.introspect(self)
+
     @property
-    def transmit_queue(self) -> dict[str, Queue]:
-        return self._transmission_queue
+    def transmit_queues(self) -> dict[str, Queue]:
+        return self._transmission_queues
 
     def peer_transmit_queue(self, peer_id) -> Queue:
-        return self._transmission_queue[peer_id]
+        return self._transmission_queues[peer_id]
 
     def _setup_transport_instance(self):
         """
@@ -483,9 +477,9 @@ class XmppCircle:
 class Signal(ControllerModule):
     _REFLECT: list[str] = [
         "_circles",
-        "_in_remote_acts",
+        "_recv_remote_acts_invk_locally",
         "_cbts_pending_remote_resp",
-        "_request_timeout",
+        "_jid_resolution_timeout",
     ]
 
     def __init__(self, nexus, module_config):
@@ -497,7 +491,7 @@ class Signal(ControllerModule):
             str, CBT
         ] = {}  # use to track the cbt to be completed when the rem act returns
         self._lck = threading.Lock()
-        self._request_timeout = self._nexus.query_param("RequestTimeout")
+        self._jid_resolution_timeout = self._nexus.query_param("JidResolutionTimeout")
 
     def initialize(self):
         self._presence_publisher = self.publish_subscription("SIG_PEER_PRESENCE_NOTIFY")
@@ -517,28 +511,26 @@ class Signal(ControllerModule):
                 self,
                 statement_false,
                 self.on_exp_presence,
-                PRESENCE_INTERVAL * random.randint(2, 5),
+                PRESENCE_INTERVAL * random.randint(1, 5),
             )
         self.logger.info("Controller module loaded")
 
-    def _next_anc_interval(self):
+    def _next_anc_interval(self) -> float:
         return self.config.get("PresenceInterval", PRESENCE_INTERVAL) * random.randint(
-            10, 20
+            20, 50
         )
 
-    def announce_presence(self):
-        for circ in self._circles.values():
-            if circ.xport and circ.xport.is_connected():
-                circ.xport.send_presence_safe(pstatus="ident#" + self.node_id)
-            self.register_timed_transaction(
-                self,
-                statement_false,
-                self.on_exp_presence,
-                self._next_anc_interval(),
-            )
-
     def on_exp_presence(self, *_):
-        self.announce_presence()
+        with self._lck:
+            for circ in self._circles.values():
+                if circ.xport and circ.xport.is_connected():
+                    circ.xport.send_presence_safe(pstatus="ident#" + self.node_id)
+                self.register_timed_transaction(
+                    self,
+                    statement_false,
+                    self.on_exp_presence,
+                    self._next_anc_interval(),
+                )
 
     def on_presence(self, msg):
         self._presence_publisher.post_update(msg)
@@ -570,7 +562,7 @@ class Signal(ControllerModule):
             )
             return
         n_cbt = self.create_cbt(rem_act.recipient_cm, rem_act.action, rem_act.params)
-        # store the remote action for completion
+        # store the remote action for completion later
         with self._lck:
             self._recv_remote_acts_invk_locally[n_cbt.tag] = rem_act
         self.submit_cbt(n_cbt)
@@ -596,7 +588,7 @@ class Signal(ControllerModule):
 
     def req_handler_initiate_remote_action(self, cbt: CBT):
         """
-        Create a new remote action from the received CBT and transmit it to the recepient
+        Extract the remote action from the received CBT and transmit it to the recepient
         """
         rem_act = cbt.request.params
         peer_id = rem_act.recipient_id
@@ -619,7 +611,7 @@ class Signal(ControllerModule):
         cbt.set_response(None, True)
         self.complete_cbt(cbt)
 
-    def resp_handler_remote_action(self, cbt: CBT):
+    def resp_handler_invoked_remact(self, cbt: CBT):
         """Convert the response CBT to a remote action and return to the initiator to be completed there"""
         rem_act = self._recv_remote_acts_invk_locally.pop(cbt.tag)
         peer_id = rem_act.initiator_id
@@ -629,26 +621,31 @@ class Signal(ControllerModule):
         self.free_cbt(cbt)
 
     def _send_waiting_remote_acts(self, overlay_id, peer_id, peer_jid):
-        out_rem_acts = self._circles[overlay_id].transmit_queue
+        out_rem_acts = self._circles[overlay_id].transmit_queues
         if peer_id in out_rem_acts:
             transport = self._circles[overlay_id].xport
-            ra_que = out_rem_acts.get(peer_id)
-            while ra_que.not_empty:
-                entry = ra_que.get()
-                msg_type, msg_data = entry[0], dict(entry[1])
-                transport.send_msg(peer_jid, msg_type, json.dumps(msg_data))
-                self.logger.debug("Sent queued remote action: %s", msg_data)
+            remact_que = out_rem_acts.get(peer_id)
+            while True:
+                try:
+                    remact = remact_que.get_nowait()
+                except Empty:
+                    return
+                else:
+                    msg_type, msg_data = remact[0], dict(remact[1])
+                    transport.send_msg(peer_jid, msg_type, json.dumps(msg_data))
+                    remact_que.task_done()
+                    self.logger.debug("Sent queued remote action: %s", msg_data)
 
     def transmit_remote_act(self, rem_act: RemoteAction, peer_id, act_type):
         """
-        Transmit rem act to peer, if Peer JID is not cached queue the rem act and
-        attempt to resolve the peer's JID
+        Transmit remote action to peer. If Peer JID is unknown, queue the remote action and
+        attempt to resolve the peer's JID from its node ID.
         """
         olid = rem_act.overlay_id
         peer_jid = self._circles[olid].jid_cache.lookup(peer_id)
         transport = self._circles[olid].xport
         if peer_jid is None:
-            out_rem_acts = self._circles[olid].transmit_queue
+            out_rem_acts = self._circles[olid].transmit_queues
             if peer_id not in out_rem_acts:
                 out_rem_acts[peer_id] = Queue(maxsize=0)
             out_rem_acts[peer_id].put((act_type, rem_act, time.time()))
@@ -682,29 +679,16 @@ class Signal(ControllerModule):
                     self.req_handler_default(cbt)
             elif cbt.is_completed:
                 if cbt.tag in self._recv_remote_acts_invk_locally:
-                    self.resp_handler_remote_action(cbt)
+                    self.resp_handler_invoked_remact(cbt)
                 else:
                     self.resp_handler_default(cbt)
 
     def on_timer_event(self):
         for overlay_id in self._circles:
-            if not self._circles[overlay_id].xport:
-                self.logger.warning("Transport not yet available")
-                continue
-            self._circles[overlay_id].xport.wait_until_initialized()
-            if not self._circles[overlay_id].xport.is_connected():
-                self.logger.warning(
-                    "Attempting XMPP session connection for overlay %s on thread %s",
-                    overlay_id,
-                    self._circles[overlay_id]._xport_thread.ident,
-                )
-                self._circles[overlay_id]._xport_thread.join()
-                self._setup_circle(overlay_id)
-                continue
             self._circles[overlay_id].jid_cache.scavenge()
             with self._lck:
                 self.scavenge_expired_outgoing_rem_acts(
-                    self._circles[overlay_id].transmit_queue
+                    self._circles[overlay_id].transmit_queues
                 )
 
     def terminate(self):
@@ -714,11 +698,15 @@ class Signal(ControllerModule):
         self.logger.info("Controller module terminating")
 
     def abort_handler(self, cbt: CBT):
-        """Additional resouce clean here, eg., fail edge negotiate or create"""
-        self._recv_remote_acts_invk_locally.pop(cbt.tag, None)
+        rem_act = self._recv_remote_acts_invk_locally.pop(cbt.tag, None)
+        if rem_act is not None:
+            peer_id = rem_act.initiator_id
+            rem_act.data = f"This request was aborted at peer {rem_act.recipient_id}"
+            rem_act.status = False
+            self.transmit_remote_act(rem_act, peer_id, "cmpt")
         self.free_cbt(cbt)
 
-    def scavenge_expired_outgoing_rem_acts(self, outgoing_rem_acts):
+    def scavenge_expired_outgoing_rem_acts(self, outgoing_rem_acts: dict[str, Queue]):
         # clear out the JID Refresh queue for a peer if the oldest entry age exceeds the limit
         peer_ids = []
         for peer_id in outgoing_rem_acts:
@@ -728,21 +716,28 @@ class Signal(ControllerModule):
             remact_descr = outgoing_rem_acts[peer_id].queue[
                 0
             ]  # peek at the first/oldest entry
-            if time.time() - remact_descr[2] >= self._request_timeout:
+            if time.time() - remact_descr[2] >= self._jid_resolution_timeout:
                 peer_ids.append(peer_id)
                 self.logger.debug(
-                    "Remote acts scavenged for removal peer id %s qlength %d",
+                    "Remote acts scavenged for removal peer_id %s qlength %d",
                     peer_id,
                     peer_qlen,
                 )
         for peer_id in peer_ids:
-            rem_act_que = outgoing_rem_acts.pop(peer_id, Queue())
-            while not rem_act_que.qsize() > 0:
-                entry = rem_act_que.get()
-                rem_act_que.task_done()
-                self.logger.info("failed to send remote action response %s", entry)
+            remact_que = outgoing_rem_acts.pop(peer_id, Queue())
+            while True:
+                try:
+                    remact = remact_que.get_nowait()
+                except Empty:
+                    break
+                else:
+                    tag = remact[1].action_tag
+                    cbt = self._cbts_pending_remote_resp.pop(tag, None)
+                    cbt.set_response("Peer lookup failed", False)
+                    self.complete_cbt(cbt)
+                    remact_que.task_done()
 
-    def _setup_circle(self, overlay_id):
+    def _setup_circle(self, overlay_id: str):
         xcir = XmppCircle(
             self.node_id,
             overlay_id,

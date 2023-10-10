@@ -35,14 +35,16 @@ class TimedTransactions:
 
     def _get_expired(self, entry):
         if not entry.is_completed():
-            entry.time_expired = time.time()
-            entry.on_expired(entry.item, entry.time_expired)
+            # entry.time_expired = time.time()
+            entry.on_expired(entry.item, time.time())
 
     def _run(self):
+        # while not self._exit_ev.wait(self._chk_interval):
+        #     self._sched.run(blocking=False)
         while not self._exit_ev.wait(self._chk_interval):
             try:
                 while not self._exit_ev.wait(self._chk_interval):
-                    self._sched.run()
+                    self._sched.run(blocking=False)
             except Exception as err:
                 logging.getLogger().exception("%s", err)
 
@@ -51,6 +53,4 @@ class TimedTransactions:
 
     def terminate(self):
         self._exit_ev.set()
-        with self._sched._lock:
-            self._sched._queue.clear()
         self._event_thread.join()
