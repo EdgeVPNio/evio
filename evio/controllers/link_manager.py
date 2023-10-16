@@ -69,7 +69,7 @@ class Tunnel:
         self.fpr = None
         self.link = None
         self.peer_mac = None
-        self._tunnel_state = tnl_state
+        self.state = tnl_state
         self.dataplane = dataplane
 
     def __repr__(self):
@@ -77,11 +77,11 @@ class Tunnel:
 
     @property
     def tunnel_state(self):
-        return self._tunnel_state
+        return self.state
 
     @tunnel_state.setter
     def tunnel_state(self, new_state):
-        self._tunnel_state = new_state
+        self.state = new_state
 
 
 class LinkManager(ControllerModule):
@@ -164,7 +164,7 @@ class LinkManager(ControllerModule):
             self._tunnels[tnlid] = tnl
             self.register_timed_transaction(
                 tnl,
-                self.is_link_completed,
+                self.is_tnl_online,
                 self.on_tnl_timeout,
                 LINK_SETUP_TIMEOUT,
             )
@@ -735,8 +735,9 @@ class LinkManager(ControllerModule):
         ign_netinf |= self._ignored_net_interfaces[overlay_id]
         return ign_netinf
 
-    def is_link_completed(self, tnl: Tunnel) -> bool:
-        return bool(tnl.link and tnl.link.creation_state == 0xC0)
+    def is_tnl_online(self, tnl: Tunnel) -> bool:
+        return bool(tnl.tunnel_state == TUNNEL_STATES.ONLINE)
+        # return bool(tnl.link and tnl.link.creation_state == 0xC0)
 
     def _remove_link_from_tunnel(self, tnlid):
         tnl = self._tunnels.get(tnlid)
@@ -1004,35 +1005,37 @@ class LinkManager(ControllerModule):
         if tnlid not in self._tunnels:
             return
         tnl = self._tunnels[tnlid]
-        if tnl.link:
-            creation_state = tnl.link.creation_state
-            if creation_state < 0xC0 and tnl.tap_name:
-                olid = self._tunnels[tnlid].overlay_id
-                peer_id = self._tunnels[tnlid].peer_id
-                lnkid = self.link_id(tnlid)
-                params = {
-                    "OverlayId": olid,
-                    "PeerId": peer_id,
-                    "TunnelId": tnlid,
-                    "LinkId": lnkid,
-                    "TapName": tnl.tap_name,
-                }
-                self.logger.info(
-                    "Initiating removal of incomplete tunnnel: "
-                    "Tap: %s, TnlId: %s, CreateState: %s",
-                    tnl.tap_name,
-                    tnlid[:7],
-                    format(creation_state, "02X"),
-                )
-                self.register_cbt("TincanTunnel", "TCI_REMOVE_TUNNEL", params)
-            self._cleanup_failed_tunnel_data(tnl)
+        self._cleanup_failed_tunnel_data(tnl)
+        if (
+            tnl.tunnel_state == TUNNEL_STATES.CREATING
+            or tnl.tunnel_state == TUNNEL_STATES.QUERYING
+            or tnl.tunnel_state == TUNNEL_STATES.OFFLINE
+        ):
+            olid = tnl.overlay_id
+            peer_id = tnl.peer_id
+            lnkid = self.link_id(tnlid)
+            params = {
+                "OverlayId": olid,
+                "PeerId": peer_id,
+                "TunnelId": tnlid,
+                "LinkId": lnkid,
+                "TapName": tnl.tap_name,
+            }
+            self.logger.info(
+                "Initiating removal of incomplete tunnnel: "
+                "Tap: %s, TnlId: %s, CreateState: %s",
+                tnl.tap_name,
+                tnlid[:7],
+                format(tnl.link.creation_state, "02X"),
+            )
+            self.register_cbt("TincanTunnel", "TCI_REMOVE_TUNNEL", params)
 
     def _cleanup_failed_tunnel_data(self, tnl: Tunnel):
         self.logger.debug("Removing failed tunnel data %s", tnl)
         if tnl:
             self._tunnels.pop(tnl.tnlid, None)
-            lnkid = self.link_id(tnl.tnlid)
-            self._links.pop(lnkid, None)
+        if tnl.link:
+            self._links.pop(tnl.link.lnkid, None)
 
 
 """ TODO: OUTDATED, NEED TO BE UPDATED
