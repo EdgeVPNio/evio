@@ -31,14 +31,13 @@ from random import randint
 from typing import Optional
 
 import broker
-from broker import (
+from broker import (  # PEER_DISCOVERY_COALESCE,
     CBT_LIFESPAN,
     EXCLUSION_BASE_INTERVAL,
     MAX_CONCURRENT_OPS,
     MAX_ON_DEMAND_EDGES,
     MAX_SUCCESSIVE_FAILS,
     MIN_SUCCESSORS,
-    PEER_DISCOVERY_COALESCE,
     STALE_INTERVAL,
     SUCCESSIVE_FAIL_DECR,
     SUCCESSIVE_FAIL_INCR,
@@ -355,18 +354,7 @@ class Topology(ControllerModule):
             disc = DiscoveredPeer(peer_id)
             self._net_ovls[olid].known_peers[peer_id] = disc
         disc.presence()
-        if disc.is_available:
-            self._net_ovls[olid].new_peer_count += 1
-            if self._net_ovls[olid].new_peer_count >= self.config.get(
-                "PeerDiscoveryCoalesce", PEER_DISCOVERY_COALESCE
-            ):
-                self.logger.info(
-                    "Coalesced %d of %d discovered peers, attempting update on overlay %s",
-                    self._net_ovls[olid].new_peer_count,
-                    self.config.get("PeerDiscoveryCoalesce", PEER_DISCOVERY_COALESCE),
-                    olid,
-                )
-                self._update_overlay(olid)
+        self._update_overlay(olid)
         cbt.set_response(None, True)
         self.complete_cbt(cbt)
 
@@ -678,6 +666,14 @@ class Topology(ControllerModule):
             self._process_next_transition(ovl)
         else:
             self.free_cbt(cbt)
+            ce = ovl.adjacency_list.get(peer_id)
+            if ce.edge_state != EDGE_STATES.Connected:
+                self.register_timed_transaction(
+                    (ce, olid),
+                    self._is_connedge_connected,
+                    self._on_connedge_timeout,
+                    30,
+                )
 
     def resp_handler_remove_tnl(self, cbt: CBT):
         params = cbt.request.params
@@ -1074,9 +1070,9 @@ class Topology(ControllerModule):
             raise ValueError(f"Invalid request: Undefinfed tunnel type {dataplane}")
 
     def _initiate_remove_edge(self, net_ovl: NetworkOverlay, peer_id: str):
-        if peer_id not in net_ovl.adjacency_list:
-            raise RuntimeWarning("No connection edge to peer found")
-        ce = net_ovl.adjacency_list[peer_id]
+        ce = net_ovl.adjacency_list.get(peer_id)
+        if not ce:
+            return
         if (
             ce.edge_state == EDGE_STATES.Connected
             and ce.role == CONNECTION_ROLE.Initiator
@@ -1091,8 +1087,6 @@ class Topology(ControllerModule):
                 raise ValueError("Successor threshold not met")
             self.logger.debug("Removing edge %s", ce)
             self._remove_tunnel(net_ovl, ce.dataplane, ce.peer_id, ce.edge_id)
-            return True
-        return False
 
     def _remove_tunnel(
         self,

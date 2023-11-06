@@ -90,9 +90,9 @@ class CBT:
             return introspect(self)
 
         def __itr__(self):
-            yield ("status", self.status)
             yield ("initiator", self.initiator)
             yield ("recipient", self.recipient)
+            yield ("status", self.status)
             yield ("data", self.data)
 
         def update(self, data, status: bool):
@@ -116,7 +116,10 @@ class CBT:
         self.response: Optional[CBT.Response] = None
         self.context: dict = {}
         for k, v in kwargs.items():
-            self.context[k] = v
+            if hasattr(self, k):
+                self.k = v
+            else:
+                self.context[k] = v
         self.lifespan = CBT_LIFESPAN
         self.time_created: float = 0.0
         self.time_submited: float = 0.0

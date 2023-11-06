@@ -30,7 +30,7 @@ import urllib.request as request
 from urllib.error import HTTPError, URLError
 
 from broker.cbt import CBT
-from broker.controller_module import ControllerModule
+from broker.controller_module import ControllerModule, introspect
 
 
 class UsageReport(ControllerModule):
@@ -43,6 +43,9 @@ class UsageReport(ControllerModule):
             "Version": self.version,
             "NodeId": hashlib.sha256(self.node_id.encode("utf-8")).hexdigest(),
         }
+
+    def __repr__(self):
+        return introspect(self)
 
     def initialize(self):
         self.logger.info("Controller module loaded")

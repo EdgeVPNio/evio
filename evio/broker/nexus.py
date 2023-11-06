@@ -23,7 +23,7 @@ import queue
 import threading
 import time
 
-from . import CONTROLLER_TIMER_INTERVAL, EVENT_PERIOD, statement_false
+from . import CONTROLLER_TIMER_INTERVAL, EVENT_PERIOD
 from .cbt import CBT
 from .process_proxy import ProxyMsg
 from .timed_transactions import Transaction
@@ -44,10 +44,6 @@ class Nexus:
         )
         self._timer_loop_cnt: int = 1
         self._pending_cbts: dict[int, CBT] = {}
-        self._last_ctlr_update_ts = time.time()
-        self._ctlr_update = Transaction(
-            self, statement_false, self.on_timer, self._timer_interval
-        )
 
     @property
     def controller(self):
@@ -131,7 +127,7 @@ class Nexus:
 
     def start_controller(self):
         self._cm_thread.start()
-        self._broker.register_timed_transaction(self._ctlr_update)
+        self._broker.register_dpc(self._timer_interval, self.on_timer)
 
     def __worker(self):
         # get CBT from the local queue and call process_cbt() of the
@@ -182,11 +178,7 @@ class Nexus:
                 f"Unexpected CBT state for expired event. {cbt}"
             )
 
-    def _schedule_ctlr_update(self):
-        self._ctlr_update.lifespan = self._timer_interval
-        self._broker.register_timed_transaction(self._ctlr_update)
-
-    def on_timer(self, nexus, time_expired: float):
+    def on_timer(self):
         try:
             self._controller.log_state()
             self._controller.on_timer_event()
@@ -194,7 +186,7 @@ class Nexus:
             self._controller.logger.warning(
                 "on_timer exception: %s", err, exc_info=True
             )
-        self._schedule_ctlr_update()
+        self._broker.register_dpc(self._timer_interval, self.on_timer)
 
     def query_param(self, param_name=""):
         return self._broker.query_param(param_name)
@@ -234,6 +226,9 @@ class Nexus:
                 lifespan=lifespan,
             )
         )
+
+    def register_deferred_call(self, delay, call, params):
+        self._broker.register_dpc(delay, call, params)
 
     def send_ipc(self, msg: ProxyMsg):
         self._broker.send_ipc(msg)

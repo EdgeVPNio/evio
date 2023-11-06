@@ -50,9 +50,9 @@ class ControllerModule:
 
     def _setup_logger(self):
         self.logger = logging.getLogger(self.__class__.__name__)
-        # if "LogLevel" in self.config:
-        #     self.logger.setLevel(self.config["LogLevel"])
-        # return
+        if "LogLevel" in self.config:
+            self.logger.setLevel(self.config["LogLevel"])
+        return
 
     @abstractmethod
     def initialize(self):
@@ -259,6 +259,9 @@ class ControllerModule:
         if is_completed(obj):
             raise ValueError(f"Object already marked as completed {obj}")
         self._nexus.register_timed_transaction(obj, is_completed, on_expired, lifespan)
+
+    def register_deferred_call(self, delay, call, params=()):
+        self._nexus.register_deferred_call(delay, call, params)
 
     @abstractmethod
     def handle_ipc(self, msg: ProxyMsg):

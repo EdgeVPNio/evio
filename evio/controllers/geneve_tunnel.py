@@ -444,4 +444,4 @@ class GeneveTunnel(ControllerModule):
         if tnl.state == TUNNEL_STATES.AUTHORIZED:
             self._deauth_tnl(tnl)
         else:
-            self._rollback_tnl([tnl])
+            self._rollback_tnl(tnl)

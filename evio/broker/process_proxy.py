@@ -53,16 +53,14 @@ class ProxyMsg:
     def data(self, payload: bytearray):
         self.ts = time.time()
         self._json = None
-        if payload is None:
-            return
         self.payload = payload
 
     def __repr__(self) -> str:
-        return f"{self.fileno}:{self.payload.decode('utf-8')}"
+        return f"{self.fileno}:{self.json}"
 
     @property
     def json(self):
-        if self._json is None:
+        if self._json is None and self.payload:
             self._json = json.loads(self.payload.decode("utf-8"))
         return self._json
 
@@ -124,6 +122,8 @@ class ProcessProxy:
                 while not self._exit_ev.is_set():
                     while self.tx_que.qsize() > 0:
                         msg: ProxyMsg = self.tx_que.get_nowait()
+                        if not msg.data:
+                            continue
                         node = connections.get(msg.fileno, None)
                         if node is not None:
                             if not node.event & select.EPOLLOUT:
@@ -154,6 +154,7 @@ class ProcessProxy:
                                 "Node %s IPC read hangup", node.skt.fileno()
                             )
                             if not node.tx_deque:
+                                connections.pop(fileno)
                                 self.close_client(node)
                         elif event & select.EPOLLHUP:
                             node = connections.pop(fileno)
@@ -164,10 +165,12 @@ class ProcessProxy:
                                 bufsz = int.from_bytes(
                                     connections[fileno].skt.recv(2), sys.byteorder
                                 )
-                                if bufsz <= 0:
-                                    node = connections[fileno]
-                                    node.skt.shutdown(socket.SHUT_WR)
-                                elif bufsz > 65507:
+                                if bufsz == 0:
+                                    connections[fileno].skt.recv(0)
+                                    self.logger.warning(
+                                        "Zero byte read buffer size received"
+                                    )
+                                elif bufsz < 0 or bufsz > 65507:
                                     node = connections[fileno]
                                     connections.pop(fileno)
                                     self.close_client(node)

@@ -27,6 +27,7 @@ except ImportError:
 
 import copy
 import logging
+import signal
 import subprocess
 import threading
 from abc import ABCMeta, abstractmethod
@@ -49,6 +50,7 @@ from broker.cbt import CBT
 from broker.controller_module import ControllerModule
 from broker.process_proxy import ProxyMsg
 from pyroute2 import IPRoute
+from pyroute2.netlink.exceptions import NetlinkError
 
 from .tunnel import TUNNEL_EVENTS
 
@@ -171,10 +173,12 @@ class OvsBridge(BridgeABC):
 
     def add_port(self, port_name, port_descr):
         self.del_port(port_name)
-        self.flush_ip_addresses(self.name)
         with IPRoute() as ipr:
-            idx = ipr.link_lookup(ifname=port_name)[0]
-            ipr.link("set", index=idx, mtu=self.mtu)
+            idx = ipr.link_lookup(ifname=port_name)
+            if len(idx) < 1:
+                raise NetlinkError(19, "No such device")
+            ipr.flush_addr(index=idx[0])
+            ipr.link("set", index=idx[0], mtu=self.mtu)
         broker.run_proc(
             [OvsBridge.brctl, "--may-exist", "add-port", self.name, port_name]
         )
@@ -263,9 +267,12 @@ class LinuxBridge(BridgeABC):
 
     def add_port(self, port_name, port_descr):
         with IPRoute() as ipr:
-            idx = ipr.link_lookup(ifname=port_name)[0]
-            ipr.link("set", index=idx, mtu=self.mtu)
-            ipr.link("set", index=idx, master=ipr.link_lookup(ifname=self.name)[0])
+            idx = ipr.link_lookup(ifname=port_name)
+            if len(idx) < 1:
+                raise NetlinkError(19, "No such device")
+            ipr.flush_addr(index=idx[0])
+            ipr.link("set", index=idx[0], mtu=self.mtu)
+            ipr.link("set", index=idx[0], master=ipr.link_lookup(ifname=self.name)[0])
         self.ports.add(port_name)
         self.port_descriptors[port_name] = port_descr
 
@@ -307,16 +314,20 @@ class VNIC(BridgeABC):
     def add_port(self, port_name):
         self.name = port_name
         with IPRoute() as ipr:
-            idx = ipr.link_lookup(ifname=port_name)[0]
-            ipr.link("set", index=idx, mtu=self.mtu)
-            ipr.addr("add", index=idx, address=self.ip_addr, mask=self.prefix_len)
-            ipr.link("set", index=idx, state="up")
+            idx = ipr.link_lookup(ifname=port_name)
+            if len(idx) < 1:
+                raise NetlinkError(19, "No such device")
+            ipr.link("set", index=idx[0], mtu=self.mtu)
+            ipr.addr("add", index=idx[0], address=self.ip_addr, mask=self.prefix_len)
+            ipr.link("set", index=idx[0], state="up")
 
     def del_port(self, port_name):
         with IPRoute() as ipr:
-            idx = ipr.link_lookup(ifname="port_name")[0]
-            ipr.link("set", index=idx, state="down")
-            ipr.link("del", index=idx)
+            idx = ipr.link_lookup(ifname=port_name)
+            if len(idx) < 1:
+                raise NetlinkError(19, "No such device")
+            ipr.link("set", index=idx[0], state="down")
+            ipr.link("del", index=idx[0])
 
 
 ###################################################################################################
@@ -447,7 +458,7 @@ class BridgeController(ControllerModule):
                 net_ovl["NetDevice"] = {}
         # start the BF proxy if at least one overlay is configured for it
         if "BoundedFlood" in self.config:
-            self._start_bf_proxy_server()
+            self._start_boundedflood()
         # create and configure the bridge for each overlay
         _ = self._create_overlay_bridges()
         publishers = self.get_registered_publishers()
@@ -490,7 +501,7 @@ class BridgeController(ControllerModule):
             "TOP_REQUEST_OND_TUNNEL": self.resp_handler_default,
         }
 
-    def _start_bf_proxy_server(self):
+    def _start_boundedflood(self):
         bf_config = self.config["BoundedFlood"]
         bf_config["NodeId"] = self.node_id
         bf_ovls = bf_config.pop("Overlays")
@@ -502,7 +513,7 @@ class BridgeController(ControllerModule):
             )
             bf_config[br_name] = bf_ovls[olid]
             bf_config[br_name]["OverlayId"] = olid
-        self.start_bf_client_module(bf_config)
+        self._start_bf_module(bf_config)
 
     def _create_overlay_bridges(self) -> dict:
         ign_br_names = {}
@@ -548,7 +559,7 @@ class BridgeController(ControllerModule):
         except Exception as err:
             self._tunnels[overlay_id].pop(port_name, None)
             bridge.del_port(port_name)
-            self.logger.info("Failed to add port %s. %s", tnl_data, err, exc_info=True)
+            self.logger.info("Failed to add port %s. %s", tnl_data, err)
 
     def req_handler_manage_bridge(self, cbt: CBT):
         try:
@@ -558,9 +569,12 @@ class BridgeController(ControllerModule):
             if cbt.request.params["UpdateType"] == TUNNEL_EVENTS.Connected:
                 self._add_tunnel_port(olid, port_name, cbt.request.params)
             elif cbt.request.params["UpdateType"] == TUNNEL_EVENTS.Removed:
-                self._tunnels[olid].pop(port_name, None)
-                bridge.del_port(port_name)
-                self.logger.info("Port %s removed from bridge %s", port_name, bridge)
+                if port_name:
+                    self._tunnels[olid].pop(port_name, None)
+                    bridge.del_port(port_name)
+                    self.logger.info(
+                        "Port %s removed from bridge %s", port_name, bridge
+                    )
         except Exception as err:
             self.logger.warning("Manage bridge error %s", err, exc_info=True)
         cbt.set_response(None, True)
@@ -569,10 +583,17 @@ class BridgeController(ControllerModule):
     def on_timer_event(self):
         for tnl in self._tunnels.values():
             tnl.trim()
+        if self._bf_proc is not None:
+            exit_code = self._bf_proc.poll()
+            if exit_code:
+                self.logger.info(
+                    "BF module terminated unexpectedly (%s), restarting.", exit_code
+                )
+                self._start_boundedflood()
 
     def terminate(self):
         try:
-            self.stop_bf_module()
+            self._stop_bf_module()
             for olid, bridge in self._ovl_net.items():
                 if self.overlays[olid]["NetDevice"].get(
                     "AutoDelete", BRIDGE_AUTO_DELETE
@@ -671,7 +692,7 @@ class BridgeController(ControllerModule):
         msg.data = json.dumps(task).encode("utf-8")
         self.send_ipc(msg)
 
-    def start_bf_client_module(self, bf_config):
+    def _start_bf_module(self, bf_config):
         RyuManager = spawn.find_executable("ryu-manager")
         if RyuManager is None:
             raise RuntimeError("RyuManager was not found, is it installed?")
@@ -687,13 +708,13 @@ class BridgeController(ControllerModule):
         ]
         self._bf_proc = subprocess.Popen(cmd)
 
-    def stop_bf_module(self, wt: int = 1.15):
+    def _stop_bf_module(self, wt: int = 1.15):
         if self._bf_proc is not None:
             try:
                 exit_code = self._bf_proc.poll()
                 if exit_code is None:
-                    self._bf_proc.terminate()
-                    self._bf_proc.wait()
+                    self._bf_proc.send_signal(signal.SIGINT)
+                    self._bf_proc.wait(wt)
                 else:
                     self.logger.debug(
                         "BoundedFlood process %s already exited with %s",
@@ -707,7 +728,5 @@ class BridgeController(ControllerModule):
                         "Killing unresponsive BoundedFlood: %s", self._bf_proc.pid
                     )
                     self._bf_proc.kill()
+            self._bf_proc = None
         self.logger.info("BoundedFlood terminated")
-
-
-# Todo: check if BF process exited and restart if not shutting down

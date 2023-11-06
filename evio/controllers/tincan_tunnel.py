@@ -26,10 +26,11 @@ except ImportError:
 
 import subprocess
 import time
+from copy import deepcopy
 from threading import Event
 
 import broker
-from broker import TINCAN_CHK_INTERVAL, statement_false
+from broker import TINCAN_CHK_INTERVAL
 from broker.cbt import CBT
 from broker.controller_module import ControllerModule
 from broker.process_proxy import ProxyMsg
@@ -83,7 +84,7 @@ class TincanTunnel(ControllerModule):
         self._register_req_handlers()
         self._register_resp_handlers()
         self._tci_publisher = self.publish_subscription("TCI_TUNNEL_EVENT")
-        self.on_expire_chk_tincan()
+        self.register_deferred_call(TINCAN_CHK_INTERVAL, self.on_expire_chk_tincan)
         self.logger.info("Controller module loaded")
 
     def _register_abort_handlers(self):
@@ -135,7 +136,7 @@ class TincanTunnel(ControllerModule):
     def _create_tunnel(self, cbt: CBT):
         msg = cbt.request.params
         tnlid = msg["TunnelId"]
-        ctl = broker.CTL_CREATE_TUNNEL
+        ctl = deepcopy(broker.CTL_CREATE_TUNNEL)
         ctl["TransactionId"] = cbt.tag
         req = ctl["Request"]
         req["StunServers"] = msg["StunServers"]
@@ -147,9 +148,6 @@ class TincanTunnel(ControllerModule):
         tc_proc = self._tc_proc_tbl[tnlid]
         self._tnl_cbts[cbt.tag] = cbt
         self.send_control(tc_proc.ipc_id, json.dumps(ctl))
-        for turn in req["TurnServers"]:
-            turn["User"] = "***"
-            turn["Password"] = "***"
 
     def req_handler_create_link(self, cbt: CBT):
         try:
@@ -159,6 +157,8 @@ class TincanTunnel(ControllerModule):
                 cbt.add_context("OnRegister", self._create_link)
                 self._tnl_cbts[tnlid] = cbt
                 self._start_tincan(tnlid)
+                self._tc_proc_tbl[tnlid].ovlid = msg["OverlayId"]
+                self._tc_proc_tbl[tnlid].tap_name = msg["TapName"]
             else:
                 self._create_link(cbt)
         except Exception:
@@ -169,7 +169,7 @@ class TincanTunnel(ControllerModule):
     def _create_link(self, cbt: CBT):
         msg = cbt.request.params
         tnlid = msg["TunnelId"]
-        ctl = broker.CTL_CREATE_LINK
+        ctl = deepcopy(broker.CTL_CREATE_LINK)
         ctl["TransactionId"] = cbt.tag
         req = ctl["Request"]
         req["TunnelId"] = tnlid
@@ -187,9 +187,6 @@ class TincanTunnel(ControllerModule):
         tc_proc = self._tc_proc_tbl[tnlid]
         self._tnl_cbts[cbt.tag] = cbt
         self.send_control(tc_proc.ipc_id, json.dumps(ctl))
-        for turn in req["TurnServers"]:
-            turn["User"] = "***"
-            turn["Password"] = "***"
 
     def req_handler_query_candidate_address_set(self, cbt: CBT):
         msg = cbt.request.params
@@ -198,7 +195,7 @@ class TincanTunnel(ControllerModule):
             err_msg = f"No tunnel exists for tunnel ID: {tnlid[:7]}"
             cbt.set_response({"ErrorMsg": err_msg, "Status": False})
             return
-        ctl = broker.CTL_QUERY_CAS
+        ctl = deepcopy(broker.CTL_QUERY_CAS)
         ctl["TransactionId"] = cbt.tag
         ctl["Request"]["TunnelId"] = tnlid
         tc_proc = self._tc_proc_tbl[tnlid]
@@ -206,17 +203,16 @@ class TincanTunnel(ControllerModule):
         self.send_control(tc_proc.ipc_id, json.dumps(ctl))
 
     def req_handler_query_link_stats(self, cbt: CBT):
-        msg = cbt.request.params
-        tnlid = msg["TunnelId"]
-        if tnlid not in self._tc_proc_tbl:
+        tnlid = cbt.request.params["TunnelId"]
+        tc_proc = self._tc_proc_tbl.get(tnlid)
+        if not tc_proc:
             err_msg = f"No tunnel exists for tunnel ID: {tnlid[:7]}"
             cbt.set_response({"ErrorMsg": err_msg, "Status": False})
             self.complete_cbt(cbt)
             return
-        ctl = broker.CTL_QUERY_LINK_STATS
+        ctl = deepcopy(broker.CTL_QUERY_LINK_STATS)
         ctl["TransactionId"] = cbt.tag
         ctl["Request"]["TunnelId"] = tnlid
-        tc_proc = self._tc_proc_tbl[tnlid]
         self._tnl_cbts[cbt.tag] = cbt
         self.send_control(tc_proc.ipc_id, json.dumps(ctl))
 
@@ -228,8 +224,9 @@ class TincanTunnel(ControllerModule):
             cbt.set_response(err_msg, True)
             self.complete_cbt(cbt)
             return
-        self.logger.debug("Removing tunnel %s", tnlid)
+        self.logger.info("Removing tunnel %s", tnlid)
         tc_proc = self._tc_proc_tbl.pop(tnlid, None)
+        self._pids.pop(tc_proc.proc.pid, None)
         self._stop_tincan(tc_proc)
         cbt.set_response("Tunnel removed", True)
         self.complete_cbt(cbt)
@@ -242,7 +239,7 @@ class TincanTunnel(ControllerModule):
             cbt.set_response({"ErrorMsg": err_msg, "Status": False})
             self.complete_cbt(cbt)
             return
-        ctl = broker.CTL_REMOVE_LINK
+        ctl = deepcopy(broker.CTL_REMOVE_LINK)
         ctl["TransactionId"] = cbt.tag
         req = ctl["Request"]
         req["TunnelId"] = tnlid
@@ -252,16 +249,18 @@ class TincanTunnel(ControllerModule):
         self.send_control(tc_proc.ipc_id, json.dumps(ctl))
 
     def req_handler_send_echo(self, cbt: CBT):
-        ctl = broker.CTL_ECHO
+        ctl = deepcopy(broker.CTL_ECHO)
         ctl["TransactionId"] = cbt.tag
         tnlid = cbt.request.params
         tc_proc = self._tc_proc_tbl.get(tnlid)
-        if tc_proc.do_chk and tc_proc.echo_replies > 0:
+        if tc_proc and tc_proc.do_chk and tc_proc.echo_replies > 0:
             tc_proc.echo_replies -= 1
             ctl["Request"]["Message"] = tc_proc.tnlid
             self._tnl_cbts[cbt.tag] = cbt
             self.send_control(tc_proc.ipc_id, json.dumps(ctl))
+
         else:
+            tc_proc.do_chk = False
             cbt.set_response(f"Cannot send echo to {tc_proc}", False)
             self.complete_cbt(cbt)
 
@@ -269,6 +268,9 @@ class TincanTunnel(ControllerModule):
         tnlid = cbt.response.data
         if cbt.response.status and tnlid in self._tc_proc_tbl:
             self._tc_proc_tbl[tnlid].echo_replies = broker.MAX_HEARTBEATS
+            self.register_internal_cbt(
+                "TCI_QUERY_LINK_INFO", {"TunnelId": tnlid}, lifespan=15
+            )
         else:
             self.logger.info(cbt.response.data)
         self.free_cbt(cbt)
@@ -288,32 +290,35 @@ class TincanTunnel(ControllerModule):
             else:
                 # tincan process unresponsive
                 self.logger.warning(
-                    "unnel: %s health check failed, terminating process: %s",
+                    "Tunnel: %s health check failed, terminating process: %s",
                     tnlid,
                     tc_proc,
                 )
-                self._stop_tincan(tc_proc)
-                self._notify_tincan_terminated(tnlid)
+                self._pids.pop(tc_proc.proc.pid, None)
                 self._tc_proc_tbl.pop(tnlid, None)
+                self._stop_tincan(tc_proc)
+                self._notify_tincan_terminated(tc_proc)
 
-    def req_handler_check_process(self, cbt):
-        if self.exit_ev.is_set():
-            return
+    def req_handler_check_process(self, cbt: CBT):
         exit_code = None
         rmv = []
-        for tnlid, tc_proc in self._tc_proc_tbl.items():
+        for tc_proc in self._tc_proc_tbl.values():
             exit_code = tc_proc.proc.poll()
             if exit_code:
                 # tincan process crashed
-                rmv.append(tnlid)
-        for tnlid in rmv:
-            self.logger.warning(
-                "Tincan process %s exited unexpectedly with code, %s",
-                tc_proc.proc.pid,
-                exit_code,
-            )
-            self._notify_tincan_terminated(tnlid)
-            self._tc_proc_tbl.pop(tnlid, None)
+                self.logger.warning(
+                    "Tincan process %s exited unexpectedly with code %s",
+                    tc_proc.proc.pid,
+                    exit_code,
+                )
+                rmv.append(tc_proc)
+        for tc_proc in rmv:
+            self._pids.pop(tc_proc.proc.pid)
+            self._tc_proc_tbl.pop(tc_proc.tnlid, None)
+            self._remove_tap(tc_proc.tap_name)
+            self._notify_tincan_terminated(tc_proc)
+        cbt.set_response(rmv, True)
+        self.complete_cbt(cbt)
 
     def on_timer_event(self):
         if self.exit_ev.is_set():
@@ -321,18 +326,14 @@ class TincanTunnel(ControllerModule):
         # send an echo health check every timer interval, eg., 30s
         for tnlid, tc_proc in self._tc_proc_tbl.items():
             if tc_proc.do_chk:
-                self.register_internal_cbt("_TCI_SEND_ECHO", tnlid)
+                self.register_internal_cbt("_TCI_SEND_ECHO", tnlid, lifespan=10)
 
-    def on_expire_chk_tincan(self, *_):
+    def on_expire_chk_tincan(self):
         if self.exit_ev.is_set():
             return
-        self.register_internal_cbt("_TCI_CHK_PROCESS")
-        self.register_timed_transaction(
-            self,
-            statement_false,
-            self.on_expire_chk_tincan,
-            TINCAN_CHK_INTERVAL,
-        )
+        if self._tc_proc_tbl:
+            self.register_internal_cbt("_TCI_CHK_PROCESS")
+        self.register_deferred_call(TINCAN_CHK_INTERVAL, self.on_expire_chk_tincan)
 
     def terminate(self):
         self.exit_ev.set()
@@ -399,34 +400,35 @@ class TincanTunnel(ControllerModule):
         except subprocess.TimeoutExpired:
             exit_code = tc_proc.proc.poll()
             if exit_code is None:
-                self._remove_tap()
+                self._remove_tap(tc_proc.tap_name)
                 tc_proc.proc.kill()
             self._kill_times.append(self._kill_times[-1] + time.time() - ts)
             self.logger.debug("Killed unresponsive Tincan: %s", tc_proc.proc.pid)
-        self._pids.pop(tc_proc.proc.pid)
         self.logger.info(
             "Process %s for tunnel %s terminated", tc_proc.proc.pid, tc_proc.tnlid
         )
 
-    def _notify_tincan_terminated(self, tnlid: str):
+    def _notify_tincan_terminated(self, tc_proc: TincanProcess):
         self._tci_publisher.post_update(
             {
                 "Command": "TincanTunnelFailed",
                 "Reason": "Tincan process terminated",
-                "OverlayId": self._tc_proc_tbl[tnlid].ovlid,
-                "TunnelId": tnlid,
-                "TapName": self._tc_proc_tbl[tnlid].tap_name,
+                "OverlayId": tc_proc.ovlid,
+                "TunnelId": tc_proc.tnlid,
+                "TapName": tc_proc.tap_name,
             }
         )
 
     def handle_ipc(self, msg: ProxyMsg):
+        if self.exit_ev.is_set():
+            return
         try:
             ctl = msg.json
             if ctl["ProtocolVersion"] != EVIO_VER_CTL:
                 raise ValueError("Invalid control version detected")
-            # self.logger.debug("Received dataplane control - %s", ctl)
             # Get the original CBT if this is the response
             if ctl["ControlType"] == "Response":
+                # self.logger.debug("Received Tincan control response: %s", ctl)
                 cbt = self._tnl_cbts.pop(ctl["TransactionId"])
                 cbt.set_response(
                     ctl["Response"]["Message"],

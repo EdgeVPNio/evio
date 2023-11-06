@@ -31,7 +31,12 @@ class TimedTransactions:
     def register(self, entry: Transaction):
         if self._exit_ev.is_set():
             return
-        self._sched.enter(entry.lifespan, entry.priority, self._get_expired, [entry])
+        self._sched.enter(entry.lifespan, entry.priority, self._get_expired, (entry,))
+
+    def register_dpc(self, delay: float, call, params: tuple):
+        if self._exit_ev.is_set():
+            return
+        self._sched.enter(delay, 15, call, params)
 
     def _get_expired(self, entry):
         if not entry.is_completed():

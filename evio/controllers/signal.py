@@ -39,7 +39,7 @@ from typing import Optional, Tuple, Union
 
 import broker
 import slixmpp
-from broker import CACHE_EXPIRY_INTERVAL, PRESENCE_INTERVAL, statement_false
+from broker import CACHE_EXPIRY_INTERVAL, PRESENCE_INTERVAL
 from broker.cbt import CBT
 from broker.controller_module import ControllerModule
 from broker.remote_action import RemoteAction
@@ -403,17 +403,13 @@ class XmppTransport(slixmpp.ClientXMPP):
             self.loop.close()
             self.logger.debug("Event loop closed on XMPP overlay=%s", self._overlay_id)
 
-    def shutdown(
-        self,
-    ):
-        self.logger.debug("Initiating shutdown of XMPP overlay=%s", self._overlay_id)
-        self.disconnect(reason="controller shutdown", ignore_send_queue=True)
-        # self.loop.call_soon_threadsafe(self.disconnect(reason="controller shutdown", ignore_send_queue=True))
-        self.logger.debug("Disconnect of XMPP overlay=%s", self._overlay_id)
+    def shutdown(self):
+        self.logger.debug("Initiating shutdown of XMPP overlay %s", self._overlay_id)
+        self.loop.call_soon_threadsafe(self.disconnect, 2, "controller shutdown", True)
 
 
 class XmppCircle:
-    _REFLECT: list[str] = ["xport", "_transmission_queue", "jid_cache"]
+    _REFLECT: list[str] = ["xport", "transmit_queues", "jid_cache"]
 
     def __init__(
         self, node_id: str, overlay_id: str, ovl_config: dict, **kwargs
@@ -507,11 +503,9 @@ class Signal(ControllerModule):
             )
             self._circles[olid] = xcir
             xcir.start()
-            self.register_timed_transaction(
-                self,
-                statement_false,
-                self.on_exp_presence,
+            self.register_deferred_call(
                 PRESENCE_INTERVAL * random.randint(1, 5),
+                self.on_exp_presence,
             )
         self.logger.info("Controller module loaded")
 
@@ -520,16 +514,13 @@ class Signal(ControllerModule):
             20, 50
         )
 
-    def on_exp_presence(self, *_):
+    def on_exp_presence(self):
         with self._lck:
             for circ in self._circles.values():
                 if circ.xport and circ.xport.is_connected():
                     circ.xport.send_presence_safe(pstatus="ident#" + self.node_id)
-                self.register_timed_transaction(
-                    self,
-                    statement_false,
-                    self.on_exp_presence,
-                    self._next_anc_interval(),
+                self.register_deferred_call(
+                    self._next_anc_interval(), self.on_exp_presence
                 )
 
     def on_presence(self, msg):
@@ -709,33 +700,26 @@ class Signal(ControllerModule):
     def scavenge_expired_outgoing_rem_acts(self, outgoing_rem_acts: dict[str, Queue]):
         # clear out the JID Refresh queue for a peer if the oldest entry age exceeds the limit
         peer_ids = []
-        for peer_id in outgoing_rem_acts:
-            peer_qlen = outgoing_rem_acts[peer_id].qsize()
-            if not outgoing_rem_acts[peer_id].queue:
-                continue
-            remact_descr = outgoing_rem_acts[peer_id].queue[
-                0
-            ]  # peek at the first/oldest entry
-            if time.time() - remact_descr[2] >= self._jid_resolution_timeout:
-                peer_ids.append(peer_id)
-                self.logger.debug(
-                    "Remote acts scavenged for removal peer_id %s qlength %d",
-                    peer_id,
-                    peer_qlen,
-                )
+        for peer_id, transmit_queue in outgoing_rem_acts.items():
+            if transmit_queue.queue:
+                remact_descr = transmit_queue.queue[0]  # peek at the first/oldest entry
+                if time.time() - remact_descr[2] >= self._jid_resolution_timeout:
+                    peer_ids.append(peer_id)
+                    self.logger.debug(
+                        "Remote act scavenged for removal %s", remact_descr
+                    )
         for peer_id in peer_ids:
-            remact_que = outgoing_rem_acts.pop(peer_id, Queue())
-            while True:
-                try:
-                    remact = remact_que.get_nowait()
-                except Empty:
-                    break
-                else:
-                    tag = remact[1].action_tag
-                    cbt = self._cbts_pending_remote_resp.pop(tag, None)
-                    cbt.set_response("Peer lookup failed", False)
-                    self.complete_cbt(cbt)
-                    remact_que.task_done()
+            transmit_queue: Queue = outgoing_rem_acts[peer_id]
+            try:
+                remact = transmit_queue.get_nowait()
+            except Empty:
+                return
+            tag = remact[1].action_tag
+            cbt = self._cbts_pending_remote_resp.pop(tag, None)
+            # if cbt:
+            cbt.set_response("Peer lookup failed", False)
+            self.complete_cbt(cbt)
+            transmit_queue.task_done()
 
     def _setup_circle(self, overlay_id: str):
         xcir = XmppCircle(

@@ -205,8 +205,6 @@ class Broker:
         self._que_listener.start()
         for k, v in self.cfg_controllers.items():
             ctr_lgl = self._config["Broker"].get("LogLevel", LOG_LEVEL)
-            if "LogLevel" in self._controller_config(k):
-                ctr_lgl = self._controller_config(k)["LogLevel"]
             self._setup_controller_logger((k, v["Module"]), formatter, ctr_lgl)
 
     def _setup_controller_logger(
@@ -250,8 +248,8 @@ class Broker:
             for ctrl_name in self._load_order:
                 self.load_module(ctrl_name)
 
-            self._ipc.start()
             self._timers.start()
+            self._ipc.start()
             # intialize the the CMs via their respective nexus
             for ctrl_name in self._load_order:
                 self._nexus_map[ctrl_name].initialize()
@@ -368,8 +366,6 @@ class Broker:
 
     def terminate(self):
         with self._nexus_lock:
-            self._timers.terminate()
-            self._ipc.terminate()
             for ctrl_name in reversed(self._load_order):
                 wn = self._nexus_map[ctrl_name]._cm_thread.name
                 self._nexus_map[ctrl_name].work_queue.put(None)
@@ -377,6 +373,8 @@ class Broker:
                 wn = self._nexus_map[ctrl_name]._cm_thread.name
                 self._nexus_map[ctrl_name]._cm_thread.join()
                 self.logger.info("%s exited", wn)
+            self._ipc.terminate()
+            self._timers.terminate()
             for ql in self._cm_qlisteners:
                 ql.stop()
         self._que_listener.stop()
@@ -504,6 +502,9 @@ class Broker:
 
     def register_timed_transaction(self, entry: Transaction):
         self._timers.register(entry)
+
+    def register_dpc(self, delay, call, params=()):
+        self._timers.register_dpc(delay, call, params)
 
     def dispach_proxy_msg(self, msg: ProxyMsg):
         # task structure

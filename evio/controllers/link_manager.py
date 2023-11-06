@@ -83,6 +83,9 @@ class Tunnel:
     def tunnel_state(self, new_state):
         self.state = new_state
 
+    def is_tnl_online(self) -> bool:
+        return bool(self.tunnel_state == TUNNEL_STATES.ONLINE)
+
 
 class LinkManager(ControllerModule):
     TAPNAME_MAXLEN = 15
@@ -375,13 +378,15 @@ class LinkManager(ControllerModule):
                 self._tunnels[tnlid].link.status_retry = 0
         elif cbt.request.params["Command"] == "LinkDisconnected":
             if self._tunnels[tnlid].tunnel_state != TUNNEL_STATES.QUERYING:
-                self.logger.debug("Link %s is disconnected", tnlid)
                 # issue a link state check only if it not already being done
+                self.logger.debug("Link %s is disconnected", tnlid)
                 self._tunnels[tnlid].tunnel_state = TUNNEL_STATES.QUERYING
                 cbt.set_response(data=None, status=True)
-                self.register_cbt(
-                    "TincanTunnel", "TCI_QUERY_LINK_INFO", {"TunnelId": tnlid}
-                )
+                self.register_deferred_call(
+                    5,
+                    self.register_cbt,
+                    ("TincanTunnel", "TCI_QUERY_LINK_INFO", {"TunnelId": tnlid}),
+                )  # issue link stat check in 5 secs as the link can reconnect
         elif cbt.request.params["Command"] == "TincanTunnelFailed":
             lnkid = self.link_id(tnlid)
             if lnkid:
@@ -736,8 +741,7 @@ class LinkManager(ControllerModule):
         return ign_netinf
 
     def is_tnl_online(self, tnl: Tunnel) -> bool:
-        return bool(tnl.tunnel_state == TUNNEL_STATES.ONLINE)
-        # return bool(tnl.link and tnl.link.creation_state == 0xC0)
+        return tnl.is_tnl_online()
 
     def _remove_link_from_tunnel(self, tnlid):
         tnl = self._tunnels.get(tnlid)
@@ -855,7 +859,8 @@ class LinkManager(ControllerModule):
             self.complete_cbt(parent_cbt)
             return
         lnkid = self.link_id(tnlid)
-        self._tunnels[tnlid].link.creation_state = 0xC0
+        tnl = self._tunnels[tnlid]
+        tnl.link.creation_state = 0xC0
         self.logger.debug(
             "Creating link %s to peer %s (5/5 Initiator)", tnlid[:7], peer_id[:7]
         )
@@ -868,6 +873,13 @@ class LinkManager(ControllerModule):
             self.node_id[:7],
             peer_id[:7],
         )
+        if not tnl.is_tnl_online():
+            self.register_timed_transaction(
+                tnl,
+                self.is_tnl_online,
+                self.on_tnl_timeout,
+                LINK_SETUP_TIMEOUT,
+            )
 
     def _complete_link_endpt_request(self, cbt: CBT):
         # Create Link: Phase 4 Node B
@@ -1036,40 +1048,3 @@ class LinkManager(ControllerModule):
             self._tunnels.pop(tnl.tnlid, None)
         if tnl.link:
             self._links.pop(tnl.link.lnkid, None)
-
-
-""" TODO: OUTDATED, NEED TO BE UPDATED
-###################################################################################################
-Link Manager state and event specifications
-###################################################################################################
-
-If LM fails a CBT there will be no further events fired for the tunnel.
-Once tunnel goes online an explicit CBT LNK_REMOVE_TUNNEL is required.
-Partially created tunnels that fails will be removed automatically by LM.
-
-Events
-(1) TunnelEvents.AuthExpired - After a successful completion of CBT LNK_AUTH_TUNNEL, the tunnel
-descriptor is created and TunnelEvents.Authorized is fired.
-(2) TunnelEvents.AuthExpired - If no action is taken on the tunnel within LinkSetupTimeout LM will
-fire TunnelEvents.AuthExpired and remove the associated tunnel descriptor.
-(3) ##REMOVED## TunnelEvents.Created - On both nodes A & B, on a successful completion of CBT
-TCI_CREATE_TUNNEL, the TAP device exists and TunnelEvents.Created is fired.
-(4) TunnelEvents.Connected - After Tincan delivers the online event to LM TunnelEvents.Connected
-is fired.
-(5) TunnelEvents.Disconnected - After Tincan signals link offline or QUERYy_LNK_STATUS discovers
-offline TunnelEvents.Disconnected is fired.
-(6) TunnelEvents.Removed - After the TAP device is removed TunnelEvents.Removed is fired and the
-tunnel descriptor is removed. Tunnel must be in TUNNEL_STATES.ONLINE or TUNNEL_STATES.OFFLINE
-
- Internal States
-(1) TUNNEL_STATES.AUTHORIZED - After a successful completion of CBT LNK_AUTH_TUNNEL, the tunnel
-descriptor exists.
-(2) TUNNEL_STATES.CREATING - entered on reception of CBT LNK_CREATE_TUNNEL.
-(3) TUNNEL_STATES.QUERYING - entered before issuing CBT TCI_QUERY_LINK_INFO. Happens when
-LinkStateChange is LINK_STATE_DOWN and state is not already TUNNEL_STATES.QUERYING; OR
-TCI_QUERY_LINK_INFO is OFFLINE and state is not already TUNNEL_STATES.QUERYING.
-(4) TUNNEL_STATES.ONLINE - entered when CBT TCI_QUERY_LINK_INFO is ONLINE or LinkStateChange is
-LINK_STATE_UP.
-(5) TUNNEL_STATES.OFFLINE - entered when QUERY_LNK_STATUS is OFFLINE or LinkStateChange is
-LINK_STATE_DOWN event.
-"""
