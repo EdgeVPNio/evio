@@ -353,7 +353,7 @@ class XmppTransport(slixmpp.ClientXMPP):
                 functools.partial(self.send_presence, pstatus=pstatus)
             )
 
-    def _check_network(self):
+    def _check_server(self) -> bool:
         # handle boot time start where the network is not yet available
         res = []
         try:
@@ -368,11 +368,9 @@ class XmppTransport(slixmpp.ClientXMPP):
         return bool(res)
 
     def run(self):
-        is_net_ready: bool = self._check_network()
-        while not is_net_ready:
-            time.sleep(4)
-            is_net_ready = self._check_network()
-
+        # while not self._check_server():
+        #     self.logger.debug("Waiting on network connectivity")
+        #     time.sleep(4)
         try:
             self.connect(address=(self._host, int(self._port)))
             self.loop.run_forever()
@@ -491,6 +489,9 @@ class Signal(ControllerModule):
 
     def initialize(self):
         self._presence_publisher = self.publish_subscription("SIG_PEER_PRESENCE_NOTIFY")
+        while not self._is_network_ready():
+            self.logger.debug("Waiting on network connectivity")
+            time.sleep(4)
         for olid in self.overlays:
             xcir = XmppCircle(
                 self.node_id,
@@ -504,10 +505,59 @@ class Signal(ControllerModule):
             self._circles[olid] = xcir
             xcir.start()
             self.register_deferred_call(
+                2,
+                self.check_connected_xcir,
+                (
+                    xcir,
+                    1,
+                ),
+            )
+        self.logger.info("Controller module loaded")
+
+    def check_connected_xcir(self, xcir: XmppCircle, retry: int):
+        if xcir.xport.is_connected():
+            self.register_deferred_call(
                 PRESENCE_INTERVAL * random.randint(1, 5),
                 self.on_exp_presence,
             )
-        self.logger.info("Controller module loaded")
+        elif retry < 4:
+            self.logger.warning(
+                "Waiting on XMPP session %s connection (%s)",
+                xcir.overlay_id,
+                retry,
+            )
+            self.register_deferred_call(
+                4,
+                self.check_connected_xcir,
+                (
+                    xcir,
+                    retry + 1,
+                ),
+            )
+        else:
+            olid = xcir.overlay_id
+            self.logger.info("Restarting XMPP Circle: %s", olid)
+            xcir.terminate()
+            xcir = XmppCircle(
+                self.node_id,
+                olid,
+                self.overlays[olid],
+                logger=self.logger,
+                on_presence=self.on_presence,
+                on_remote_action=self.on_remote_action,
+                on_peer_jid_updated=self.on_peer_jid_updated,
+            )
+            with self._lck:
+                self._circles[xcir.overlay_id] = xcir
+            xcir.start()
+            self.register_deferred_call(
+                2,
+                self.check_connected_xcir,
+                (
+                    xcir,
+                    1,
+                ),
+            )
 
     def _next_anc_interval(self) -> float:
         return self.config.get("PresenceInterval", PRESENCE_INTERVAL) * random.randint(
@@ -721,15 +771,11 @@ class Signal(ControllerModule):
             self.complete_cbt(cbt)
             transmit_queue.task_done()
 
-    def _setup_circle(self, overlay_id: str):
-        xcir = XmppCircle(
-            self.node_id,
-            overlay_id,
-            self.overlays[overlay_id],
-            logger=self.logger,
-            on_presence=self.on_presence,
-            on_remote_action=self.on_remote_action,
-            on_peer_jid_updated=self.on_peer_jid_updated,
-        )
-        self._circles[overlay_id] = xcir
-        xcir.start()
+    def _is_network_ready(self) -> bool:
+        # handle boot time start where the network is not yet available
+        res = []
+        try:
+            res = socket.getaddrinfo("stun.l.google.com", 19302, 0, socket.SOCK_STREAM)
+        except socket.gaierror as err:
+            self.logger.warning("Check network failed. %s", err)
+        return bool(res)
