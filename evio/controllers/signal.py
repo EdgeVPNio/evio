@@ -116,6 +116,8 @@ class XmppTransport(slixmpp.ClientXMPP):
         self.logger = None
         self.on_presence = None
         self.on_remote_action = None
+        self.on_peer_jid_updated = None
+        self.on_net_fail = None
         self._jid_cache: JidCache = None
         self._host = None
         self._port = None
@@ -192,12 +194,18 @@ class XmppTransport(slixmpp.ClientXMPP):
         xport.on_presence = kwargs["on_presence"]
         xport.on_remote_action = kwargs["on_remote_action"]
         xport.on_peer_jid_updated = kwargs["on_peer_jid_updated"]
+        xport.on_net_fail = kwargs["on_net_fail"]
         # register event handlers of interest
         xport.add_event_handler("session_start", xport.handle_start_event)
         xport.add_event_handler("failed_auth", xport.handle_failed_auth_event)
         xport.add_event_handler("disconnected", xport.handle_disconnect_event)
         xport.add_event_handler("presence_available", xport.handle_presence_event)
+        xport.add_event_handler("legacy_protocol", xport.handle_no_connection)
         return xport
+
+    def handle_no_connection(self, event):
+        self.logger.warning("No XMPP network, reattempting new connection to server.")
+        self.on_net_fail(self._overlay_id)
 
     def handle_failed_auth_event(self, event):
         self.logger.error(
@@ -254,7 +262,7 @@ class XmppTransport(slixmpp.ClientXMPP):
                         )
                     )
                     self.logger.info(
-                        "Resolved from %s, %s@%s->%s",
+                        "%s: %s@%s->%s",
                         pstatus,
                         node_id[:7],
                         self._overlay_id,
@@ -310,7 +318,7 @@ class XmppTransport(slixmpp.ClientXMPP):
                     )
                 )
                 self.logger.info(
-                    "Resolved from %s, %s@%s->%s",
+                    "%s: %s@%s->%s",
                     msg_type,
                     peer_id[:7],
                     self._overlay_id,
@@ -419,6 +427,7 @@ class XmppCircle:
         self.on_presence = kwargs["on_presence"]
         self.on_remote_action = kwargs["on_remote_action"]
         self.on_peer_jid_updated = kwargs["on_peer_jid_updated"]
+        self.on_net_fail = kwargs["on_net_fail"]
         self._transmission_queues: dict[str, Queue] = {}
         self.jid_cache: JidCache = JidCache(
             ovl_config.get("CacheExpiry", CACHE_EXPIRY_INTERVAL)
@@ -457,6 +466,7 @@ class XmppCircle:
             on_presence=self.on_presence,
             on_remote_action=self.on_remote_action,
             on_peer_jid_updated=self.on_peer_jid_updated,
+            on_net_fail=self.on_net_fail,
         )
         self.xport.run()
 
@@ -501,63 +511,15 @@ class Signal(ControllerModule):
                 on_presence=self.on_presence,
                 on_remote_action=self.on_remote_action,
                 on_peer_jid_updated=self.on_peer_jid_updated,
+                on_net_fail=self.on_net_fail,
             )
             self._circles[olid] = xcir
             xcir.start()
             self.register_deferred_call(
-                2,
-                self.check_connected_xcir,
-                (
-                    xcir,
-                    1,
-                ),
-            )
-        self.logger.info("Controller module loaded")
-
-    def check_connected_xcir(self, xcir: XmppCircle, retry: int):
-        if xcir.xport.is_connected():
-            self.register_deferred_call(
                 PRESENCE_INTERVAL * random.randint(1, 5),
                 self.on_exp_presence,
             )
-        elif retry < 4:
-            self.logger.warning(
-                "Waiting on XMPP session %s connection (%s)",
-                xcir.overlay_id,
-                retry,
-            )
-            self.register_deferred_call(
-                4,
-                self.check_connected_xcir,
-                (
-                    xcir,
-                    retry + 1,
-                ),
-            )
-        else:
-            olid = xcir.overlay_id
-            self.logger.info("Restarting XMPP Circle: %s", olid)
-            xcir.terminate()
-            xcir = XmppCircle(
-                self.node_id,
-                olid,
-                self.overlays[olid],
-                logger=self.logger,
-                on_presence=self.on_presence,
-                on_remote_action=self.on_remote_action,
-                on_peer_jid_updated=self.on_peer_jid_updated,
-            )
-            with self._lck:
-                self._circles[xcir.overlay_id] = xcir
-            xcir.start()
-            self.register_deferred_call(
-                2,
-                self.check_connected_xcir,
-                (
-                    xcir,
-                    1,
-                ),
-            )
+        self.logger.info("Controller module loaded")
 
     def _next_anc_interval(self) -> float:
         return self.config.get("PresenceInterval", PRESENCE_INTERVAL) * random.randint(
@@ -575,6 +537,33 @@ class Signal(ControllerModule):
 
     def on_presence(self, msg):
         self._presence_publisher.post_update(msg)
+
+    def on_net_fail(self, overlay_id):
+        self.register_internal_cbt("_RESTART_XCIRCLE_", {"OverlayId": overlay_id})
+
+    def req_handler_restart_xcir(self, cbt: CBT):
+        olid = cbt.request.params["OverlayId"]
+        xcir = self._circles[olid]
+        self.logger.info("Restarting XMPP Circle: %s", olid)
+        xcir.terminate()
+        xcir = XmppCircle(
+            self.node_id,
+            olid,
+            self.overlays[olid],
+            logger=self.logger,
+            on_presence=self.on_presence,
+            on_remote_action=self.on_remote_action,
+            on_peer_jid_updated=self.on_peer_jid_updated,
+            on_net_fail=self.on_net_fail,
+        )
+        self._circles[xcir.overlay_id] = xcir
+        xcir.start()
+        self.register_deferred_call(
+            PRESENCE_INTERVAL * random.randint(1, 5),
+            self.on_exp_presence,
+        )
+        cbt.set_response(None, True)
+        self.complete_cbt(cbt)
 
     def req_handler_query_reporting_data(self, cbt: CBT) -> dict:
         rpt = {}
@@ -716,6 +705,8 @@ class Signal(ControllerModule):
                     self.req_handler_query_reporting_data(cbt)
                 elif cbt.request.action == "_PEER_JID_UPDATED_":
                     self.req_handler_send_waiting_remote_acts(cbt)
+                elif cbt.request.action == "_RESTART_XCIRCLE_":
+                    self.req_handler_restart_xcir(cbt)
                 else:
                     self.req_handler_default(cbt)
             elif cbt.is_completed:
@@ -747,6 +738,7 @@ class Signal(ControllerModule):
             self.transmit_remote_act(rem_act, peer_id, "cmpt")
         self.free_cbt(cbt)
 
+    # todo: review cbt
     def scavenge_expired_outgoing_rem_acts(self, outgoing_rem_acts: dict[str, Queue]):
         # clear out the JID Refresh queue for a peer if the oldest entry age exceeds the limit
         peer_ids = []
@@ -766,10 +758,10 @@ class Signal(ControllerModule):
                 return
             tag = remact[1].action_tag
             cbt = self._cbts_pending_remote_resp.pop(tag, None)
-            # if cbt:
-            cbt.set_response("Peer lookup failed", False)
-            self.complete_cbt(cbt)
-            transmit_queue.task_done()
+            if cbt:
+                cbt.set_response("Peer lookup failed", False)
+                self.complete_cbt(cbt)
+                transmit_queue.task_done()
 
     def _is_network_ready(self) -> bool:
         # handle boot time start where the network is not yet available
