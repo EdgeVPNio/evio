@@ -168,7 +168,6 @@ class OvsBridge(BridgeABC):
 
     def del_br(self):
         self.del_sdn_ctrl()
-
         broker.run_proc([OvsBridge.brctl, "--if-exists", "del-br", self.name])
 
     def add_port(self, port_name, port_descr):
@@ -364,6 +363,9 @@ def bridge_factory(
         )
     elif dev_type == OvsBridge.bridge_type:
         br_name = get_evio_bridge_name(overlay_id, config["NamePrefix"])
+        if config.get("AutoDelete", BRIDGE_AUTO_DELETE):
+            broker.run_proc([OvsBridge.brctl, "del-controller", br_name], False, 5.5)
+            broker.run_proc([OvsBridge.brctl, "--if-exists", "del-br", br_name])
         net_dev = OvsBridge(
             name=br_name,
             ip_addr=config.get("IP4", None),
@@ -519,19 +521,22 @@ class BridgeController(ControllerModule):
         ign_br_names = {}
         for olid in self.overlays:
             self._tunnels[olid] = TunnelsLog()
-            br_cfg = self.overlays[olid]
+            br_cfg = self.overlays[olid]["NetDevice"]
             ign_br_names[olid] = set()
-            if "NamePrefix" not in br_cfg["NetDevice"]:
-                br_cfg["NetDevice"]["NamePrefix"] = NAME_PREFIX_EVI
+            if "NamePrefix" not in br_cfg:
+                br_cfg["NamePrefix"] = NAME_PREFIX_EVI
             self._ovl_net[olid] = bridge_factory(
                 olid,
-                br_cfg["NetDevice"].get("BridgeProvider", DEFAULT_BRIDGE_PROVIDER),
-                br_cfg["NetDevice"].get("SwitchProtocol", DEFAULT_SWITCH_PROTOCOL),
+                br_cfg.get("BridgeProvider", DEFAULT_BRIDGE_PROVIDER),
+                br_cfg.get("SwitchProtocol", DEFAULT_SWITCH_PROTOCOL),
                 self,
-                **br_cfg["NetDevice"],
+                **br_cfg,
             )
-            if "AppBridge" in br_cfg["NetDevice"]:
-                name = self._create_app_bridge(olid, br_cfg["NetDevice"]["AppBridge"])
+            if "AppBridge" in br_cfg:
+                br_cfg["AppBridge"]["AutoDelete"] = br_cfg["AppBridge"].get(
+                    "AutoDelete", BRIDGE_AUTO_DELETE
+                )
+                name = self._create_app_bridge(olid, br_cfg["AppBridge"])
                 ign_br_names[olid].add(name)
             ign_br_names[olid].add(self._ovl_net[olid].name)
             self.register_cbt("LinkManager", "LNK_ADD_IGN_INF", ign_br_names)
