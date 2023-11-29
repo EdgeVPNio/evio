@@ -80,9 +80,9 @@ class TincanTunnel(ControllerModule):
         return broker.introspect(self)
 
     def initialize(self):
-        self._register_abort_handlers()
         self._register_req_handlers()
         self._register_resp_handlers()
+        self._register_abort_handlers()
         self._tci_publisher = self.publish_subscription("TCI_TUNNEL_EVENT")
         self.register_deferred_call(TINCAN_CHK_INTERVAL, self.on_expire_chk_tincan)
         self.logger.info("Controller module loaded")
@@ -99,7 +99,6 @@ class TincanTunnel(ControllerModule):
             "TCI_CREATE_TUNNEL": self.req_handler_create_tunnel,
             "TCI_CREATE_LINK": self.req_handler_create_link,
             "TCI_QUERY_LINK_INFO": self.req_handler_query_link_stats,
-            "TCI_REMOVE_LINK": self.req_handler_remove_link,
             "TCI_REMOVE_TUNNEL": self.req_handler_remove_tunnel,
             "_TCI_SEND_ECHO": self.req_handler_send_echo,
             "_TCI_CHK_PROCESS": self.req_handler_check_process,
@@ -129,25 +128,36 @@ class TincanTunnel(ControllerModule):
             self._tc_proc_tbl[tnlid].ovlid = olid
             self._tc_proc_tbl[tnlid].tap_name = msg["TapName"]
         except Exception:
-            self._tnl_cbts.pop(tnlid)
+            self._tnl_cbts.pop(tnlid, None)
             cbt.set_response("Failed to create Tincan tunnel process", False)
             self.complete_cbt(cbt)
 
     def _create_tunnel(self, cbt: CBT):
-        msg = cbt.request.params
-        tnlid = msg["TunnelId"]
-        ctl = deepcopy(broker.CTL_CREATE_TUNNEL)
-        ctl["TransactionId"] = cbt.tag
-        req = ctl["Request"]
-        req["StunServers"] = msg["StunServers"]
-        req["TurnServers"] = msg.get("TurnServers")
-        req["TapName"] = msg["TapName"]
-        req["TunnelId"] = tnlid
-        req["NodeId"] = msg.get("NodeId")
-        req["IgnoredNetInterfaces"] = msg.get("IgnoredNetInterfaces")
-        tc_proc = self._tc_proc_tbl[tnlid]
-        self._tnl_cbts[cbt.tag] = cbt
-        self.send_control(tc_proc.ipc_id, json.dumps(ctl))
+        try:
+            msg = cbt.request.params
+            tnlid = msg["TunnelId"]
+            ctl = deepcopy(broker.CTL_CREATE_TUNNEL)
+            ctl["TransactionId"] = cbt.tag
+            req = ctl["Request"]
+            req["StunServers"] = msg["StunServers"]
+            req["TurnServers"] = msg.get("TurnServers")
+            req["TapName"] = msg["TapName"]
+            req["TunnelId"] = tnlid
+            req["NodeId"] = msg.get("NodeId")
+            req["IgnoredNetInterfaces"] = msg.get("IgnoredNetInterfaces")
+            tc_proc = self._tc_proc_tbl[tnlid]
+            self._tnl_cbts[cbt.tag] = cbt
+            self.register_timed_transaction(
+                cbt.tag,
+                self.is_tc_req_cmpl,
+                self.on_tc_req_expire,
+                60,
+            )
+            self.send_control(tc_proc.ipc_id, json.dumps(ctl))
+        except Exception:
+            self._tnl_cbts.pop(cbt.tag, None)
+            cbt.set_response("Failed to create tunnel", False)
+            self.complete_cbt(cbt)
 
     def req_handler_create_link(self, cbt: CBT):
         try:
@@ -162,91 +172,131 @@ class TincanTunnel(ControllerModule):
             else:
                 self._create_link(cbt)
         except Exception:
-            self._tnl_cbts.pop(tnlid)
+            self._tnl_cbts.pop(tnlid, None)
             cbt.set_response("Failed to create Tincan tunnel process", False)
             self.complete_cbt(cbt)
 
     def _create_link(self, cbt: CBT):
-        msg = cbt.request.params
-        tnlid = msg["TunnelId"]
-        ctl = deepcopy(broker.CTL_CREATE_LINK)
-        ctl["TransactionId"] = cbt.tag
-        req = ctl["Request"]
-        req["TunnelId"] = tnlid
-        req["NodeId"] = msg.get("NodeId")
-        req["LinkId"] = msg["LinkId"]
-        req["PeerInfo"]["UID"] = msg["NodeData"].get("UID")
-        req["PeerInfo"]["MAC"] = msg["NodeData"].get("MAC")
-        req["PeerInfo"]["CAS"] = msg["NodeData"].get("CAS")
-        req["PeerInfo"]["FPR"] = msg["NodeData"].get("FPR")
-        # Optional overlay data to create overlay on demand
-        req["StunServers"] = msg.get("StunServers", [])
-        req["TurnServers"] = msg.get("TurnServers", [])
-        req["TapName"] = msg.get("TapName")
-        req["IgnoredNetInterfaces"] = msg.get("IgnoredNetInterfaces")
-        tc_proc = self._tc_proc_tbl[tnlid]
-        self._tnl_cbts[cbt.tag] = cbt
-        self.send_control(tc_proc.ipc_id, json.dumps(ctl))
+        try:
+            msg = cbt.request.params
+            tnlid = msg["TunnelId"]
+            ctl = deepcopy(broker.CTL_CREATE_LINK)
+            ctl["TransactionId"] = cbt.tag
+            req = ctl["Request"]
+            req["TunnelId"] = tnlid
+            req["NodeId"] = msg.get("NodeId")
+            req["LinkId"] = msg["LinkId"]
+            req["PeerInfo"]["UID"] = msg["NodeData"].get("UID")
+            req["PeerInfo"]["MAC"] = msg["NodeData"].get("MAC")
+            req["PeerInfo"]["CAS"] = msg["NodeData"].get("CAS")
+            req["PeerInfo"]["FPR"] = msg["NodeData"].get("FPR")
+            # Optional overlay data to create overlay on demand
+            req["StunServers"] = msg.get("StunServers", [])
+            req["TurnServers"] = msg.get("TurnServers", [])
+            req["TapName"] = msg.get("TapName")
+            req["IgnoredNetInterfaces"] = msg.get("IgnoredNetInterfaces")
+            tc_proc = self._tc_proc_tbl[tnlid]
+            self._tnl_cbts[cbt.tag] = cbt
+            self.register_timed_transaction(
+                cbt.tag,
+                self.is_tc_req_cmpl,
+                self.on_tc_req_expire,
+                60,
+            )
+            self.send_control(tc_proc.ipc_id, json.dumps(ctl))
+        except Exception:
+            self._tnl_cbts.pop(cbt.tag, None)
+            cbt.set_response("Failed to create link", False)
+            self.complete_cbt(cbt)
 
     def req_handler_query_candidate_address_set(self, cbt: CBT):
-        msg = cbt.request.params
-        tnlid = msg["TunnelId"]
-        if tnlid not in self._tc_proc_tbl:
-            err_msg = f"No tunnel exists for tunnel ID: {tnlid[:7]}"
-            cbt.set_response({"ErrorMsg": err_msg, "Status": False})
-            return
-        ctl = deepcopy(broker.CTL_QUERY_CAS)
-        ctl["TransactionId"] = cbt.tag
-        ctl["Request"]["TunnelId"] = tnlid
-        tc_proc = self._tc_proc_tbl[tnlid]
-        self._tnl_cbts[cbt.tag] = cbt
-        self.send_control(tc_proc.ipc_id, json.dumps(ctl))
+        try:
+            msg = cbt.request.params
+            tnlid = msg["TunnelId"]
+            if tnlid not in self._tc_proc_tbl:
+                err_msg = f"No tunnel exists for tunnel ID: {tnlid[:7]}"
+                cbt.set_response({"ErrorMsg": err_msg, "Status": False})
+                return
+            ctl = deepcopy(broker.CTL_QUERY_CAS)
+            ctl["TransactionId"] = cbt.tag
+            ctl["Request"]["TunnelId"] = tnlid
+            tc_proc = self._tc_proc_tbl[tnlid]
+            self._tnl_cbts[cbt.tag] = cbt
+            self.register_timed_transaction(
+                cbt.tag,
+                self.is_tc_req_cmpl,
+                self.on_tc_req_expire,
+                60,
+            )
+            self.send_control(tc_proc.ipc_id, json.dumps(ctl))
+        except Exception:
+            self._tnl_cbts.pop(cbt.tag, None)
+            cbt.set_response("Failed to retrieve local CAS", False)
+            self.complete_cbt(cbt)
 
     def req_handler_query_link_stats(self, cbt: CBT):
-        tnlid = cbt.request.params["TunnelId"]
-        tc_proc = self._tc_proc_tbl.get(tnlid)
-        if not tc_proc:
-            err_msg = f"No tunnel exists for tunnel ID: {tnlid[:7]}"
-            cbt.set_response({"ErrorMsg": err_msg, "Status": False})
+        try:
+            tnlid = cbt.request.params["TunnelId"]
+            tc_proc = self._tc_proc_tbl.get(tnlid)
+            if not tc_proc:
+                err_msg = f"No tunnel exists for tunnel ID: {tnlid[:7]}"
+                cbt.set_response({"ErrorMsg": err_msg, "Status": False})
+                self.complete_cbt(cbt)
+                return
+            ctl = deepcopy(broker.CTL_QUERY_LINK_STATS)
+            ctl["TransactionId"] = cbt.tag
+            ctl["Request"]["TunnelId"] = tnlid
+            self._tnl_cbts[cbt.tag] = cbt
+            self.register_timed_transaction(
+                cbt.tag,
+                self.is_tc_req_cmpl,
+                self.on_tc_req_expire,
+                60,
+            )
+            self.send_control(tc_proc.ipc_id, json.dumps(ctl))
+        except Exception:
+            self._tnl_cbts.pop(cbt.tag, None)
+            cbt.set_response("Failed to retrieve link stats", False)
             self.complete_cbt(cbt)
-            return
-        ctl = deepcopy(broker.CTL_QUERY_LINK_STATS)
-        ctl["TransactionId"] = cbt.tag
-        ctl["Request"]["TunnelId"] = tnlid
-        self._tnl_cbts[cbt.tag] = cbt
-        self.send_control(tc_proc.ipc_id, json.dumps(ctl))
 
     def req_handler_remove_tunnel(self, cbt: CBT):
-        msg = cbt.request.params
-        tnlid = msg["TunnelId"]
-        if tnlid not in self._tc_proc_tbl:
-            err_msg = f"No tunnel exists for tunnel ID: {tnlid[:7]}"
-            cbt.set_response(err_msg, True)
+        try:
+            msg = cbt.request.params
+            tnlid = msg["TunnelId"]
+            if tnlid not in self._tc_proc_tbl:
+                err_msg = f"No tunnel exists for tunnel ID: {tnlid[:7]}"
+                cbt.set_response(err_msg, True)
+                self.complete_cbt(cbt)
+                return
+            self.logger.info("Removing tunnel %s", tnlid)
+            tc_proc = self._tc_proc_tbl.pop(tnlid, None)
+            self._pids.pop(tc_proc.proc.pid, None)
+            self._stop_tincan(tc_proc)
+            cbt.set_response("Tunnel removed", True)
             self.complete_cbt(cbt)
-            return
-        self.logger.info("Removing tunnel %s", tnlid)
-        tc_proc = self._tc_proc_tbl.pop(tnlid, None)
-        self._pids.pop(tc_proc.proc.pid, None)
-        self._stop_tincan(tc_proc)
-        cbt.set_response("Tunnel removed", True)
-        self.complete_cbt(cbt)
+        except Exception:
+            msg = f"Failed to remove tunnel {tnlid}"
+            self.logger.error(msg)
+            self._tnl_cbts.pop(cbt.tag, None)
+            cbt.set_response(msg, False)
+            self.complete_cbt(cbt)
 
-    def req_handler_remove_link(self, cbt: CBT):
-        msg = cbt.request.params
-        tnlid = msg["TunnelId"]
-        if tnlid not in self._tc_proc_tbl:
-            err_msg = f"No tunnel exists for tunnel ID: {tnlid[:7]}"
-            cbt.set_response({"ErrorMsg": err_msg, "Status": False})
-            self.complete_cbt(cbt)
-            return
-        ctl = deepcopy(broker.CTL_REMOVE_LINK)
-        ctl["TransactionId"] = cbt.tag
-        req = ctl["Request"]
-        req["TunnelId"] = tnlid
-        req["LinkId"] = msg["LinkId"]
-        tc_proc = self._tc_proc_tbl[tnlid]
-        self._tnl_cbts[cbt.tag] = cbt
-        self.send_control(tc_proc.ipc_id, json.dumps(ctl))
+    # def req_handler_remove_link(self, cbt: CBT):
+    #     msg = cbt.request.params
+    #     tnlid = msg["TunnelId"]
+    #     if tnlid not in self._tc_proc_tbl:
+    #         err_msg = f"No tunnel exists for tunnel ID: {tnlid[:7]}"
+    #         cbt.set_response({"ErrorMsg": err_msg, "Status": False})
+    #         self.complete_cbt(cbt)
+    #         return
+    #     ctl = deepcopy(broker.CTL_REMOVE_LINK)
+    #     ctl["TransactionId"] = cbt.tag
+    #     req = ctl["Request"]
+    #     req["TunnelId"] = tnlid
+    #     req["LinkId"] = msg["LinkId"]
+    #     tc_proc = self._tc_proc_tbl[tnlid]
+    #     self._tnl_cbts[cbt.tag] = cbt
+    #     self.send_control(tc_proc.ipc_id, json.dumps(ctl))
 
     def req_handler_send_echo(self, cbt: CBT):
         ctl = deepcopy(broker.CTL_ECHO)
@@ -258,9 +308,9 @@ class TincanTunnel(ControllerModule):
             ctl["Request"]["Message"] = tc_proc.tnlid
             self._tnl_cbts[cbt.tag] = cbt
             self.send_control(tc_proc.ipc_id, json.dumps(ctl))
-
         else:
-            tc_proc.do_chk = False
+            # if tc_proc:
+            #     tc_proc.do_chk = False
             cbt.set_response(f"Cannot send echo to {tc_proc}", False)
             self.complete_cbt(cbt)
 
@@ -277,7 +327,7 @@ class TincanTunnel(ControllerModule):
 
     def abort_handler_send_echo(self, cbt: CBT):
         tnlid = cbt.request.params
-        self._tnl_cbts.pop(cbt.tag)
+        self._tnl_cbts.pop(cbt.tag, None)
         self.free_cbt(cbt)
         if tnlid in self._tc_proc_tbl:
             tc_proc = self._tc_proc_tbl[tnlid]
@@ -319,6 +369,16 @@ class TincanTunnel(ControllerModule):
             self._notify_tincan_terminated(tc_proc)
         cbt.set_response(rmv, True)
         self.complete_cbt(cbt)
+
+    def on_tc_req_expire(self, tag: int, timeout: float):
+        self.logger.info("Tincan request expired %s", tag)
+        cbt: CBT = self._tnl_cbts.pop(tag, None)
+        if cbt and cbt.is_pending:
+            cbt.set_response("Tincan request expired", False)
+            self.complete_cbt(cbt)
+
+    def is_tc_req_cmpl(self, tag: int) -> bool:
+        return bool(tag not in self._tnl_cbts)
 
     def on_timer_event(self):
         if self.exit_ev.is_set():
