@@ -43,7 +43,6 @@ class Nexus:
             kwargs.get("timer_interval", CONTROLLER_TIMER_INTERVAL)
         )
         self._timer_loop_cnt: int = 1
-        self._pending_cbts: dict[int, CBT] = {}
 
     @property
     def controller(self):
@@ -99,16 +98,8 @@ class Nexus:
             self._controller.logger.warning(
                 "None is not a permissible CBT value for complete_cbt"
             )
-        self._pending_cbts.pop(cbt.tag, None)
         cbt.time_completed = time.time()
         self._broker.submit_cbt(cbt)
-
-    def get_pending_cbt(self, tag: int) -> CBT:
-        cbt = self._pending_cbts.get(tag)
-        if cbt and not cbt.is_pending:
-            self._pending_cbts.pop(tag)
-            return None
-        return cbt
 
     def initialize(self):
         # intialize the Controller Module and start it's threads
@@ -140,8 +131,6 @@ class Nexus:
                     self._controller.terminate()
                     break
                 elif isinstance(cbt, CBT):
-                    if not cbt.is_completed:
-                        self._pending_cbts[cbt.tag] = cbt
                     self._controller.process_cbt(cbt)
                 elif isinstance(cbt, ProxyMsg):
                     self._controller.handle_ipc(cbt)

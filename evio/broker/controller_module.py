@@ -232,9 +232,6 @@ class ControllerModule:
             )
         self._nexus.submit_req_cbt(cbt)
 
-    def get_pending_cbt(self, tag: int) -> CBT:
-        return self._nexus.get_pending_cbt(tag)
-
     # Caller is the subscription source
     def publish_subscription(self, subscription_name: str):
         return self._nexus.publish_subscription(self.name, subscription_name)
