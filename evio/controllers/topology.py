@@ -655,10 +655,14 @@ class Topology(ControllerModule):
         olid = params["OverlayId"]
         ovl = self._net_ovls[olid]
         peer_id = params["PeerId"]
+        tnlid = params["TunnelId"]
         response_data = cbt.response.data
         if not cbt.response.status:
             self.logger.warning(
-                "Failed to create topology edge to %s. %s", peer_id, response_data
+                "Failed to create topology edge %s to %s. %s",
+                tnlid,
+                peer_id,
+                response_data,
             )
             ovl.known_peers[peer_id].exclude()
             del ovl.adjacency_list[peer_id]

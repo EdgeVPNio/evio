@@ -252,11 +252,15 @@ class ConfigurationError(ValueError):
         self.msgfmt = message
 
 
-def run_proc(cmd: list[str]) -> subprocess.CompletedProcess:
+def run_proc(cmd: list[str], check=True, timeout=30.0) -> subprocess.CompletedProcess:
     """Run a shell command"""
     # print(cmd)
     return subprocess.run(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, timeout=30.0
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=check,
+        timeout=timeout,
     )
 
 

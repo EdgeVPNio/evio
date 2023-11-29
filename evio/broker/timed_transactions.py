@@ -40,7 +40,6 @@ class TimedTransactions:
 
     def _get_expired(self, entry):
         if not entry.is_completed():
-            # entry.time_expired = time.time()
             entry.on_expired(entry.item, time.time())
 
     def _run(self):
