@@ -3,7 +3,7 @@ import sched
 import threading
 import time
 
-from . import EVENT_PERIOD
+from . import TIMER_EVENT_PERIOD
 
 
 class Transaction:
@@ -25,7 +25,7 @@ class TimedTransactions:
         self._event_thread = threading.Thread(
             target=self._run, name=thread_name, daemon=False
         )
-        self._chk_interval = float(EVENT_PERIOD)
+        self._chk_interval = float(TIMER_EVENT_PERIOD)
         self._sched = sched.scheduler()
 
     def register(self, entry: Transaction):

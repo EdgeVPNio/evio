@@ -39,7 +39,7 @@ from typing import Optional, Tuple, Union
 
 import broker
 import slixmpp
-from broker import CACHE_EXPIRY_INTERVAL, PRESENCE_INTERVAL
+from broker import CACHE_ENTRY_TIMEOUT, PRESENCE_UPDATE_INTERVAL
 from broker.cbt import CBT
 from broker.controller_module import ControllerModule
 from broker.remote_action import RemoteAction
@@ -430,7 +430,7 @@ class XmppCircle:
         self.on_net_fail = kwargs["on_net_fail"]
         self._transmission_queues: dict[str, Queue] = {}
         self.jid_cache: JidCache = JidCache(
-            ovl_config.get("CacheExpiry", CACHE_EXPIRY_INTERVAL)
+            ovl_config.get("CacheExpiry", CACHE_ENTRY_TIMEOUT)
         )
         self.xport: XmppTransport = None
         self._xport_thread = threading.Thread(
@@ -516,15 +516,15 @@ class Signal(ControllerModule):
             self._circles[olid] = xcir
             xcir.start()
             self.register_deferred_call(
-                PRESENCE_INTERVAL * random.randint(1, 5),
+                PRESENCE_UPDATE_INTERVAL * random.randint(1, 5),
                 self.on_exp_presence,
             )
         self.logger.info("Controller module loaded")
 
     def _next_anc_interval(self) -> float:
-        return self.config.get("PresenceInterval", PRESENCE_INTERVAL) * random.randint(
-            20, 50
-        )
+        return self.config.get(
+            "PresenceInterval", PRESENCE_UPDATE_INTERVAL
+        ) * random.randint(20, 50)
 
     def on_exp_presence(self):
         with self._lck:
@@ -559,7 +559,7 @@ class Signal(ControllerModule):
         self._circles[xcir.overlay_id] = xcir
         xcir.start()
         self.register_deferred_call(
-            PRESENCE_INTERVAL * random.randint(1, 5),
+            PRESENCE_UPDATE_INTERVAL * random.randint(1, 5),
             self.on_exp_presence,
         )
         cbt.set_response(None, True)
@@ -727,7 +727,7 @@ class Signal(ControllerModule):
         with self._lck:
             for overlay_id in self._circles:
                 self._circles[overlay_id].terminate()
-        self.logger.info("Controller module terminating")
+        self.logger.info("Controller module terminated")
 
     def abort_handler(self, cbt: CBT):
         rem_act = self._recv_remote_acts_invk_locally.pop(cbt.tag, None)

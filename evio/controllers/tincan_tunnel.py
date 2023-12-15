@@ -30,7 +30,7 @@ from copy import deepcopy
 from threading import Event
 
 import broker
-from broker import TINCAN_CHK_INTERVAL
+from broker import TC_PRCS_CHK_INTERVAL
 from broker.cbt import CBT
 from broker.controller_module import ControllerModule
 from broker.process_proxy import ProxyMsg
@@ -84,7 +84,7 @@ class TincanTunnel(ControllerModule):
         self._register_resp_handlers()
         self._register_abort_handlers()
         self._tci_publisher = self.publish_subscription("TCI_TUNNEL_EVENT")
-        self.register_deferred_call(TINCAN_CHK_INTERVAL, self.on_expire_chk_tincan)
+        self.register_deferred_call(TC_PRCS_CHK_INTERVAL, self.on_expire_chk_tincan)
         self.logger.info("Controller module loaded")
 
     def _register_abort_handlers(self):
@@ -374,7 +374,7 @@ class TincanTunnel(ControllerModule):
         self.logger.info("Tincan request expired %s", tag)
         cbt: CBT = self._tnl_cbts.pop(tag, None)
         if cbt and cbt.is_pending:
-            cbt.set_response("Tincan request expired", False)
+            cbt.set_response("The Tincan request expired", False)
             self.complete_cbt(cbt)
 
     def is_tc_req_cmpl(self, tag: int) -> bool:
@@ -393,14 +393,14 @@ class TincanTunnel(ControllerModule):
             return
         if self._tc_proc_tbl:
             self.register_internal_cbt("_TCI_CHK_PROCESS")
-        self.register_deferred_call(TINCAN_CHK_INTERVAL, self.on_expire_chk_tincan)
+        self.register_deferred_call(TC_PRCS_CHK_INTERVAL, self.on_expire_chk_tincan)
 
     def terminate(self):
         self.exit_ev.set()
         for tc_proc in self._tc_proc_tbl.values():
             self._stop_tincan(tc_proc, wt=1.5)
         self.logger.debug("avg tok = %s", self._kill_times[-1] / len(self._kill_times))
-        self.logger.info("Controller module terminating")
+        self.logger.info("Controller module terminated")
 
     def send_control(self, ipc_id: int, ctl: str):
         msg: ProxyMsg = ProxyMsg(ipc_id, payload=ctl.encode("utf-8"))

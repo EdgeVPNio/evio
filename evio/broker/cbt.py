@@ -23,7 +23,7 @@ import time
 import uuid
 from typing import Any, Optional
 
-from . import CBT_LIFESPAN, introspect
+from . import CBT_DFLT_TIMEOUT, introspect
 
 
 class CBT:
@@ -120,7 +120,7 @@ class CBT:
                 self.k = v
             else:
                 self.context[k] = v
-        self.lifespan = CBT_LIFESPAN
+        self.lifespan = CBT_DFLT_TIMEOUT
         self.time_created: float = 0.0
         self.time_submited: float = 0.0
         self.time_completed: float = 0.0

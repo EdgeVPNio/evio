@@ -42,9 +42,9 @@ from typing import Any
 from . import (
     BROKER_LOG_LEVEL,
     BROKER_LOG_NAME,
+    CM_TIMER_EVENT_INTERVAL,
     CONFIG,
     CONSOLE_LEVEL,
-    CONTROLLER_TIMER_INTERVAL,
     DEVICE,
     EVIO_VER_REL,
     JID_RESOLUTION_TIMEOUT,
@@ -312,7 +312,7 @@ class Broker:
         # get the controller class from the class name
         ctrl_class = getattr(module, ctrl_cls_name)
         timer_interval = self.cfg_controllers[ctrl_cls_name].get(
-            "TimerInterval", CONTROLLER_TIMER_INTERVAL
+            "TimerInterval", CM_TIMER_EVENT_INTERVAL
         )
         nexus = Nexus(self, timer_interval=timer_interval)
         ctrl_config = self._config.get(ctrl_cls_name)

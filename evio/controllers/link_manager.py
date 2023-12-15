@@ -70,7 +70,6 @@ class Tunnel:
         self.link = None
         self.peer_mac = None
         self.state = tnl_state
-        self.dataplane = dataplane
 
     def __repr__(self):
         return broker.introspect(self)
@@ -133,7 +132,7 @@ class LinkManager(ControllerModule):
         self.logger.info("Controller module loaded")
 
     def terminate(self):
-        self.logger.info("Controller module terminating")
+        self.logger.info("Controller module terminated")
 
     def abort_handler_tunnel(self, cbt: CBT):
         self.logger.debug("Aborting CBT %s", cbt)
@@ -370,7 +369,7 @@ class LinkManager(ControllerModule):
                     "TapName": self._tunnels[tnlid].tap_name,
                     "MAC": self._tunnels[tnlid].mac,
                     "PeerMac": self._tunnels[tnlid].peer_mac,
-                    "Dataplane": self._tunnels[tnlid].dataplane,
+                    "Dataplane": DATAPLANE_TYPES.Tincan,
                 }
                 self._link_updates_publisher.post_update(param)
             elif lnk_status == TUNNEL_STATES.QUERYING:
@@ -873,6 +872,7 @@ class LinkManager(ControllerModule):
             self.node_id[:7],
             peer_id[:7],
         )
+        tnl.fpr = None
         if not tnl.is_tnl_online():
             self.register_timed_transaction(
                 tnl,
@@ -931,7 +931,8 @@ class LinkManager(ControllerModule):
         lnkid = params["LinkId"]
         tnlid = self.tunnel_id(lnkid)
         peer_id = params["NodeData"]["UID"]
-        self._tunnels[tnlid].link.creation_state = 0xC0
+        tnl = self._tunnels[tnlid]
+        tnl.link.creation_state = 0xC0
         self.logger.debug(
             "Creating link %s to peer %s (4/4 Target)", lnkid[:7], peer_id[:7]
         )
@@ -960,6 +961,7 @@ class LinkManager(ControllerModule):
             self.node_id[:7],
             peer_id[:7],
         )
+        tnl.fpr = None
 
     def _send_local_cas_to_peer(self, cbt: CBT):
         # Create Link: Phase 6 Node A

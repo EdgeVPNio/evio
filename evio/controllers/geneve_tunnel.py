@@ -68,7 +68,7 @@ class GeneveTunnel(ControllerModule):
         for tnl in self._tunnels.values():
             self._remove_tunnel(tnl.tap_name)
         self._tunnels.clear()
-        self.logger.info("Controller module terminating")
+        self.logger.info("Controller module terminated")
 
     def _deauth_tnl(self, tnl: Tunnel):
         self._tunnels.pop(tnl.tnlid, None)

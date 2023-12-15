@@ -23,7 +23,7 @@ import queue
 import threading
 import time
 
-from . import CONTROLLER_TIMER_INTERVAL, EVENT_PERIOD
+from . import CM_TIMER_EVENT_INTERVAL, TIMER_EVENT_PERIOD
 from .cbt import CBT
 from .process_proxy import ProxyMsg
 from .timed_transactions import Transaction
@@ -40,7 +40,7 @@ class Nexus:
         self._broker = broker_object  # broker object reference
         self._exit_event = threading.Event()
         self.update_timer_interval(
-            kwargs.get("timer_interval", CONTROLLER_TIMER_INTERVAL)
+            kwargs.get("timer_interval", CM_TIMER_EVENT_INTERVAL)
         )
         self._timer_loop_cnt: int = 1
 
@@ -113,8 +113,8 @@ class Nexus:
 
     def update_timer_interval(self, interval: int):
         self._timer_interval: int = interval
-        if self._timer_interval < EVENT_PERIOD:
-            self._timer_interval = EVENT_PERIOD
+        if self._timer_interval < TIMER_EVENT_PERIOD:
+            self._timer_interval = TIMER_EVENT_PERIOD
 
     def start_controller(self):
         self._cm_thread.start()

@@ -32,13 +32,13 @@ from typing import Optional
 
 import broker
 from broker import (  # PEER_DISCOVERY_COALESCE,
-    CBT_LIFESPAN,
-    EXCLUSION_BASE_INTERVAL,
+    CBT_DFLT_TIMEOUT,
     MAX_CONCURRENT_OPS,
     MAX_ON_DEMAND_EDGES,
     MAX_SUCCESSIVE_FAILS,
     MIN_SUCCESSORS,
-    STALE_INTERVAL,
+    PEER_CHKIN_TIMEOUT,
+    PEER_EXCLUSION_INTERVAL,
     SUCCESSIVE_FAIL_DECR,
     SUCCESSIVE_FAIL_INCR,
     TRIM_CHECK_INTERVAL,
@@ -101,7 +101,7 @@ class DiscoveredPeer:
     def exclude(self):
         self.successive_fails += SUCCESSIVE_FAIL_INCR
         self.available_time = (
-            randint(1, 4) * EXCLUSION_BASE_INTERVAL * self.successive_fails
+            randint(1, 4) * PEER_EXCLUSION_INTERVAL * self.successive_fails
         ) + time.time()
         if self.successive_fails >= MAX_SUCCESSIVE_FAILS:
             self.is_banned = True
@@ -120,7 +120,7 @@ class DiscoveredPeer:
 
     @property
     def is_stale(self):
-        return bool(time.time() - self.last_checkin >= STALE_INTERVAL)
+        return bool(time.time() - self.last_checkin >= PEER_CHKIN_TIMEOUT)
 
     @property
     def is_available(self):
@@ -128,7 +128,7 @@ class DiscoveredPeer:
             (not self.is_banned)  # successive_fails < max_successive_fails
             # the falloff wait period is over
             and (time.time() >= self.available_time)
-            and (time.time() - self.last_checkin < STALE_INTERVAL - 600)
+            and (time.time() - self.last_checkin < PEER_CHKIN_TIMEOUT - 600)
         )  # 10 mins before a node is stale
 
 
@@ -318,7 +318,7 @@ class Topology(ControllerModule):
         }
 
     def terminate(self):
-        self.logger.info("Controller module terminating")
+        self.logger.info("Controller module terminated")
 
     def on_timer_event(self):
         if not self._is_topo_update_pending:
@@ -557,7 +557,7 @@ class Topology(ControllerModule):
                 (ce, olid),
                 self._is_connedge_connected,
                 self._on_connedge_timeout,
-                CBT_LIFESPAN,
+                CBT_DFLT_TIMEOUT,
             )
             self._authorize_incoming_tunnel(
                 net_ovl,

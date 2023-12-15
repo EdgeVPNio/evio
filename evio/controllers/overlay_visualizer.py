@@ -130,4 +130,4 @@ class OverlayVisualizer(ControllerModule):
         self._vis_req_publisher.post_update(None)
 
     def terminate(self):
-        self.logger.info("Controller module terminating")
+        self.logger.info("Controller module terminated")

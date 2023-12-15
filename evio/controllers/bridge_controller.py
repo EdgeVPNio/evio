@@ -615,7 +615,7 @@ class BridgeController(ControllerModule):
             self.logger.warning(
                 "A module shutdown error occurred: %s", err, exc_info=True
             )
-        self.logger.info("Controller module terminating")
+        self.logger.info("Controller module terminated")
 
     def req_handler_vis_data(self, cbt: CBT):
         br_data = {}
