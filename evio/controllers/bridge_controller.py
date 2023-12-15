@@ -564,7 +564,7 @@ class BridgeController(ControllerModule):
         except Exception as err:
             self._tunnels[overlay_id].pop(port_name, None)
             bridge.del_port(port_name)
-            self.logger.info("Failed to add port %s. %s", tnl_data, err)
+            self.logger.warning("Failed to add port %s. %s", tnl_data, err)
 
     def req_handler_manage_bridge(self, cbt: CBT):
         try:
@@ -581,7 +581,9 @@ class BridgeController(ControllerModule):
                         "Port %s removed from bridge %s", port_name, bridge
                     )
         except Exception as err:
-            self.logger.warning("Manage bridge error %s", err, exc_info=True)
+            self.logger.warning(
+                "A failure occurred while updating the bridge: %s", err, exc_info=True
+            )
         cbt.set_response(None, True)
         self.complete_cbt(cbt)
 
@@ -591,7 +593,7 @@ class BridgeController(ControllerModule):
         if self._bf_proc is not None:
             exit_code = self._bf_proc.poll()
             if exit_code:
-                self.logger.info(
+                self.logger.warning(
                     "BF module terminated unexpectedly (%s), restarting.", exit_code
                 )
                 self._start_boundedflood()
@@ -610,7 +612,9 @@ class BridgeController(ControllerModule):
                     for port in [*bridge.ports]:
                         bridge.del_port(port)
         except RuntimeError as err:
-            self.logger.warning("Terminate error %s", err, exc_info=True)
+            self.logger.warning(
+                "A module shutdown error occurred: %s", err, exc_info=True
+            )
         self.logger.info("Controller module terminating")
 
     def req_handler_vis_data(self, cbt: CBT):
@@ -665,7 +669,7 @@ class BridgeController(ControllerModule):
                 resp[olid] = tnls_log.snapshot()
         except Exception as err:
             self.logger.warning(
-                "The operation get_tunnels failed, %s", err, exc_info=True
+                "The get tunnels operation failed, %s", err, exc_info=True
             )
             resp = {}
         return resp
@@ -687,10 +691,12 @@ class BridgeController(ControllerModule):
             task["Response"] = dict(
                 Status=True, Data=dict(StatusMsg="Request shall be considered")
             )
-            self.logger.info("On-demand tunnel request recvd %s", task["Request"])
+            self.logger.debug("On-demand tunnel request recvd %s", task["Request"])
             self.tunnel_request(task["Request"]["Params"])  # op is ADD/REMOVE
         else:
-            self.logger.warning("An unrecognized SDNI task was discarded %s", task)
+            self.logger.warning(
+                "An unrecognized BoundedFlood task was discarded %s", task
+            )
             task["Response"] = dict(
                 Status=False, Data=dict(ErrorMsg="Unsupported request")
             )
