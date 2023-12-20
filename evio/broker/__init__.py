@@ -212,17 +212,23 @@ CTL_CREATE_LINK = {
         "PeerInfo": {"UID": "", "MAC": "", "FPR": ""},
     },
 }
-CTL_REMOVE_TUNNEL = {
-    "ProtocolVersion": EVIO_VER_CTL,
-    "TransactionId": 0,
-    "ControlType": "Request",
-    "Request": {"Command": "RemoveTunnel", "TunnelId": ""},
-}
 CTL_REMOVE_LINK = {
     "ProtocolVersion": EVIO_VER_CTL,
     "TransactionId": 0,
     "ControlType": "Request",
-    "Request": {"Command": "RemoveLink", "TunnelId": "", "LinkId": ""},
+    "Request": {"Command": "RemoveLink"},
+}
+CTL_QUERY_LINK_STATS = {
+    "ProtocolVersion": EVIO_VER_CTL,
+    "TransactionId": 0,
+    "ControlType": "Request",
+    "Request": {"Command": "QueryLinkStats"},
+}
+CTL_QUERY_CAS = {
+    "ProtocolVersion": EVIO_VER_CTL,
+    "TransactionId": 0,
+    "ControlType": "Request",
+    "Request": {"Command": "QueryCandidateAddressSet"},
 }
 RESP = {
     "ProtocolVersion": EVIO_VER_CTL,
@@ -230,21 +236,6 @@ RESP = {
     "ControlType": "Response",
     "Request": {},
     "Response": {"Success": True, "Message": "description"},
-}
-CTL_QUERY_LINK_STATS = {
-    "ProtocolVersion": EVIO_VER_CTL,
-    "TransactionId": 0,
-    "ControlType": "Request",
-    "Request": {"Command": "QueryLinkStats", "TunnelId": ""},
-}
-CTL_QUERY_CAS = {
-    "ProtocolVersion": EVIO_VER_CTL,
-    "TransactionId": 0,
-    "ControlType": "Request",
-    "Request": {
-        "Command": "QueryCandidateAddressSet",
-        "LinkId": "",
-    },
 }
 
 
