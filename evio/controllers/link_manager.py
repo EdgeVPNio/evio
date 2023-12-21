@@ -544,10 +544,8 @@ class LinkManager(ControllerModule):
 
     def resp_handler_remote_action(self, cbt: CBT):
         parent_cbt = cbt.parent
-        resp_data = cbt.response.data
-        rem_act: RemoteAction
+        rem_act: RemoteAction = cbt.response.data
         if not cbt.response.status or parent_cbt is None:
-            rem_act = cbt.request.params
             lnkid = rem_act.params["LinkId"]
             tnlid = self.tunnel_id(lnkid)
             self.logger.debug(
@@ -557,10 +555,9 @@ class LinkManager(ControllerModule):
             self._rollback_link_creation_changes(tnlid)
             self.free_cbt(cbt)
             if parent_cbt:
-                parent_cbt.set_response(resp_data, False)
+                parent_cbt.set_response(rem_act.data, False)
                 self.complete_cbt(parent_cbt)
         else:
-            rem_act = cbt.response.data
             self.free_cbt(cbt)
             if rem_act.action == "LNK_REQ_LINK_ENDPT":
                 self._create_link_endpoint(rem_act, parent_cbt)
@@ -1020,10 +1017,11 @@ class LinkManager(ControllerModule):
             return
         tnl = self._tunnels[tnlid]
         self._cleanup_failed_tunnel_data(tnl)
-        if (
-            tnl.tunnel_state == TUNNEL_STATES.CREATING
-            or tnl.tunnel_state == TUNNEL_STATES.QUERYING
-            or tnl.tunnel_state == TUNNEL_STATES.OFFLINE
+        if tnl.tunnel_state in (
+            TUNNEL_STATES.CREATING,
+            TUNNEL_STATES.QUERYING,
+            TUNNEL_STATES.OFFLINE,
+            TUNNEL_STATES.ONLINE,
         ):
             olid = tnl.overlay_id
             peer_id = tnl.peer_id
