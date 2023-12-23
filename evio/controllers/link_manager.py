@@ -353,7 +353,9 @@ class LinkManager(ControllerModule):
             return
         elif cbt.request.params["Command"] == "LinkConnected":
             lnkid = cbt.request.params["LinkId"]
-            self.logger.debug("Link %s is connected", lnkid)
+            self.logger.debug(
+                "Link %s:%s is connected", self._tunnels[tnlid].overlay_id, lnkid
+            )
             olid = self._tunnels[tnlid].overlay_id
             peer_id = self._tunnels[tnlid].peer_id
             lnk_status = self._tunnels[tnlid].tunnel_state
@@ -378,7 +380,9 @@ class LinkManager(ControllerModule):
         elif cbt.request.params["Command"] == "LinkDisconnected":
             if self._tunnels[tnlid].tunnel_state != TUNNEL_STATES.QUERYING:
                 # issue a link state check only if it not already being done
-                self.logger.debug("Link %s is disconnected", tnlid)
+                self.logger.debug(
+                    "Link %s:%s is disconnected", self._tunnels[tnlid].overlay_id, tnlid
+                )
                 self._tunnels[tnlid].tunnel_state = TUNNEL_STATES.QUERYING
                 cbt.set_response(data=None, status=True)
                 self.register_deferred_call(
@@ -634,7 +638,11 @@ class LinkManager(ControllerModule):
     def resp_handler_query_link_stats(self, cbt: CBT):
         resp_data = cbt.response.data
         if not cbt.response.status:
-            self.logger.warning("Link stats update error: %s", cbt.response.data)
+            self.logger.warning(
+                "Link stats update failure. link_id: %s - %s ",
+                cbt.request.params["TunnelId"],
+                cbt.response.data,
+            )
             self.free_cbt(cbt)
             return
         # Handle any connection failures and update tracking data
@@ -643,24 +651,18 @@ class LinkManager(ControllerModule):
         if tnlid in self._tunnels:
             tnl = self._tunnels[tnlid]
             if resp_data["Status"] == "OFFLINE":
-                # tincan indicates offline so recheck the link status
-                retry = tnl.link.status_retry
-                if (tnl.tunnel_state == TUNNEL_STATES.QUERYING) or (
-                    retry >= 1 and tnl.tunnel_state == TUNNEL_STATES.ONLINE
-                ):
-                    # LINK_STATE_DOWN event or QUERY_LNK_STATUS response - post notify
-                    tnl.tunnel_state = TUNNEL_STATES.OFFLINE
-                    olid = tnl.overlay_id
-                    peer_id = tnl.peer_id
-                    param = {
-                        "UpdateType": TUNNEL_EVENTS.Disconnected,
-                        "OverlayId": olid,
-                        "PeerId": peer_id,
-                        "TunnelId": tnlid,
-                        "LinkId": lnkid,
-                        "TapName": tnl.tap_name,
-                    }
-                    self._link_updates_publisher.post_update(param)
+                tnl.tunnel_state = TUNNEL_STATES.OFFLINE
+                olid = tnl.overlay_id
+                peer_id = tnl.peer_id
+                param = {
+                    "UpdateType": TUNNEL_EVENTS.Disconnected,
+                    "OverlayId": olid,
+                    "PeerId": peer_id,
+                    "TunnelId": tnlid,
+                    "LinkId": lnkid,
+                    "TapName": tnl.tap_name,
+                }
+                self._link_updates_publisher.post_update(param)
             elif resp_data["Status"] == "ONLINE":
                 tnl.tunnel_state = TUNNEL_STATES.ONLINE
                 tnl.link.stats = resp_data["Stats"]

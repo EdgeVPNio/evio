@@ -254,7 +254,8 @@ class TincanTunnel(ControllerModule):
                 60,
             )
             self.send_control(tc_proc.ipc_id, json.dumps(ctl))
-        except Exception:
+        except Exception as excep:
+            self.logger.warning("Query link stats failed: %s", excep)
             self._tnl_cbts.pop(cbt.tag, None)
             cbt.set_response("Failed to retrieve link stats", False)
             self.complete_cbt(cbt)

@@ -185,10 +185,10 @@ class Broker:
         broker_log_level = self._config["Broker"].get(
             "BrokerLogLevel", BROKER_LOG_LEVEL
         )
-        file_handler.setLevel(
-            "DEBUG"
-        )  # the root file handler has the broadest capture level
-        # file_handler.setLevel(broker_log_level)
+        # file_handler.setLevel(
+        #     "DEBUG"
+        # )  # the root file handler has the broadest capture level
+        file_handler.setLevel(broker_log_level)
         file_handler.setFormatter(formatter)
         handlers.append(file_handler)
         # console logging
