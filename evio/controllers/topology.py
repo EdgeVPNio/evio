@@ -619,24 +619,18 @@ class Topology(ControllerModule):
 
     def resp_handler_remote_action(self, cbt: CBT):
         """Role Node A, initiate edge creation on successful neogtiation"""
-        if not cbt.response.status and (
-            not cbt.response.data or isinstance(cbt.response.data, str)
-        ):
-            rem_act = cbt.request.params
-            self.logger.info("The remote action timed out %s", cbt)
-            olid = rem_act.overlay_id
-            ovl = self._net_ovls[olid]
-            peer_id = rem_act.recipient_id
-            del ovl.adjacency_list[peer_id]
-            ovl.known_peers[peer_id].exclude()
-            self.free_cbt(cbt)
-            self._process_next_transition(ovl)
-            return
-
         rem_act = cbt.response.data
         olid = rem_act.overlay_id
         ovl = self._net_ovls[olid]
         self.free_cbt(cbt)
+        if not cbt.response.status and not isinstance(rem_act.data, EdgeResponse):
+            self.logger.info("The remote action expired %s", rem_act)
+            peer_id = rem_act.recipient_id
+            del ovl.adjacency_list[peer_id]
+            ovl.known_peers[peer_id].exclude()
+            self._process_next_transition(ovl)
+            return
+
         if rem_act.action == "TOP_NEGOTIATE_EDGE":
             try:
                 edge_nego = EdgeNegotiate(**rem_act.params, **rem_act.data)

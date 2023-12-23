@@ -527,13 +527,10 @@ class Signal(ControllerModule):
         ) * random.randint(20, 50)
 
     def on_exp_presence(self):
-        with self._lck:
-            for circ in self._circles.values():
-                if circ.xport and circ.xport.is_connected():
-                    circ.xport.send_presence_safe(pstatus="ident#" + self.node_id)
-                self.register_deferred_call(
-                    self._next_anc_interval(), self.on_exp_presence
-                )
+        for circ in self._circles.values():
+            if circ.xport and circ.xport.is_connected():
+                circ.xport.send_presence_safe(pstatus="ident#" + self.node_id)
+            self.register_deferred_call(self._next_anc_interval(), self.on_exp_presence)
 
     def on_presence(self, msg):
         self._presence_publisher.post_update(msg)
@@ -630,7 +627,8 @@ class Signal(ControllerModule):
         rem_act.initiator_id = self.node_id
         rem_act.initiator_cm = cbt.request.initiator
         rem_act.action_tag = cbt.tag
-        self._cbts_pending_remote_resp[cbt.tag] = cbt
+        with self._lck:
+            self._cbts_pending_remote_resp[cbt.tag] = cbt
         self.transmit_remote_act(rem_act, peer_id, "invk")
 
     def req_handler_send_waiting_remote_acts(self, cbt: CBT):
@@ -642,7 +640,7 @@ class Signal(ControllerModule):
         self.complete_cbt(cbt)
 
     def resp_handler_invoked_remact(self, cbt: CBT):
-        """Convert the response CBT to a remote action and return to the initiator to be completed there"""
+        """Convert the response CBT to a remote action and return to the initiator"""
         rem_act = self._recv_remote_acts_invk_locally.pop(cbt.tag)
         peer_id = rem_act.initiator_id
         rem_act.data = cbt.response.data
@@ -695,38 +693,33 @@ class Signal(ControllerModule):
         )
 
     def process_cbt(self, cbt: CBT):
-        with self._lck:
-            if cbt.is_expired:
-                self.abort_handler(cbt)
-            elif cbt.is_pending:
-                if cbt.request.action == "SIG_REMOTE_ACTION":
-                    self.req_handler_initiate_remote_action(cbt)
-                elif cbt.request.action == "SIG_QUERY_REPORTING_DATA":
-                    self.req_handler_query_reporting_data(cbt)
-                elif cbt.request.action == "_PEER_JID_UPDATED_":
-                    self.req_handler_send_waiting_remote_acts(cbt)
-                elif cbt.request.action == "_RESTART_XCIRCLE_":
-                    self.req_handler_restart_xcir(cbt)
-                else:
-                    self.req_handler_default(cbt)
-            elif cbt.is_completed:
-                if cbt.tag in self._recv_remote_acts_invk_locally:
-                    self.resp_handler_invoked_remact(cbt)
-                else:
-                    self.resp_handler_default(cbt)
+        if cbt.is_expired:
+            self.abort_handler(cbt)
+        elif cbt.is_pending:
+            if cbt.request.action == "SIG_REMOTE_ACTION":
+                self.req_handler_initiate_remote_action(cbt)
+            elif cbt.request.action == "SIG_QUERY_REPORTING_DATA":
+                self.req_handler_query_reporting_data(cbt)
+            elif cbt.request.action == "_PEER_JID_UPDATED_":
+                self.req_handler_send_waiting_remote_acts(cbt)
+            elif cbt.request.action == "_RESTART_XCIRCLE_":
+                self.req_handler_restart_xcir(cbt)
+            else:
+                self.req_handler_default(cbt)
+        elif cbt.is_completed:
+            if cbt.tag in self._recv_remote_acts_invk_locally:
+                self.resp_handler_invoked_remact(cbt)
+            else:
+                self.resp_handler_default(cbt)
 
     def on_timer_event(self):
         for overlay_id in self._circles:
             self._circles[overlay_id].jid_cache.scavenge()
-            with self._lck:
-                self.scavenge_expired_outgoing_rem_acts(
-                    self._circles[overlay_id].transmit_queues
-                )
+            self._abort_expired_outgoing_rem_acts(overlay_id)
 
     def terminate(self):
-        with self._lck:
-            for overlay_id in self._circles:
-                self._circles[overlay_id].terminate()
+        for overlay_id in self._circles:
+            self._circles[overlay_id].terminate()
         self.logger.info("Controller module terminated")
 
     def abort_handler(self, cbt: CBT):
@@ -738,30 +731,41 @@ class Signal(ControllerModule):
             self.transmit_remote_act(rem_act, peer_id, "cmpt")
         self.free_cbt(cbt)
 
-    # todo: review cbt
-    def scavenge_expired_outgoing_rem_acts(self, outgoing_rem_acts: dict[str, Queue]):
-        # clear out the JID Refresh queue for a peer if the oldest entry age exceeds the limit
-        peer_ids = []
-        for peer_id, transmit_queue in outgoing_rem_acts.items():
-            if transmit_queue.queue:
-                remact_descr = transmit_queue.queue[0]  # peek at the first/oldest entry
-                if time.time() - remact_descr[2] >= self._jid_resolution_timeout:
-                    peer_ids.append(peer_id)
-                    self.logger.debug(
-                        "Remote act scavenged for removal %s", remact_descr
-                    )
-        for peer_id in peer_ids:
-            transmit_queue: Queue = outgoing_rem_acts[peer_id]
+    def _abrt_outgoing_rem_acts(self, remact_que: Queue):
+        while True:
             try:
-                remact = transmit_queue.get_nowait()
+                remact = remact_que.get_nowait()
             except Empty:
                 return
-            tag = remact[1].action_tag
-            cbt = self._cbts_pending_remote_resp.pop(tag, None)
-            if cbt:
-                cbt.set_response("Peer lookup failed", False)
-                self.complete_cbt(cbt)
-                transmit_queue.task_done()
+            else:
+                tag = remact[1].action_tag
+                cbt = self._cbts_pending_remote_resp.pop(tag, None)
+                if cbt:
+                    remact[
+                        1
+                    ].data = (
+                        "Failed to transmit remote action as the peer JID lookup failed"
+                    )
+                    remact[1].status = False
+                    cbt.set_response(remact[1], False)
+                    self.complete_cbt(cbt)
+                remact_que.task_done()
+
+    def _abort_expired_outgoing_rem_acts(self, overlay_id: str):
+        peer_ids = []
+        with self._lck:
+            outgoing_rem_acts: dict[str, Queue] = self._circles[
+                overlay_id
+            ].transmit_queues
+            for peer_id, transmit_queue in outgoing_rem_acts.items():
+                if transmit_queue.queue:
+                    remact_descr = transmit_queue.queue[
+                        0
+                    ]  # peek at the first/oldest entry
+                    if time.time() - remact_descr[2] >= self._jid_resolution_timeout:
+                        peer_ids.append(peer_id)
+            for peer_id in peer_ids:
+                self._abrt_outgoing_rem_acts(outgoing_rem_acts[peer_id])
 
     def _is_network_ready(self) -> bool:
         # handle boot time start where the network is not yet available
