@@ -623,7 +623,7 @@ class Topology(ControllerModule):
         olid = rem_act.overlay_id
         ovl = self._net_ovls[olid]
         self.free_cbt(cbt)
-        if not cbt.response.status and not isinstance(rem_act.data, EdgeResponse):
+        if not cbt.response.status and isinstance(rem_act.data, str):
             self.logger.info("The remote action expired %s", rem_act)
             peer_id = rem_act.recipient_id
             del ovl.adjacency_list[peer_id]
