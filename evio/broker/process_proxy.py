@@ -191,12 +191,12 @@ class ProcessProxy:
                                 else:
                                     node.event = select.EPOLLIN
                                     self._epoll.modify(fileno, node.event)
-            except BrokenPipeError as bperr:
+            except BrokenPipeError:
                 connections.pop(fileno)
                 self.close_client(node)
-                self.logger.exception(bperr)
-            except Exception as ex:
-                self.logger.exception("Process Proxy Server exception %s", ex)
+                self.logger.exception()
+            except Exception:
+                self.logger.exception("Process Proxy serve failure")
                 self.server_close()
 
     def close_client(self, node):

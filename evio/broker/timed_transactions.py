@@ -49,8 +49,8 @@ class TimedTransactions:
             try:
                 while not self._exit_ev.wait(self._chk_interval):
                     self._sched.run(blocking=False)
-            except Exception as err:
-                logging.getLogger().exception("%s", err)
+            except Exception:
+                logging.getLogger().exception()
 
     def start(self):
         self._event_thread.start()

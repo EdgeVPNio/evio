@@ -74,8 +74,8 @@ class ControllerModule:
         )
         try:
             handle(cbt)
-        except Exception as err:
-            self.logger.exception(err)
+        except Exception:
+            self.logger.exception("CBT abort handler failure")
             if cbt and not cbt.is_freed:
                 self.free_cbt(cbt)
 
@@ -83,8 +83,8 @@ class ControllerModule:
         handle = self._req_handler_tbl.get(cbt.request.action, self.req_handler_default)
         try:
             handle(cbt)
-        except Exception as err:
-            self.logger.exception(err)
+        except Exception:
+            self.logger.exception()
             if cbt and not cbt.is_completed:
                 cbt.set_response({"Message": "Failed"}, False)
                 self.complete_cbt(cbt)
@@ -95,8 +95,8 @@ class ControllerModule:
         )
         try:
             handle(cbt)
-        except Exception as err:
-            self.logger.exception(err)
+        except Exception:
+            self.logger.exception()
             if cbt and not cbt.is_freed:
                 self.free_cbt(cbt)
 

@@ -258,8 +258,8 @@ class Broker:
             with self._nexus_lock:
                 for ctrl_name in self._load_order:
                     self._nexus_map[ctrl_name].start_controller()
-        except ConfigurationError as err:
-            self.logger.exception(err)
+        except ConfigurationError:
+            self.logger.exception()
             sys.exit(-1)
         self.logger.info("Version %s loaded", EVIO_VER_REL)
 
