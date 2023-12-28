@@ -215,7 +215,7 @@ class TincanTunnel(ControllerModule):
             tnlid = msg["TunnelId"]
             if tnlid not in self._tc_proc_tbl:
                 err_msg = f"No tunnel exists for tunnel ID: {tnlid[:7]}"
-                cbt.set_response({"ErrorMsg": err_msg, "Status": False})
+                cbt.set_response(err_msg, False)
                 return
             ctl = deepcopy(broker.CTL_QUERY_CAS)
             ctl["TransactionId"] = cbt.tag
@@ -240,7 +240,7 @@ class TincanTunnel(ControllerModule):
             tc_proc = self._tc_proc_tbl.get(tnlid)
             if not tc_proc:
                 err_msg = f"No tunnel exists for tunnel ID: {tnlid[:7]}"
-                cbt.set_response({"ErrorMsg": err_msg, "Status": False})
+                cbt.set_response(err_msg, False)
                 self.complete_cbt(cbt)
                 return
             ctl = deepcopy(broker.CTL_QUERY_LINK_STATS)
@@ -287,7 +287,7 @@ class TincanTunnel(ControllerModule):
     #     tnlid = msg["TunnelId"]
     #     if tnlid not in self._tc_proc_tbl:
     #         err_msg = f"No tunnel exists for tunnel ID: {tnlid[:7]}"
-    #         cbt.set_response({"ErrorMsg": err_msg, "Status": False})
+    #         cbt.set_response(err_msg, False)
     #         self.complete_cbt(cbt)
     #         return
     #     ctl = deepcopy(broker.CTL_REMOVE_LINK)
@@ -515,8 +515,8 @@ class TincanTunnel(ControllerModule):
                     self.logger.warning(
                         "Invalid Tincan control command: %s", req["Command"]
                     )
-        except Exception as err:
-            self.logger.exception(str(err))
+        except Exception:
+            self.logger.exception()
 
     def _is_tap_exist(self, tap_name: str) -> bool:
         with IPRoute() as ipr:
