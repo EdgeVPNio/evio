@@ -268,8 +268,6 @@ class XmppTransport(slixmpp.ClientXMPP):
                         self._overlay_id,
                         sender_jid,
                     )
-                    payload = self.boundjid.full + "#" + self._node_id
-                    self.send_msg(sender_jid, "announce", payload)
                 elif pstatus == "uid?":
                     # a request for our jid
                     if receiver_jid == self.boundjid and self._node_id == node_id:
