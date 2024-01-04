@@ -184,7 +184,7 @@ class GeneveTunnel(ControllerModule):
         self.complete_cbt(cbt)
 
     def req_handler_create_tunnel(self, cbt: CBT):
-        """Role A. Issued from local Topology."""
+        """Role A - Initiator of request."""
         olid = cbt.request.params["OverlayId"]
         tnlid = cbt.request.params["TunnelId"]
         loc_id = cbt.request.params["VNId"]
@@ -225,7 +225,7 @@ class GeneveTunnel(ControllerModule):
 
     def req_handler_exchnge_endpt(self, cbt: CBT):
         """
-        Role B
+        Role B - Target (recipient) of request
         """
         try:
             params = cbt.request.params
