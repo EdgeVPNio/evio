@@ -20,6 +20,7 @@
 # THE SOFTWARE.
 
 import argparse
+import glob
 import importlib
 import json
 import logging
@@ -48,6 +49,7 @@ from . import (
     DEVICE,
     EVIO_VER_REL,
     JID_RESOLUTION_TIMEOUT,
+    KEEP_LOGS_ON_START,
     LOG_DIRECTORY,
     LOG_LEVEL,
     MAX_ARCHIVES,
@@ -61,8 +63,6 @@ from .nexus import Nexus
 from .process_proxy import ProcessProxy, ProxyMsg
 from .subscription import Subscription
 from .timed_transactions import TimedTransactions, Transaction
-
-# import faulthandler
 
 
 class Broker:
@@ -91,7 +91,6 @@ class Broker:
         self._nexus_lock: threading.Lock = threading.Lock()
         self._nexus_map: dict[str, Any] = {}  # ctrl classname -> class instance
         self._config: dict = {}
-        self.parse_config()
         self._cm_qlisteners: list[QueueListener] = []
         self._setup_logging()
         self.model = self._config["Broker"].get("Model")
@@ -112,7 +111,7 @@ class Broker:
             )
         return self.terminate()
 
-    def parse_config(self):
+    def _parse_config(self):
         self._config = CONFIG
         self._set_nid_file_name()
         parser = argparse.ArgumentParser(description="Starts the EVIO Controller")
@@ -162,6 +161,7 @@ class Broker:
                     self._config[key] = cfg[key]
 
     def _setup_logging(self):
+        self._parse_config()
         logging.getLogger("slixmpp").propagate = False
         handlers = []
         filepath = self._config["Broker"].get("Directory", LOG_DIRECTORY)
@@ -170,13 +170,11 @@ class Broker:
         )
         if not os.path.exists(filepath):
             os.makedirs(filepath, exist_ok=True)
-        if os.path.isfile(bkr_logname):
-            os.remove(bkr_logname)
+        elif not self._config["Broker"].get("KeepLogsOnStart", KEEP_LOGS_ON_START):
+            logs = glob.glob(os.path.join(filepath, "*"))
+            for f in logs:
+                os.remove(f)
         # setup root logger
-        formatter = logging.Formatter(
-            "[%(asctime)s.%(msecs)03d] %(levelname)s:%(name)s: %(message)s",
-            datefmt="%Y%m%d %H:%M:%S",
-        )
         file_handler = RotatingFileHandler(
             filename=bkr_logname,
             maxBytes=self._config["Broker"].get("MaxFileSize", MAX_FILE_SIZE),
@@ -185,11 +183,13 @@ class Broker:
         broker_log_level = self._config["Broker"].get(
             "BrokerLogLevel", BROKER_LOG_LEVEL
         )
-        # file_handler.setLevel(
-        #     "DEBUG"
-        # )  # the root file handler has the broadest capture level
         file_handler.setLevel(broker_log_level)
-        file_handler.setFormatter(formatter)
+        file_handler.setFormatter(
+            logging.Formatter(
+                "[%(asctime)s.%(msecs)03d] %(levelname)s %(name)s: %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+        )
         handlers.append(file_handler)
         # console logging
         console_handler = logging.StreamHandler(stream=sys.stdout)
@@ -205,7 +205,14 @@ class Broker:
         self._que_listener.start()
         for k, v in self.cfg_controllers.items():
             ctr_lgl = self._config["Broker"].get("LogLevel", LOG_LEVEL)
-            self._setup_controller_logger((k, v["Module"]), formatter, ctr_lgl)
+            self._setup_controller_logger(
+                (k, v["Module"]),
+                logging.Formatter(
+                    "[%(asctime)s.%(msecs)03d] %(levelname)s %(message)s",
+                    datefmt="%Y-%m-%d %H:%M:%S",
+                ),
+                ctr_lgl,
+            )
 
     def _setup_controller_logger(
         self, cm_name: tuple[str, str], formatter: logging.Formatter, log_level: int
