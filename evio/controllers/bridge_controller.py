@@ -506,7 +506,7 @@ class BridgeController(ControllerModule):
     def _start_boundedflood(self):
         bf_config = self.config["BoundedFlood"]
         bf_config["NodeId"] = self.node_id
-        bf_ovls = bf_config.pop("Overlays")
+        bf_ovls = bf_config.get("Overlays")
         for olid in bf_ovls:
             net_ovl = self.overlays[olid]
             br_name = get_evio_bridge_name(
