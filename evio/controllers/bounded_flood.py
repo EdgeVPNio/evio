@@ -48,7 +48,7 @@ from ryu.controller.handler import (
     set_ev_cls,
 )
 from ryu.lib import addrconv, hub
-from ryu.lib.packet import ethernet, packet, packet_base, packet_utils
+from ryu.lib.packet import arp, ethernet, packet, packet_base, packet_utils
 from ryu.ofproto import ofproto_v1_4
 from ryu.topology import event
 
@@ -477,6 +477,7 @@ class EvioSwitch:
         self._ingress_tbl: dict[str, int] = dict()  # hw_addr->ingress port number
         self._root_sw_tbl: dict[str, PeerData] = dict()  # leaf_mac->PeerData
         self._peer_tbl: dict[str, PeerData] = dict()  # node_id->PeerData
+        # self._flows: dict[tuple[int, str, str], int] = dict()
 
         self.max_on_demand_edges = kwargs.get("MaxOnDemandEdges", MAX_ONDEMAND_EDGES)
         self.traffic_analyzer = TrafficAnalyzer(
@@ -1083,13 +1084,14 @@ class BoundedFlood(app_manager.RyuApp):
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def packet_in_handler(self, ev):
-        msg = ev.msg
-        in_port = msg.match["in_port"]
-        pkt = packet.Packet(msg.data)
+        ev_msg = ev.msg
+        in_port = ev_msg.match["in_port"]
+        pkt = packet.Packet(ev_msg.data)
         eth = pkt.protocols[0]
-        dpid = msg.datapath.id
+        dpid = ev_msg.datapath.id
         sw: EvioSwitch = self._lt[dpid]
         port: PortDescriptor = sw.port_descriptor(in_port)
+
         try:
             # if self.logger.isEnabledFor(logging.DEBUG):
             #     self.logger.debug(f"packet_in[{in_port}]<=={pkt}")
@@ -1106,41 +1108,43 @@ class BoundedFlood(app_manager.RyuApp):
                 )
                 return
             port.last_active_time = time.time()
+            """Learn new ingress and attemp update of outgoing flow rules for the current eth src
+            mac. An upcall to BF implies a possible change to the topo that can render existing
+            rules invalid"""
             if eth.ethertype == FloodRouteBound.ETH_TYPE_BF:
-                self.handle_bounded_flood_msg(msg.datapath, pkt, in_port, msg)
-            elif sw.ingress_tbl_contains(eth.dst):
-                """Unicast Ethernet frame and forwarding port data is available for its destination
-                MAC"""
-                pd = self._lt[dpid].get_root_sw(eth.dst)
-                if pd and pd.port_no and eth.src in sw.local_leaf_macs:
-                    # local pendant sending to an adjacent peer
-                    self.do_bf_leaf_transfer(
-                        msg.datapath, pd.port_no, pd.node_id, eth.dst, eth.src
-                    )
-
-                self._forward_frame(msg.datapath, pkt, in_port, msg)
-            else:
-                """Vanilla Ethernet frame but the destination MAC is not in our LT. Currently, only
-                broadcast addresses originating from local leaf ports are broadcasted using FRB.
-                Multiricepient frames that ingress on a link port is a protocol violation, and
-                flooding unicast frames which have no LT info, prevents accumulating enough port
-                data to create a flow rule"""
-                if in_port in sw.leaf_ports and is_multiricepient(eth.dst):
-                    self._broadcast_frame(msg.datapath, pkt, in_port, msg)
-                elif in_port not in sw.leaf_ports and is_multiricepient(eth.dst):
+                self.handle_bounded_flood_msg(ev_msg.datapath, in_port, ev_msg)
+            elif is_multiricepient(eth.dst):
+                """Currently, only broadcast addresses originating from local leaf ports are
+                broadcasted using FRB"""
+                if in_port in sw.leaf_ports:
+                    self._broadcast_frame(ev_msg.datapath, in_port, ev_msg)
+                else:
                     self.logger.info(
                         "Discarding ingressed multirecipient frame on peer port %s/%s",
                         sw.name,
                         in_port,
                     )  # can occur on newly added port before IP addresses are flushed
-                else:
-                    self.logger.info(
-                        "No forwarding route to %s in LT, discarding frame. Ingress=%s/%s",
-                        eth.dst,
-                        sw.name,
-                        in_port,
-                    )  # some apps arp to an eth addr other than broadcast
-                return
+            elif sw.ingress_tbl_contains(eth.dst):
+                """Unicast Ethernet frame and forwarding port data is available for its destination
+                MAC"""
+                if eth.dst in sw.local_leaf_macs:
+                    self._update_outbound_flow_rules(ev_msg.datapath, eth.src, in_port)
+                elif eth.src in sw.local_leaf_macs:
+                    peer: PeerData = self._lt[dpid].get_root_sw(eth.dst)
+                    if peer and peer.port_no:
+                        self.send_pendant_mac_to_adj_peer(
+                            ev_msg.datapath, peer, eth.dst, eth.src
+                        )
+
+                self._add_flow_and_forward_frame(ev_msg.datapath, pkt, in_port, ev_msg)
+            else:
+                """Flooding unicast frames, prevents accumulating the port data to create a flow rule"""
+                self.logger.info(
+                    "No forwarding route to %s, discarding frame. Ingress=%s/%s",
+                    eth.dst,
+                    sw.name,
+                    in_port,
+                )  # some apps arp to an eth addr other than broadcast or the fwding port was recently removed
         except Exception:
             self.logger.exception(
                 "An error occurred in the controller's packet handler. Event=%s", ev.msg
@@ -1161,6 +1165,32 @@ class BoundedFlood(app_manager.RyuApp):
         except Exception:
             self.logger.exception(
                 "An error occurred in the flow stats handler. Event=%s", ev.msg
+            )
+
+    @set_ev_cls(ofp_event.EventOFPFlowMonitorReply, MAIN_DISPATCHER)
+    def flow_monitor_reply_handler(self, ev):
+        try:
+            msg = ev.msg
+            dp = msg.datapath
+            ofp = dp.ofproto
+            flow_updates = []
+            for update in msg.body:
+                update_str = f"length={update.length} event={update.event}"
+                if (
+                    update.event == ofp.OFPFME_INITIAL
+                    or update.event == ofp.OFPFME_ADDED
+                    or update.event == ofp.OFPFME_REMOVED
+                    or update.event == ofp.OFPFME_MODIFIED
+                ):
+                    update_str += f"table_id={update.table_id} reason={update.reason} idle_timeout={update.idle_timeout} hard_timeout={update.hard_timeout} priority={update.priority} cookie={update.cookie} match={update.match} instructions={update.instructions}"
+                elif update.event == ofp.OFPFME_ABBREV:
+                    update_str += f"xid={update.xid}"
+                flow_updates.append(update_str)
+            self.logger.debug("FlowUpdates: %s", flow_updates)
+        except Exception:
+            self.logger.exception(
+                "An error occurred in the controller's flow monitor reply handler. Event=%s",
+                ev,
             )
 
     ##################################################################################
@@ -1194,10 +1224,9 @@ class BoundedFlood(app_manager.RyuApp):
                             for port in updated_prts:
                                 if port.is_peer:
                                     if port.is_tincan_tunnel:
-                                        self._update_port_flow_rules(
+                                        self._update_peer_flow_rules(
                                             self.dpset.dps[op.dpid],
-                                            port.peer.node_id,
-                                            port.port_no,
+                                            port.peer,
                                         )
                                     elif port.dataplane_type == DATAPLANE_TYPES.Geneve:
                                         self.do_link_check(
@@ -1278,7 +1307,7 @@ class BoundedFlood(app_manager.RyuApp):
         )
         formatter = logging.Formatter(
             "[%(asctime)s.%(msecs)03d] %(levelname)s %(message)s",
-            datefmt="%Y%m%d %H:%M:%S",
+            datefmt="%Y-%m-%d %H:%M:%S",
         )
         file_handler.setFormatter(formatter)
         file_handler.setLevel(level)
@@ -1451,35 +1480,83 @@ class BoundedFlood(app_manager.RyuApp):
         if not resp:
             self.logger.warning("Add flow (MC) operation failed, OFPFlowMod=%s", mod)
 
-    def _update_port_flow_rules(self, datapath, peer_id, port_no):
+    def _create_inbound_flow_rules(
+        self, datapath, eth_src: str, ingress: int, tblid: int = 0
+    ):
+        """Create new flow rules from eth_src to all local pendant macs. @param eth_src is always
+        a remote pendant device and @param ingress is the associated port number"""
+        sw: EvioSwitch = self._lt[datapath.id]
+        parser = datapath.ofproto_parser
+        for eth_dst in sw.local_leaf_macs:
+            local_port_no = sw.get_ingress_port(eth_dst)
+            actions = [parser.OFPActionOutput(local_port_no)]
+            match = parser.OFPMatch(in_port=ingress, eth_src=eth_src, eth_dst=eth_dst)
+            self._create_flow_rule(
+                datapath,
+                match,
+                actions,
+                priority=1,
+                tblid=tblid,
+                idle_timeout=sw.idle_timeout,
+                hard_timeout=sw.hard_timeout,
+            )
+
+    def _update_outbound_flow_rules(self, datapath, dst_mac, new_egress, tblid=None):
+        """Updates existing flow rules from all local pendant eth src to @param dst_mac
+        - a remote pendant device"""
+        sw: EvioSwitch = self._lt[datapath.id]
+        if dst_mac in sw.local_leaf_macs:
+            self.logger.warning(
+                "Invalid flow update request, the dst mac %s is a local pendant",
+                dst_mac,
+            )
+            return
+        parser = datapath.ofproto_parser
+        if tblid is None:
+            tblid = datapath.ofproto.OFPTT_ALL
+        cmd = datapath.ofproto.OFPFC_MODIFY
+        acts = [parser.OFPActionOutput(new_egress, 1500)]
+        inst = [
+            parser.OFPInstructionActions(datapath.ofproto.OFPIT_APPLY_ACTIONS, acts)
+        ]
+        for src_mac in sw.local_leaf_macs:
+            port_no = sw.get_ingress_port(src_mac)
+            mt = parser.OFPMatch(in_port=port_no, eth_dst=dst_mac, eth_src=src_mac)
+            mod = parser.OFPFlowMod(
+                datapath=datapath,
+                table_id=tblid,
+                match=mt,
+                command=cmd,
+                instructions=inst,
+                idle_timeout=sw.idle_timeout,
+                hard_timeout=sw.hard_timeout,
+            )
+            self.logger.info(
+                "Attempting to update outflow matching %s/%s to egress %s",
+                sw.name,
+                mt,
+                new_egress,
+            )
+            datapath.send_msg(mod)
+
+    def _update_peer_flow_rules(self, datapath, peer: PeerData):
         """Used when a new port is connected to the switch and we know the pendant MACs that
         anchored to the now adjacent peer switch. Flow rules involving those pendant MACs are
-        updated or created to use the new port."""
+        updated or created to use the new port.
+        @param peer_id - peer id of adjacent switch
+        @param port_no - port number associated with peer"""
+        if peer.port_no is None:
+            return
         dpid = datapath.id
         sw: EvioSwitch = self._lt[dpid]
-        parser = datapath.ofproto_parser
-        for mac in sw.leaf_macs(peer_id):
-            # update existing rules for flows going out to the remote peer
+        for mac in sw.leaf_macs(peer.node_id):
+            # update existing flows going out to the remote peer
             self._update_outbound_flow_rules(
-                datapath=datapath, dst_mac=mac, new_egress=port_no, tblid=0
+                datapath=datapath, dst_mac=mac, new_egress=peer.port_no
             )
-            # create new inbound flow rules
-            for dst_mac in sw.local_leaf_macs:
-                local_port_no = sw.get_ingress_port(dst_mac)
-                if local_port_no:
-                    actions = [parser.OFPActionOutput(local_port_no)]
-                    match = parser.OFPMatch(
-                        in_port=port_no, eth_dst=dst_mac, eth_src=mac
-                    )
-                    self._create_flow_rule(
-                        datapath,
-                        match,
-                        actions,
-                        priority=1,
-                        tblid=0,
-                        idle_timeout=sw.idle_timeout,
-                        hard_timeout=sw.hard_timeout,
-                    )
+            self._create_inbound_flow_rules(
+                datapath=datapath, eth_src=mac, ingress=peer.port_no
+            )
 
     def _del_port_flow_rules(self, datapath, port_no, tblid=None):
         """Used when a port is removed from the switch. Any flow rule with in_port or
@@ -1622,37 +1699,6 @@ class BoundedFlood(app_manager.RyuApp):
         self._clear_switch_flow_rules(datapath)
         self._create_switch_startup_flow_rules(datapath)
 
-    def _update_outbound_flow_rules(self, datapath, dst_mac, new_egress, tblid=None):
-        sw: EvioSwitch = self._lt[datapath.id]
-        parser = datapath.ofproto_parser
-        if tblid is None:
-            tblid = datapath.ofproto.OFPTT_ALL
-        cmd = datapath.ofproto.OFPFC_MODIFY
-        acts = [parser.OFPActionOutput(new_egress, 1500)]
-        inst = [
-            parser.OFPInstructionActions(datapath.ofproto.OFPIT_APPLY_ACTIONS, acts)
-        ]
-        for src_mac in sw.local_leaf_macs:
-            port_no = sw.get_ingress_port(src_mac)
-            mt = parser.OFPMatch(in_port=port_no, eth_dst=dst_mac, eth_src=src_mac)
-            sw = self._lt[datapath.id]
-            mod = parser.OFPFlowMod(
-                datapath=datapath,
-                table_id=tblid,
-                match=mt,
-                command=cmd,
-                instructions=inst,
-                idle_timeout=sw.idle_timeout,
-                hard_timeout=sw.hard_timeout,
-            )
-            self.logger.info(
-                "Attempting to update outflow matching %s/%s to egress %s",
-                sw.name,
-                mt,
-                new_egress,
-            )
-            datapath.send_msg(mod)
-
     def do_link_check(self, datapath, port: PortDescriptor):
         """
         Send a query to an adjacent peer to test transport connectivity. Peer is expected acknowlege
@@ -1771,16 +1817,17 @@ class BoundedFlood(app_manager.RyuApp):
             if not resp:
                 self.logger.warning("Send FRB operation failed, OFPPacketOut=%s", out)
 
-    def do_bf_leaf_transfer(
-        self, datapath, egress: int, peer_id: str, eth_dest: str, eth_src: str
+    def send_pendant_mac_to_adj_peer(
+        self, datapath, peer: PeerData, eth_dest: str, pendant_mac: str
     ):
-        # send an FRB via 'egress' to tell the adjacent node that the local node manages MAC address
-        # 'eth_src'.
+        # send an FRB via 'egress' to tell the adjacent node that the local node hosts pendant_mac
+        egress: int = peer.port_no
+        peer_id: str = peer.node_id
         sw: EvioSwitch = self._lt[datapath.id]
         nid = sw.node_id
         bf_hdr = FloodRouteBound(nid, nid, 0, FloodRouteBound.FRB_LEAF_TX)
         eth = ethernet.ethernet(
-            dst=eth_dest, src=eth_src, ethertype=FloodRouteBound.ETH_TYPE_BF
+            dst=eth_dest, src=pendant_mac, ethertype=FloodRouteBound.ETH_TYPE_BF
         )
         p = packet.Packet()
         p.add_protocol(eth)
@@ -1804,18 +1851,19 @@ class BoundedFlood(app_manager.RyuApp):
                 egress,
                 sw._port_tbl[egress].name,
                 peer_id,
-                eth_src,
+                pendant_mac,
             )
         else:
             self.logger.warning("FRB leaf exchange failed, OFPPacketOut=%s", pkt_out)
 
-    def handle_bounded_flood_msg(self, datapath, pkt, in_port, msg):
+    def handle_bounded_flood_msg(self, datapath, in_port, evmsg):
+        pkt = packet.Packet(evmsg.data)
         eth = pkt.protocols[0]
         dpid = datapath.id
         parser = datapath.ofproto_parser
         rcvd_frb: FloodRouteBound = pkt.protocols[1]
         payload = None
-        port: PortDescriptor
+
         sw: EvioSwitch = self._lt[dpid]
         if len(pkt.protocols) == 3:
             payload = pkt.protocols[2]
@@ -1842,12 +1890,12 @@ class BoundedFlood(app_manager.RyuApp):
                 rcvd_frb,
             )
             return
-        port = sw.port_descriptor(in_port)
+        port: PortDescriptor = sw.port_descriptor(in_port)
         if rcvd_frb.frb_type == FloodRouteBound.FRB_LNK_CHK:
             self._do_link_ack(datapath, port)
             if not port.is_activated:
                 port.is_activated = True
-                self._update_port_flow_rules(datapath, port.peer.node_id, in_port)
+                self._update_peer_flow_rules(datapath, port.peer)
             return
         if rcvd_frb.frb_type == FloodRouteBound.FRB_LNK_ACK:
             if self.logger.isEnabledFor(logging.DEBUG):
@@ -1856,7 +1904,7 @@ class BoundedFlood(app_manager.RyuApp):
                 )
             if not port.is_activated:
                 port.is_activated = True
-                self._update_port_flow_rules(datapath, port.peer.node_id, in_port)
+                self._update_peer_flow_rules(datapath, port.peer)
             return
         if rcvd_frb.frb_type == FloodRouteBound.FRB_LEAF_TX:
             if self.logger.isEnabledFor(logging.DEBUG):
@@ -1870,19 +1918,24 @@ class BoundedFlood(app_manager.RyuApp):
                 )
             # learn a mac address
             sw.set_ingress_port(eth.src, (in_port, rcvd_frb.root_nid))
-            self._update_port_flow_rules(datapath, port.peer.node_id, in_port)
+            self._update_peer_flow_rules(datapath, port.peer)
             return
+        # case (rcvd_frb.frb_type == FloodRouteBound.FRB_BRDCST)
         # learn a mac address
         sw.set_ingress_port(eth.src, (in_port, rcvd_frb.root_nid))
         sw.peer(rcvd_frb.root_nid).hop_count = rcvd_frb.hop_count
         sw.max_hops = rcvd_frb.hop_count
+        arp_pkt = packet.Packet(payload)
+        arp_pkt.get_protocol(arp.arp)
+        if arp_pkt:
+            self._update_outbound_flow_rules(datapath, eth.src, in_port)
         # deliver the broadcast frame to leaf devices
         if payload:
             for out_port in sw.leaf_ports:
                 actions = [parser.OFPActionOutput(out_port)]
                 out = parser.OFPPacketOut(
                     datapath=datapath,
-                    buffer_id=msg.buffer_id,
+                    buffer_id=evmsg.buffer_id,
                     in_port=in_port,
                     actions=actions,
                     data=payload,
@@ -1901,15 +1954,15 @@ class BoundedFlood(app_manager.RyuApp):
                 )
             self.do_bounded_flood(datapath, in_port, out_bounds, eth.src, payload)
 
-    def _forward_frame(self, datapath, pkt, in_port, msg):
+    def _add_flow_and_forward_frame(self, datapath, pkt, in_port, msg):
         eth = pkt.protocols[0]
         dpid = datapath.id
         parser = datapath.ofproto_parser
         ofproto = datapath.ofproto
         sw: EvioSwitch = self._lt[dpid]
-        out_port = sw.get_ingress_port(eth.dst)
         # learn a mac address
         sw.set_ingress_port(eth.src, in_port)
+        out_port = sw.get_ingress_port(eth.dst)
         if out_port:
             # create new flow rule
             actions = [parser.OFPActionOutput(out_port)]
@@ -1936,7 +1989,10 @@ class BoundedFlood(app_manager.RyuApp):
             )
             datapath.send_msg(out)
 
-    def _broadcast_frame(self, datapath, pkt, in_port, msg):
+    def _broadcast_frame(self, datapath, in_port, evmsg):
+        """@param pkt is always an eth frame originating from a local pendant.
+        The frame is broadcasted with an FRB."""
+        pkt = packet.Packet(evmsg.data)
         eth = pkt.protocols[0]
         dpid = datapath.id
         sw: EvioSwitch = self._lt[dpid]
@@ -1952,7 +2008,54 @@ class BoundedFlood(app_manager.RyuApp):
                 for egress, frb in out_bounds:
                     log_msg += f"\n\tegress:{egress}-{sw._port_tbl[egress].name} bound:{frb.bound_nid[:7]}"
                 self.logger.debug("Generated FRB(s) %s %s", sw.name, log_msg)
-            self.do_bounded_flood(datapath, in_port, out_bounds, eth.src, msg.data)
+            self.do_bounded_flood(datapath, in_port, out_bounds, eth.src, evmsg.data)
+
+    def send_arp_reply(self, datapath, src_mac, dst_mac, src_ip, dst_ip, in_port):
+        self.send_arp(
+            datapath, arp.ARP_REPLY, src_mac, src_ip, dst_mac, dst_ip, in_port
+        )
+
+    def send_arp_request(self, datapath, src_mac, src_ip, dst_ip):
+        self.send_arp(datapath, arp.ARP_REQUEST, src_mac, src_ip, None, dst_ip, None)
+
+    def send_arp(self, datapath, opcode, src_mac, src_ip, dst_mac, dst_ip, in_port):
+        eth_dst_mac = dst_mac
+        arp_dst_mac = dst_mac
+        actions = [datapath.ofproto_parser.OFPActionOutput(in_port)]
+        # todo: wrap request with FRB before flooding
+        if opcode == arp.ARP_REQUEST:
+            eth_dst_mac = "ff:ff:ff:ff:ff:ff"
+            arp_dst_mac = "00:00:00:00:00:00"
+            actions = [
+                datapath.ofproto_parser.OFPActionOutput(datapath.ofproto.OFPP_FLOOD)
+            ]
+
+        # Create Ethernet header
+        eth = ethernet.ethernet(
+            dst=eth_dst_mac, src=src_mac, ethertype=packet.ethernet.ether.ETH_TYPE_ARP
+        )
+
+        # Create ARP header
+        arp_header = arp.arp(
+            opcode=opcode,
+            src_mac=src_mac,
+            src_ip=src_ip,
+            dst_mac=arp_dst_mac,
+            dst_ip=dst_ip,
+        )
+
+        # Create packet and send it
+        pkt = packet.Packet()
+        pkt.add_protocol(eth)
+        pkt.add_protocol(arp_header)
+
+        pkt.serialize()
+        datapath.send_packet_out(
+            buffer_id=datapath.ofproto.OFP_NO_BUFFER,
+            in_port=datapath.ofproto.OFPP_CONTROLLER,
+            actions=actions,
+            data=pkt.data,
+        )
 
 
 ###################################################################################################
@@ -2109,106 +2212,103 @@ class DVMRP(packet_base.PacketBase):
     def min_len(self):
         return self._MIN_LEN
 
+    ##########################################################################
+    #     Custom datastores supporting expiration of stale entries           #
+    ##########################################################################
 
-##########################################################################
-#     Custom datastores supporting expiration of stale entries           #
-##########################################################################
+    # class timedSet(MutableSet):
+    #     def __init__(self, **kwargs):
+    #         self.store = set()
+    #         self.ttl = kwargs["ttl"]
+    #         self.timeStore = dict()
 
+    #     def __contains__(self, element):
+    #         if self.store.__contains__(element):
+    #             self.timeStore[element] = time.time()
+    #             return True
+    #         return False
 
-# class timedSet(MutableSet):
-#     def __init__(self, **kwargs):
-#         self.store = set()
-#         self.ttl = kwargs["ttl"]
-#         self.timeStore = dict()
+    #     def add(self, value):
+    #         self.timeStore[value] = time.time()
+    #         self.store.add(value)
 
-#     def __contains__(self, element):
-#         if self.store.__contains__(element):
-#             self.timeStore[element] = time.time()
-#             return True
-#         return False
+    #     def discard(self, value):
+    #         self.timeStore.pop(value)
+    #         self.store.discard(value)
 
-#     def add(self, value):
-#         self.timeStore[value] = time.time()
-#         self.store.add(value)
+    #     def get(self):
+    #         return self.store
 
-#     def discard(self, value):
-#         self.timeStore.pop(value)
-#         self.store.discard(value)
+    #     def __iter__(self):
+    #         return self.store.__iter__()
 
-#     def get(self):
-#         return self.store
+    #     def __len__(self):
+    #         return self.store.__len__()
 
-#     def __iter__(self):
-#         return self.store.__iter__()
+    #     def expire(self):
+    #         toRemove = set()
+    #         for k, v in self.timeStore.items():
+    #             if time.time() - v >= self.ttl:
+    #                 toRemove.add(k)
+    #         for k in toRemove:
+    #             self.discard(k)
 
-#     def __len__(self):
-#         return self.store.__len__()
+    #     def __repr__(self):
+    #         state = {
+    #             "ttl": self.ttl,
+    #             "store": sorted(self.store),
+    #             "timeStore": self.timeStore,
+    #         }
+    #         return json.dumps(state)
 
-#     def expire(self):
-#         toRemove = set()
-#         for k, v in self.timeStore.items():
-#             if time.time() - v >= self.ttl:
-#                 toRemove.add(k)
-#         for k in toRemove:
-#             self.discard(k)
+    # class container:
+    #     def __init__(self, **kwargs):
+    #         self.store = dict()
+    #         self.ttl = kwargs["ttl"]
+    #         self.lastCleanup: Optional[float] = None
 
-#     def __repr__(self):
-#         state = {
-#             "ttl": self.ttl,
-#             "store": sorted(self.store),
-#             "timeStore": self.timeStore,
-#         }
-#         return json.dumps(state)
+    #     def __repr__(self):
+    #         state = {
+    #             "ttl": self.ttl,
+    #             "lastCleanup": self.lastCleanup,
+    #             "store": self.store,
+    #         }
+    #         return json.dumps(state)
 
+    #     def containsKey(self, key):
+    #         if self.lastCleanup is not None and time.time() - self.lastCleanup >= self.ttl:
+    #             self.lastCleanup = time.time()
+    #             self.expire()
+    #         return key in self.store and len(self.store[key]) > 0
 
-# class container:
-#     def __init__(self, **kwargs):
-#         self.store = dict()
-#         self.ttl = kwargs["ttl"]
-#         self.lastCleanup: Optional[float] = None
+    #     def put(self, key, value):
+    #         if self.lastCleanup is None:
+    #             self.lastCleanup = time.time()
+    #         if key not in self.store:
+    #             self.store[key] = timedSet(ttl=self.ttl)
+    #         self.store[key].add(value)
 
-#     def __repr__(self):
-#         state = {
-#             "ttl": self.ttl,
-#             "lastCleanup": self.lastCleanup,
-#             "store": self.store,
-#         }
-#         return json.dumps(state)
+    #     def containsValue(self, key, value):
+    #         if not self.containsKey(key):
+    #             return False
+    #         return self.store[key].__contains__(value)
 
-#     def containsKey(self, key):
-#         if self.lastCleanup is not None and time.time() - self.lastCleanup >= self.ttl:
-#             self.lastCleanup = time.time()
-#             self.expire()
-#         return key in self.store and len(self.store[key]) > 0
+    #     def removeValue(self, key, value):
+    #         self.store[key].discard(value)
 
-#     def put(self, key, value):
-#         if self.lastCleanup is None:
-#             self.lastCleanup = time.time()
-#         if key not in self.store:
-#             self.store[key] = timedSet(ttl=self.ttl)
-#         self.store[key].add(value)
+    #     # always call containsKey before calling get.
+    #     def get(self, key):
+    #         if key in self.store:
+    #             return self.store[key].get()
+    #         return None
 
-#     def containsValue(self, key, value):
-#         if not self.containsKey(key):
-#             return False
-#         return self.store[key].__contains__(value)
+    #     def cleanup(self, key):
+    #         self.store[key].expire()
+    #         if len(self.store[key]) == 0:
+    #             self.store.pop(key)
 
-#     def removeValue(self, key, value):
-#         self.store[key].discard(value)
-
-#     # always call containsKey before calling get.
-#     def get(self, key):
-#         if key in self.store:
-#             return self.store[key].get()
-#         return None
-
-#     def cleanup(self, key):
-#         self.store[key].expire()
-#         if len(self.store[key]) == 0:
-#             self.store.pop(key)
-
-#     def expire(self):
-#         sampleCount = math.ceil(0.25 * self.store.__len__())
-#         clearKeys = random.sample(self.store.keys(), sampleCount)
-#         for k in clearKeys:
-#             self.cleanup(k)
+    #     def expire(self):
+    #         sampleCount = math.ceil(0.25 * self.store.__len__())
+    #         clearKeys = random.sample(self.store.keys(), sampleCount)
+    #         for k in clearKeys:
+    #             self.cleanup(k)
