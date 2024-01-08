@@ -140,6 +140,29 @@ class GeneveTunnel(ControllerModule):
             return True
         return False
 
+    def _get_endpt_addr(self, overlay_id: str) -> str:
+        ovlcfg = self.config["Overlays"][overlay_id]
+        if "EndPointInterface" in ovlcfg:
+            inf = ovlcfg["EndPointInterface"]
+            if inf is None:
+                raise Exception(
+                    f"No Geneve tunnel endpoint interface provided for overlay {overlay_id}"
+                )
+            with IPRoute() as ipr:
+                rv = ipr.get_addr(label=inf)
+                if len(rv) != 1:
+                    raise Exception(
+                        f"No Geneve tunnel endpoint address could be found for overlay {overlay_id}, interface {inf}"
+                    )
+                addr = rv[0]["attrs"][0][1]
+        elif "EndPointAddress" in ovlcfg:
+            addr = ovlcfg["EndPointAddress"]
+        else:
+            raise Exception(
+                f"No Geneve tunnel endpoint config parameter provided for overlay {overlay_id}"
+            )
+        return addr
+
     def req_handler_auth_tunnel(self, cbt: CBT):
         """Node B"""
         olid = cbt.request.params["OverlayId"]
@@ -198,30 +221,35 @@ class GeneveTunnel(ControllerModule):
         if self._is_tap_exist(tap_name):
             # delete remenants
             self._remove_tunnel(tap_name)
-
-        self._tunnels[tnlid] = Tunnel(
-            tnlid,
-            olid,
-            peer_id,
-            TUNNEL_STATES.CREATING,
-            tap_name,
-            DATAPLANE_TYPES.Geneve,
-        )
-        params = {
-            "OverlayId": olid,
-            "NodeId": self.node_id,
-            "TunnelId": tnlid,
-            "VNId": loc_id,
-            "EndPointAddress": self.config["Overlays"][olid]["EndPointAddress"],
-        }
-        rem_act = RemoteAction(
-            overlay_id=olid,
-            recipient_id=peer_id,
-            recipient_cm="GeneveTunnel",
-            action="GNV_EXCHANGE_ENDPT",
-            params=params,
-        )
-        rem_act.submit_remote_act(self, cbt)
+        try:
+            endpt_addr = self._get_endpt_addr(olid)
+        except Exception as excp:
+            self.logger.warning(repr(excp))
+            cbt.set_response({"Message": "No endpoint address available"}, False)
+        else:
+            self._tunnels[tnlid] = Tunnel(
+                tnlid,
+                olid,
+                peer_id,
+                TUNNEL_STATES.CREATING,
+                tap_name,
+                DATAPLANE_TYPES.Geneve,
+            )
+            params = {
+                "OverlayId": olid,
+                "NodeId": self.node_id,
+                "TunnelId": tnlid,
+                "VNId": loc_id,
+                "EndPointAddress": endpt_addr,
+            }
+            rem_act = RemoteAction(
+                overlay_id=olid,
+                recipient_id=peer_id,
+                recipient_cm="GeneveTunnel",
+                action="GNV_EXCHANGE_ENDPT",
+                params=params,
+            )
+            rem_act.submit_remote_act(self, cbt)
 
     def req_handler_exchnge_endpt(self, cbt: CBT):
         """
@@ -247,7 +275,7 @@ class GeneveTunnel(ControllerModule):
             self._create_tunnel(tap_name, vnid, endpnt_address)
             self._tunnels[tnlid].state = TUNNEL_STATES.CREATING
             resp = {
-                "EndPointAddress": self.config["Overlays"][olid]["EndPointAddress"],
+                "EndPointAddress": self._get_endpt_addr(olid),
                 "VNId": vnid,
                 "NodeId": self.node_id,
                 "TunnelId": tnlid,
