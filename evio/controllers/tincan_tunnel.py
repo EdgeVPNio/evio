@@ -270,7 +270,7 @@ class TincanTunnel(ControllerModule):
                 cbt.set_response(err_msg, True)
                 self.complete_cbt(cbt)
                 return
-            self.logger.info("Removing tunnel %s", tnlid)
+            self.logger.debug("Removing tunnel %s", tnlid[:7])
             tc_proc = self._tc_proc_tbl.pop(tnlid, None)
             self._pids.pop(tc_proc.proc.pid, None)
             self._stop_tincan(tc_proc)
@@ -436,7 +436,7 @@ class TincanTunnel(ControllerModule):
         self._pids[sub_proc.pid] = tnlid
         self._tc_proc_tbl[tnlid] = TincanProcess(tnlid=tnlid, proc=sub_proc)
         self.logger.info(
-            "New Tincan session %s started for tunnel %s", sub_proc.pid, tnlid
+            "New Tincan session %s started for tunnel %s", sub_proc.pid, tnlid[:7]
         )
 
     def _stop_tincan(self, tc_proc: TincanProcess, wt: int = 5.15):
@@ -469,7 +469,7 @@ class TincanTunnel(ControllerModule):
             self._kill_times.append(self._kill_times[-1] + time.time() - ts)
             self.logger.debug("Killed unresponsive Tincan: %s", tc_proc.proc.pid)
         self.logger.info(
-            "Process %s for tunnel %s terminated", tc_proc.proc.pid, tc_proc.tnlid
+            "Process %s for tunnel %s terminated", tc_proc.proc.pid, tc_proc.tnlid[:7]
         )
 
     def _notify_tincan_terminated(self, tc_proc: TincanProcess):
