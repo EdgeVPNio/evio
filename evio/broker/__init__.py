@@ -19,7 +19,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-import os
 import subprocess
 
 from .performance_data import PerformanceData
@@ -35,6 +34,7 @@ __all__ = [
     "EVIO_VER_REL",
     "LOG_DIRECTORY",
     "BROKER_LOG_LEVEL",
+    "TINCAN_LOG_LEVEL",
     "LOG_LEVEL",
     "BROKER_LOG_NAME",
     "TINCAN_LOG_NAME",
@@ -95,6 +95,7 @@ EVIO_VER_REL: str = f"{EVIO_VER_MJR}.{EVIO_VER_MNR}.{EVIO_VER_REV}.{EVIO_VER_BLD
 LOG_DIRECTORY = "/var/log/evio/"
 BROKER_LOG_LEVEL = "INFO"
 LOG_LEVEL = "INFO"
+TINCAN_LOG_LEVEL = "WARNING"
 BROKER_LOG_NAME = "broker.log"
 TINCAN_LOG_NAME = "tincan"
 PERFDATA_LOG_NAME = "perf.data"
@@ -132,7 +133,8 @@ GENEVE_SETUP_TIMEOUT = 90
 LINK_SETUP_TIMEOUT = 130
 TC_REQUEST_TIMEOUT = 30  # exipry of a req to tincan
 
-perfd = PerformanceData(LogFile=os.path.join(LOG_DIRECTORY, PERFDATA_LOG_NAME))
+# perfd = None
+perfd = PerformanceData()
 
 CONFIG = {
     "Broker": {

@@ -108,6 +108,7 @@ class TincanTunnel(ControllerModule):
         self._resp_handler_tbl = {
             "_TCI_SEND_ECHO": self.resp_handler_send_echo,
             "_TCI_CHK_PROCESS": self.resp_handler_default,
+            "TCI_QUERY_LINK_INFO": self.resp_handler_default,
             "TCI_TUNNEL_EVENT": self.resp_handler_default,
         }
 
@@ -319,9 +320,9 @@ class TincanTunnel(ControllerModule):
         tnlid = cbt.response.data
         if cbt.response.status and tnlid in self._tc_proc_tbl:
             self._tc_proc_tbl[tnlid].echo_replies = broker.MAX_HEARTBEATS
-            self.register_internal_cbt(
-                "TCI_QUERY_LINK_INFO", {"TunnelId": tnlid}, lifespan=15
-            )
+            # self.register_internal_cbt(
+            #     "TCI_QUERY_LINK_INFO", {"TunnelId": tnlid}, lifespan=15
+            # )
         else:
             self.logger.info(cbt.response.data)
         self.free_cbt(cbt)
@@ -419,6 +420,8 @@ class TincanTunnel(ControllerModule):
                 tnlid,
                 self._tc_proc_tbl[tnlid],
             )
+        lg_cfg = self.log_config
+        lg_cfg.pop("Level", None)
         sub_proc = subprocess.Popen(
             [
                 "./tincan",
@@ -427,7 +430,7 @@ class TincanTunnel(ControllerModule):
                 "-t",
                 tnlid,
                 "-l",
-                json.dumps(self.log_config),
+                json.dumps(lg_cfg),
             ]
         )
         self._pids[sub_proc.pid] = tnlid
@@ -489,7 +492,7 @@ class TincanTunnel(ControllerModule):
                 raise ValueError("Invalid control version detected")
             # Get the original CBT if this is the response
             if ctl["ControlType"] == "Response":
-                # self.logger.debug("Received Tincan control response: %s", ctl)
+                # self.logger.debug("Tincan response: %s", ctl)
                 cbt = self._tnl_cbts.pop(ctl["TransactionId"])
                 cbt.set_response(
                     ctl["Response"]["Message"],
@@ -516,7 +519,7 @@ class TincanTunnel(ControllerModule):
                         "Invalid Tincan control command: %s", req["Command"]
                     )
         except Exception:
-            self.logger.exception()
+            self.logger.exception("Tincan IPC failure, ProxyMsg= %s", msg)
 
     def _is_tap_exist(self, tap_name: str) -> bool:
         with IPRoute() as ipr:

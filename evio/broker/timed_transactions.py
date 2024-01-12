@@ -43,14 +43,12 @@ class TimedTransactions:
             entry.on_expired(entry.item, time.time())
 
     def _run(self):
-        # while not self._exit_ev.wait(self._chk_interval):
-        #     self._sched.run(blocking=False)
         while not self._exit_ev.wait(self._chk_interval):
             try:
                 while not self._exit_ev.wait(self._chk_interval):
                     self._sched.run(blocking=False)
             except Exception:
-                logging.getLogger().exception()
+                logging.getLogger().exception("TimedTransactions run failure")
 
     def start(self):
         self._event_thread.start()

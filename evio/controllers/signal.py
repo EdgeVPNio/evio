@@ -239,7 +239,6 @@ class XmppTransport(slixmpp.ClientXMPP):
         """
         try:
             sender_jid = JID(presence["from"])
-            receiver_jid = JID(presence["to"])
             status = presence["status"]
             if sender_jid == self.boundjid:
                 self.logger.debug(
@@ -270,10 +269,10 @@ class XmppTransport(slixmpp.ClientXMPP):
                     )
                 elif pstatus == "uid?":
                     # a request for our jid
-                    if receiver_jid == self.boundjid and self._node_id == node_id:
+                    if self._node_id == node_id:
                         payload = self.boundjid.full + "#" + self._node_id
                         self.send_msg(sender_jid, "uid!", payload)
-                        # should do this here as well but no nid info avilable to signal
+                        # Todo: should do this here as well but no nid info avilable to signal
                         # self.on_peer_jid_updated(self._overlay_id, peer_nid, peer_jid)
                 else:
                     self.logger.warning(
@@ -323,7 +322,7 @@ class XmppTransport(slixmpp.ClientXMPP):
                     sender_jid,
                 )
             elif msg_type in ("invk", "cmpt"):
-                # should do this here as well but no nid info avilable to signal
+                # Todo: should do this here as well but no nid info avilable to signal
                 # self.on_peer_jid_updated(self._overlay_id, peer_nid, peer_jid)
                 rem_act = RemoteAction(**json.loads(msg_payload))
                 if self._overlay_id != rem_act.overlay_id:
@@ -346,18 +345,30 @@ class XmppTransport(slixmpp.ClientXMPP):
         msg["type"] = "chat"
         msg["evio"]["type"] = msg_type
         msg["evio"]["payload"] = payload
-        if threading.get_ident() == self._thread_id:
-            self.loop.call_soon(msg.send)
-        else:
-            self.loop.call_soon_threadsafe(msg.send)
+        try:
+            if threading.get_ident() == self._thread_id:
+                self.loop.call_soon(msg.send)
+            else:
+                self.loop.call_soon_threadsafe(msg.send)
+        except RuntimeError as rte:
+            self.logger.exception("XMPP send message failed, msg=%s", msg)
+            if str(rte) == "Event loop is closed":
+                self.handle_no_connection()  # restart xmpp transport
 
     def send_presence_safe(self, pstatus):
-        if threading.get_ident() == self._thread_id:
-            self.loop.call_soon(functools.partial(self.send_presence, pstatus=pstatus))
-        else:
-            self.loop.call_soon_threadsafe(
-                functools.partial(self.send_presence, pstatus=pstatus)
-            )
+        try:
+            if threading.get_ident() == self._thread_id:
+                self.loop.call_soon(
+                    functools.partial(self.send_presence, pstatus=pstatus)
+                )
+            else:
+                self.loop.call_soon_threadsafe(
+                    functools.partial(self.send_presence, pstatus=pstatus)
+                )
+        except RuntimeError as rte:
+            self.logger.exception("XMPP send presence failed")
+            if str(rte) == "Event loop is closed":
+                self.handle_no_connection()  # restart xmpp transport
 
     def _check_server(self) -> bool:
         # handle boot time start where the network is not yet available
@@ -374,9 +385,9 @@ class XmppTransport(slixmpp.ClientXMPP):
         return bool(res)
 
     def run(self):
-        # while not self._check_server():
-        #     self.logger.debug("Waiting on network connectivity")
-        #     time.sleep(4)
+        while not self._check_server():
+            self.logger.info("Waiting on network connectivity")
+            time.sleep(4)
         try:
             self.connect(address=(self._host, int(self._port)))
             self.loop.run_forever()
@@ -403,7 +414,6 @@ class XmppTransport(slixmpp.ClientXMPP):
         except Exception as err:
             self.logger.error("XMPPTransport run exception %s", err)
         finally:
-            # self.loop.run_until_complete(self.loop.shutdown_asyncgens())
             self.loop.close()
             self.logger.debug("Event loop closed on XMPP overlay=%s", self._overlay_id)
 

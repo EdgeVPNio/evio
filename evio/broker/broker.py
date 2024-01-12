@@ -32,12 +32,7 @@ import threading
 import time
 import uuid
 from copy import deepcopy
-from logging.handlers import (
-    QueueHandler,
-    QueueListener,
-    RotatingFileHandler,
-    TimedRotatingFileHandler,
-)
+from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
 from typing import Any
 
 from . import (
@@ -54,8 +49,11 @@ from . import (
     LOG_LEVEL,
     MAX_ARCHIVES,
     MAX_FILE_SIZE,
+    PERFDATA_LOG_NAME,
+    TINCAN_LOG_LEVEL,
     TINCAN_LOG_NAME,
     ConfigurationError,
+    perfd,
 )
 from .cbt import CBT
 from .controller_module import ControllerModule
@@ -203,6 +201,13 @@ class Broker:
         self.logger.setLevel(broker_log_level)
         self.logger.addHandler(que_handler)
         self._que_listener.start()
+        # tunnel performance data
+        perfd.setup_logger(
+            log_file=os.path.join(LOG_DIRECTORY, PERFDATA_LOG_NAME),
+            when="midnight",
+            backup_count=MAX_ARCHIVES,
+        )
+        # controllers
         for k, v in self.cfg_controllers.items():
             ctr_lgl = self._config["Broker"].get("LogLevel", LOG_LEVEL)
             self._setup_controller_logger(
@@ -218,10 +223,10 @@ class Broker:
         self, cm_name: tuple[str, str], formatter: logging.Formatter, log_level: int
     ):
         logname = os.path.join(LOG_DIRECTORY, f"{cm_name[1]}.log")
-        # if os.path.isfile(logname):
-        #     os.remove(logname)
-        file_handler = TimedRotatingFileHandler(
-            filename=logname, when="midnight", backupCount=7, utc=True
+        file_handler = RotatingFileHandler(
+            filename=logname,
+            maxBytes=self._config["Broker"].get("MaxFileSize", MAX_FILE_SIZE),
+            backupCount=self._config["Broker"].get("MaxArchives", MAX_ARCHIVES),
         )
         file_handler.setFormatter(formatter)
         file_handler.setLevel(log_level)
@@ -266,7 +271,7 @@ class Broker:
                 for ctrl_name in self._load_order:
                     self._nexus_map[ctrl_name].start_controller()
         except ConfigurationError:
-            self.logger.exception()
+            self.logger.exception("Broker initialization failure")
             sys.exit(-1)
         self.logger.info("Version %s loaded", EVIO_VER_REL)
 
@@ -384,6 +389,7 @@ class Broker:
             self._timers.terminate()
             for ql in self._cm_qlisteners:
                 ql.stop()
+            perfd.que_listener.stop()
         self._que_listener.stop()
         logging.shutdown()
         return True
@@ -412,7 +418,12 @@ class Broker:
                     "BrokerLogLevel", BROKER_LOG_LEVEL
                 )
                 val = {
-                    "Level": self._config["Broker"].get("LogLevel", broker_log_level),
+                    "Level": self._config["Broker"].get(
+                        "TincanLogLevel", broker_log_level
+                    ),
+                    "TincanLevel": self._config["Broker"].get(
+                        "TincanLogLevel", TINCAN_LOG_LEVEL
+                    ),
                     "Device": self._config["Broker"].get("Device", DEVICE),
                     "Directory": self._config["Broker"].get("Directory", LOG_DIRECTORY),
                     "Filename": self._config["Broker"].get(

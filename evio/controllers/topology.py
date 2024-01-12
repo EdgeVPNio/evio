@@ -158,7 +158,6 @@ class NetworkOverlay:
         self.ond_peers: list[dict] = []
         self.adjacency_list = ConnEdgeAdjacenctList(overlay_id, node_id)
         self._loc_id: int = kwargs.get("LocationId")
-        self._encr_req: bool = kwargs.get("EncryptionRequired", False)
 
     def __repr__(self):
         return broker.introspect(self)
@@ -166,10 +165,6 @@ class NetworkOverlay:
     @property
     def location_id(self):
         return self._loc_id
-
-    @property
-    def is_encr_required(self):
-        return self._encr_req
 
     @property
     def transformation(self):
@@ -442,7 +437,7 @@ class Topology(ControllerModule):
                     "Data": ce,
                 }
             )
-            self._remove_tunnel(ovl, ce.dataplane, peer_id, ce.edge_id)
+            self._remove_tunnel(ovl, ce.dataplane, peer_id, ce.edge_id, ce.edge_type)
         elif event == TUNNEL_EVENTS.Removed:
             """The removed event is also generated for tincan process failure"""
             ce = ovl.adjacency_list.pop(peer_id, None)
@@ -505,7 +500,7 @@ class Topology(ControllerModule):
         olid = edge_req.overlay_id
         if olid not in self.config["Overlays"]:
             self.logger.warning(
-                "The edge request was refused as [%s] is not a valid overlay ID", olid
+                "The edge request was refused as (%s) is not a valid overlay ID", olid
             )
             edge_cbt.set_response("Unknown overlay id specified in edge request", False)
             self.complete_cbt(edge_cbt)
@@ -525,13 +520,6 @@ class Topology(ControllerModule):
             return
         net_ovl = self._net_ovls[olid]
         edge_resp: EdgeResponse = None
-        self.logger.info(
-            "Received %s EdgeRequest=%s/%s from %s",
-            edge_req.edge_type,
-            edge_req.overlay_id,
-            edge_req.edge_id,
-            edge_req.initiator_id,
-        )
         peer_id = edge_req.initiator_id
         if peer_id in net_ovl.adjacency_list:
             edge_resp = self._resolve_request_collision(
@@ -558,6 +546,13 @@ class Topology(ControllerModule):
                 self._is_connedge_connected,
                 self._on_connedge_timeout,
                 CBT_DFLT_TIMEOUT,
+            )
+            self.logger.info(
+                "Authorizing EdgeRequest %s/%s<-%s (%s)",
+                edge_req.overlay_id[:7],
+                edge_req.edge_id[:7],
+                edge_req.initiator_id[:7],
+                edge_req.edge_type,
             )
             self._authorize_incoming_tunnel(
                 net_ovl,
@@ -808,10 +803,7 @@ class Topology(ControllerModule):
         if ce.peer_id not in net_ovl.adjacency_list:
             ce.edge_state = EDGE_STATES.PreAuth
             net_ovl.adjacency_list[ce.peer_id] = ce
-            if net_ovl.is_encr_required:
-                dp_types = [DATAPLANE_TYPES.Tincan]
-            else:
-                dp_types = [DATAPLANE_TYPES.Geneve, DATAPLANE_TYPES.Tincan]
+            dp_types = [DATAPLANE_TYPES.Geneve, DATAPLANE_TYPES.Tincan]
 
             er = EdgeRequest(
                 overlay_id=net_ovl.overlay_id,
@@ -824,11 +816,11 @@ class Topology(ControllerModule):
             )
             edge_params = er._asdict()
             self.logger.info(
-                "Initiating %s EdgeRequest to %s/%s to %s",
+                "Initiating EdgeRequest %s/%s->%s (%s)",
+                er.overlay_id[:7],
+                er.edge_id[:7],
+                er.recipient_id[:7],
                 er.edge_type,
-                er.overlay_id,
-                er.edge_id,
-                er.recipient_id,
             )
             rem_act = RemoteAction(
                 net_ovl.overlay_id,
@@ -846,11 +838,11 @@ class Topology(ControllerModule):
     ):
         """Role A2"""
         self.logger.info(
-            "Completing EdgeNegotiate of %s %s/%s to %s - %s",
-            edge_nego.edge_type,
-            edge_nego.overlay_id,
+            "Completing EdgeResponse %s/%s->%s (%s) - %s",
+            edge_nego.overlay_id[:7],
             edge_nego.edge_id[:7],
             edge_nego.recipient_id[:7],
+            edge_nego.edge_type,
             edge_nego.message,
         )
         if edge_nego.recipient_id not in net_ovl.adjacency_list:
@@ -884,20 +876,6 @@ class Topology(ControllerModule):
                 )
                 return
             ce.edge_state = EDGE_STATES.Authorized
-            if net_ovl.is_encr_required and edge_nego.dataplane not in [
-                DATAPLANE_TYPES.Tincan,
-            ]:
-                self.logger.error(
-                    "The negotiated dataplane violates the scope of what was requested."
-                    " The transaction has been discarded. %s",
-                    edge_nego,
-                )
-                ce.edge_state = EDGE_STATES.Deleting
-                del net_ovl.adjacency_list[ce.peer_id]
-                net_ovl.known_peers[peer_id].exclude()
-                self._process_next_transition(net_ovl)
-                return
-            # record tunnel start on node A after successful edge negotiation
             perfd.record(
                 {
                     "ReportedBy": self.name,
@@ -920,13 +898,6 @@ class Topology(ControllerModule):
         edge_resp: EdgeResponse,
     ):
         """Role B1"""
-        self.logger.info(
-            "Authorizing incoming peer edge %s from %s:%s->%s",
-            edge_id,
-            net_ovl.overlay_id,
-            peer_id[:7],
-            self.node_id[:7],
-        )
         params = {
             "OverlayId": net_ovl.overlay_id,
             "PeerId": peer_id,
@@ -1025,12 +996,9 @@ class Topology(ControllerModule):
         if (
             edge_req.location_id is not None
             and edge_req.location_id == net_ovl.location_id
+            and DATAPLANE_TYPES.Geneve in edge_req.capability
         ):
-            if (
-                DATAPLANE_TYPES.Geneve in edge_req.capability
-                and not net_ovl.is_encr_required
-            ):
-                dp_type = DATAPLANE_TYPES.Geneve
+            dp_type = DATAPLANE_TYPES.Geneve
         return dp_type
 
     ################################################################################################
@@ -1068,7 +1036,7 @@ class Topology(ControllerModule):
             raise ValueError(f"Invalid request: Undefinfed tunnel type {dataplane}")
 
     def _initiate_remove_edge(self, net_ovl: NetworkOverlay, peer_id: str):
-        ce = net_ovl.adjacency_list.get(peer_id)
+        ce: ConnectionEdge = net_ovl.adjacency_list.get(peer_id)
         if not ce:
             return
         if (
@@ -1084,7 +1052,9 @@ class Topology(ControllerModule):
             ):
                 raise ValueError("Successor threshold not met")
             self.logger.debug("Removing edge %s", ce)
-            self._remove_tunnel(net_ovl, ce.dataplane, ce.peer_id, ce.edge_id)
+            self._remove_tunnel(
+                net_ovl, ce.dataplane, ce.peer_id, ce.edge_id, ce.edge_type
+            )
 
     def _remove_tunnel(
         self,
@@ -1092,6 +1062,7 @@ class Topology(ControllerModule):
         dataplane: DataplaneTypes,
         peer_id: str,
         tunnel_id: str,
+        edge_type: str,
     ):
         params = {
             "OverlayId": net_ovl.overlay_id,
@@ -1099,10 +1070,11 @@ class Topology(ControllerModule):
             "TunnelId": tunnel_id,
         }
         self.logger.info(
-            "Removing tunnel %s/%s to %s",
-            net_ovl.overlay_id,
+            "Removing Edge %s/%s<->%s (%s)",
+            net_ovl.overlay_id[:7],
             tunnel_id[:7],
             peer_id[:7],
+            edge_type,
         )
         if dataplane == DATAPLANE_TYPES.Geneve:
             self.register_cbt("GeneveTunnel", "GNV_REMOVE_TUNNEL", params)

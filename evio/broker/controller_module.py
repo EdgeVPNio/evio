@@ -75,7 +75,7 @@ class ControllerModule:
         try:
             handle(cbt)
         except Exception:
-            self.logger.exception("CBT abort handler failure")
+            self.logger.exception("CBT abort handler failure, cbt= %s", cbt)
             if cbt and not cbt.is_freed:
                 self.free_cbt(cbt)
 
@@ -84,7 +84,7 @@ class ControllerModule:
         try:
             handle(cbt)
         except Exception:
-            self.logger.exception()
+            self.logger.exception("CBT request handler failure, cbt= %s", cbt)
             if cbt and not cbt.is_completed:
                 cbt.set_response({"Message": "Failed"}, False)
                 self.complete_cbt(cbt)
@@ -96,7 +96,7 @@ class ControllerModule:
         try:
             handle(cbt)
         except Exception:
-            self.logger.exception()
+            self.logger.exception("CBT response handler failure, cbt= %s", cbt)
             if cbt and not cbt.is_freed:
                 self.free_cbt(cbt)
 

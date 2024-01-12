@@ -20,24 +20,30 @@
 # THE SOFTWARE.
 
 import logging
-from logging.handlers import TimedRotatingFileHandler
+import queue
+from logging.handlers import QueueHandler, QueueListener, TimedRotatingFileHandler
 
 
 class PerformanceData:
     def __init__(self, **kwargs) -> None:
-        self._setup_logger(__name__, kwargs["LogFile"])
         self._rec_id = 0
 
-    def _setup_logger(self, logger_name, log_file, level=logging.INFO):
-        self.logger = logging.getLogger(logger_name)
+    def setup_logger(self, log_file, when, backup_count):
+        self.logger = logging.getLogger(__name__)
         formatter = logging.Formatter("%(message)s")
-        fileHandler = TimedRotatingFileHandler(
-            log_file, when="midnight", backupCount=7, utc=True
+        self.file_handler = TimedRotatingFileHandler(
+            log_file, when=when, backupCount=backup_count, utc=True
         )
-        fileHandler.setFormatter(formatter)
+        self.file_handler.setFormatter(formatter)
+        que = queue.Queue()
+        que_handler = QueueHandler(que)
+        self.que_listener = QueueListener(
+            que, self.file_handler, respect_handler_level=True
+        )
 
-        self.logger.setLevel(level)
-        self.logger.addHandler(fileHandler)
+        self.logger.setLevel(logging.INFO)
+        self.logger.addHandler(que_handler)
+        self.que_listener.start()
 
     def record(self, entry: dict):
         entry["ID"], self._rec_id = self._rec_id, self._rec_id + 1
