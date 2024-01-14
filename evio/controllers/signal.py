@@ -415,11 +415,18 @@ class XmppTransport(slixmpp.ClientXMPP):
             self.logger.error("XMPPTransport run exception %s", err)
         finally:
             self.loop.close()
-            self.logger.debug("Event loop closed on XMPP overlay=%s", self._overlay_id)
+            self.logger.debug(
+                "Event loop closed on XMPP transport %s", self._overlay_id
+            )
 
     def shutdown(self):
-        self.logger.debug("Initiating shutdown of XMPP overlay %s", self._overlay_id)
-        self.loop.call_soon_threadsafe(self.disconnect, 2, "controller shutdown", True)
+        if self.is_connected() and self.loop.is_running():
+            self.logger.debug(
+                "Initiating shutdown of XMPP transport %s", self._overlay_id
+            )
+            self.loop.call_soon_threadsafe(
+                self.disconnect, 2, "controller shutdown", True
+            )
 
 
 class XmppCircle:
