@@ -426,6 +426,10 @@ class PortDescriptor:
         return bool(self.rmt_nd_type == NodeTypes.PEER and self.peer_data is not None)
 
     @property
+    def is_adjacent_peer(self):
+        return bool(self.is_peer and self.peer_data.port_no is not None)
+
+    @property
     def is_categorized(self):
         return bool(self.rmt_nd_type != NodeTypes.UNKNOWN)
 
@@ -666,7 +670,7 @@ class EvioSwitch:
         else:
             port.dataplane_type = DATAPLANE_TYPES.Patch
         self.logger.info(
-            "Categorized port %s:%s, port_no=%i, dp=%s ",
+            "Categorized port %s:%s, port_no=%i, dp=%s",
             self.name,
             port.name,
             port.port_no,
@@ -1135,8 +1139,13 @@ class BoundedFlood(app_manager.RyuApp):
                 MAC"""
                 # learn MAC address
                 sw.set_ingress_port(eth.src, in_port)
-                if eth.dst in sw.local_leaf_macs:  # incoming to local pendant
-                    self._update_outbound_flow_rules(ev_msg.datapath, eth.src, in_port)
+                if eth.dst in sw.local_leaf_macs:
+                    self._update_outbound_flow_rules(
+                        ev_msg.datapath,
+                        eth.src,
+                        in_port,
+                        reason="Packet for local pendant",
+                    )
                 elif eth.src in sw.local_leaf_macs:  # outgoing from local pendant
                     peer: PeerData = self._lt[dpid].get_root_sw(eth.dst)
                     if peer and peer.port_no:  # remote is adjacent
@@ -1230,7 +1239,7 @@ class BoundedFlood(app_manager.RyuApp):
                                 tnl_data[op.olid]
                             )
                             for port in updated_prts:
-                                if port.is_peer:
+                                if port.is_adjacent_peer:
                                     if port.is_tincan_tunnel:
                                         self._update_flow_rules_to_peer(
                                             self.dpset.dps[op.dpid],
@@ -1436,12 +1445,12 @@ class BoundedFlood(app_manager.RyuApp):
             ofproto = datapath.ofproto
             parser = datapath.ofproto_parser
             inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
-            self.logger.debug(
-                "Adding flow rule %s: %s, %s",
-                self._lt[datapath.id].name,
-                match,
-                actions,
-            )
+            # self.logger.info(
+            #     "Adding flow rule %s/%s to egress %s",
+            #     self._lt[datapath.id].name,
+            #     match,
+            #     actions,
+            # )
             mod = parser.OFPFlowMod(
                 datapath=datapath,
                 priority=priority,
@@ -1498,10 +1507,16 @@ class BoundedFlood(app_manager.RyuApp):
         for eth_dst in sw.local_leaf_macs:
             local_port_no = sw.get_ingress_port(eth_dst)
             actions = [parser.OFPActionOutput(local_port_no)]
-            match = parser.OFPMatch(in_port=ingress, eth_src=eth_src, eth_dst=eth_dst)
+            mt = parser.OFPMatch(in_port=ingress, eth_src=eth_src, eth_dst=eth_dst)
+            self.logger.info(
+                "Adding inflow rule %s/%s to egress %s",
+                self._lt[datapath.id].name,
+                f"in_port: {mt['in_port']}, eth_dst: {mt['eth_dst']}, eth_src:{mt['eth_src']}",
+                local_port_no,
+            )
             self._create_flow_rule(
                 datapath,
-                match,
+                mt,
                 actions,
                 priority=1,
                 tblid=tblid,
@@ -1509,7 +1524,9 @@ class BoundedFlood(app_manager.RyuApp):
                 hard_timeout=sw.hard_timeout,
             )
 
-    def _update_outbound_flow_rules(self, datapath, dst_mac, new_egress, tblid=None):
+    def _update_outbound_flow_rules(
+        self, datapath, dst_mac, new_egress, tblid=None, reason=None
+    ):
         """Updates existing flow rules from all local pendant eth src to @param dst_mac
         - a remote pendant device"""
         sw: EvioSwitch = self._lt[datapath.id]
@@ -1540,10 +1557,11 @@ class BoundedFlood(app_manager.RyuApp):
                 hard_timeout=sw.hard_timeout,
             )
             self.logger.info(
-                "Updating outflow matching %s/%s to egress %s",
+                "Updating outflow matching %s/%s to egress %s. %s",
                 sw.name,
-                mt,
+                f"in_port: {mt['in_port']}, eth_dst: {mt['eth_dst']}, eth_src:{mt['eth_src']}",
                 new_egress,
+                reason,
             )
             datapath.send_msg(mod)
 
@@ -1560,7 +1578,10 @@ class BoundedFlood(app_manager.RyuApp):
         for mac in sw.leaf_macs(peer.node_id):
             # update existing flows going out to the remote peer
             self._update_outbound_flow_rules(
-                datapath=datapath, dst_mac=mac, new_egress=peer.port_no
+                datapath=datapath,
+                dst_mac=mac,
+                new_egress=peer.port_no,
+                reason="New port connected",
             )
             self._create_inbound_flow_rules(
                 datapath=datapath, eth_src=mac, ingress=peer.port_no
@@ -1929,10 +1950,6 @@ class BoundedFlood(app_manager.RyuApp):
             self._update_flow_rules_to_peer(datapath, port.peer)
             return
         # case (rcvd_frb.frb_type == FloodRouteBound.FRB_BRDCST)
-        # learn a mac address
-        sw.set_ingress_port(eth.src, (in_port, rcvd_frb.root_nid))
-        sw.peer(rcvd_frb.root_nid).hop_count = rcvd_frb.hop_count
-        sw.max_hops = rcvd_frb.hop_count
         inner_pkt = packet.Packet(payload)
         arp_pkt = inner_pkt.get_protocol(arp.arp)
         if arp_pkt and arp_pkt.opcode == arp.ARP_REQUEST:
@@ -1941,7 +1958,13 @@ class BoundedFlood(app_manager.RyuApp):
                     "Received ARP %s",
                     str(arp_pkt),
                 )
-            self._update_outbound_flow_rules(datapath, eth.src, in_port)
+            # learn a mac address but only for ARPs - reduce the occurence of path flips
+            sw.set_ingress_port(eth.src, (in_port, rcvd_frb.root_nid))
+            sw.peer(rcvd_frb.root_nid).hop_count = rcvd_frb.hop_count
+            sw.max_hops = rcvd_frb.hop_count
+            self._update_outbound_flow_rules(
+                datapath, eth.src, in_port, reason="ARP received"
+            )
         # deliver the broadcast frame to leaf devices
         if payload:
             for out_port in sw.leaf_ports:
@@ -1977,10 +2000,16 @@ class BoundedFlood(app_manager.RyuApp):
         if out_port:
             # create new flow rule
             actions = [parser.OFPActionOutput(out_port)]
-            match = parser.OFPMatch(in_port=in_port, eth_dst=eth.dst, eth_src=eth.src)
+            mt = parser.OFPMatch(in_port=in_port, eth_dst=eth.dst, eth_src=eth.src)
+            self.logger.info(
+                "Adding flow & fwding %s/%s to egress %s",
+                self._lt[datapath.id].name,
+                f"in_port: {mt['in_port']}, eth_dst: {mt['eth_dst']}, eth_src:{mt['eth_src']}",
+                out_port,
+            )
             self._create_flow_rule(
                 datapath,
-                match,
+                mt,
                 actions,
                 priority=1,
                 tblid=0,
@@ -1999,6 +2028,11 @@ class BoundedFlood(app_manager.RyuApp):
                 data=data,
             )
             datapath.send_msg(out)
+        else:
+            self.logger.warning(
+                "Failed to add flow and forward frame, no LT ingress exists for the eth dst. pkt=%s",
+                str(pkt),
+            )
 
     def _broadcast_frame(self, datapath, in_port, evmsg):
         """@param pkt is always an eth frame originating from a local pendant.
