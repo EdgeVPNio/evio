@@ -333,6 +333,10 @@ class ConnEdgeAdjacenctList(MutableMapping):
     def update_edge(self, new_conn_edge: ConnectionEdge):
         ce = self._conn_edges.get(new_conn_edge.peer_id)
         if ce:
+            if ce.role != CONNECTION_ROLE.Initiator:
+                raise ValueError(
+                    "Existing ConnectionEdge's role is not an initiator, ce=%s", ce
+                )
             self._decr_edge_type_count(ce.edge_type)
             ce.edge_type = new_conn_edge.edge_type
             self._incr_edge_type_count(ce.edge_type)
@@ -360,6 +364,15 @@ class ConnEdgeAdjacenctList(MutableMapping):
             matches = type_match
         elif edge_state is not None:
             matches = state_match
+        return matches
+
+    def select_incoming_edges(
+        self,
+    ) -> dict[str, ConnectionEdge]:
+        matches = {}
+        for peer_id, ce in self._conn_edges.items():
+            if ce.edge_type in EDGE_TYPE_IN:
+                matches[peer_id] = ce
         return matches
 
     def clear_tincan_ces(self):
