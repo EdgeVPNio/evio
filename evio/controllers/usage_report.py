@@ -80,7 +80,7 @@ class UsageReport(ControllerModule):
                     self._report[olid_hash].append(peer_id_hash)
 
     def submit_report(self, rpt_data):
-        self.logger.debug("report data= %s", rpt_data)
+        self.logger.info("report data= %s", rpt_data)
         url = None
         try:
             url = self.config["WebService"]

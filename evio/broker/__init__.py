@@ -158,13 +158,13 @@ CONFIG = {
                 "Dependencies": ["Topology", "LinkManager", "GeneveTunnel"],
             },
             "UsageReport": {
-                "Enabled": False,
                 "Module": "usage_report",
                 "Dependencies": ["Topology"],
             },
         },
     },
     "UsageReport": {
+        "TimerInterval": 3600,
         "WebService": "https://qdscz6pg37.execute-api.us-west-2.amazonaws.com/default/EvioUsageReport",
     },
 }
