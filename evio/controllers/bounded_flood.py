@@ -1244,6 +1244,7 @@ class BoundedFlood(app_manager.RyuApp):
                                         self._update_flow_rules_to_peer(
                                             self.dpset.dps[op.dpid],
                                             port.peer,
+                                            reason="Port categorized",
                                         )
                                     elif port.dataplane_type == DATAPLANE_TYPES.Geneve:
                                         self.do_link_check(
@@ -1565,7 +1566,7 @@ class BoundedFlood(app_manager.RyuApp):
             )
             datapath.send_msg(mod)
 
-    def _update_flow_rules_to_peer(self, datapath, peer: PeerData):
+    def _update_flow_rules_to_peer(self, datapath, peer: PeerData, reason=None):
         """Used when a new port is connected to the switch and we know the pendant MACs that
         anchored to the now adjacent peer switch. Flow rules involving those pendant MACs are
         updated or created to use the new port.
@@ -1581,7 +1582,7 @@ class BoundedFlood(app_manager.RyuApp):
                 datapath=datapath,
                 dst_mac=mac,
                 new_egress=peer.port_no,
-                reason="New port connected",
+                reason=reason,
             )
             self._create_inbound_flow_rules(
                 datapath=datapath, eth_src=mac, ingress=peer.port_no
@@ -1924,7 +1925,9 @@ class BoundedFlood(app_manager.RyuApp):
             self._do_link_ack(datapath, port)
             if not port.is_activated:
                 port.is_activated = True
-                self._update_flow_rules_to_peer(datapath, port.peer)
+                self._update_flow_rules_to_peer(
+                    datapath, port.peer, reason="GNV link chk"
+                )
             return
         if rcvd_frb.frb_type == FloodRouteBound.FRB_LNK_ACK:
             if self.logger.isEnabledFor(logging.DEBUG):
@@ -1933,7 +1936,9 @@ class BoundedFlood(app_manager.RyuApp):
                 )
             if not port.is_activated:
                 port.is_activated = True
-                self._update_flow_rules_to_peer(datapath, port.peer)
+                self._update_flow_rules_to_peer(
+                    datapath, port.peer, reason="GNV link ack"
+                )
             return
         if rcvd_frb.frb_type == FloodRouteBound.FRB_LEAF_TX:
             if self.logger.isEnabledFor(logging.DEBUG):
@@ -1947,7 +1952,9 @@ class BoundedFlood(app_manager.RyuApp):
                 )
             # learn a mac address
             sw.set_ingress_port(eth.src, (in_port, rcvd_frb.root_nid))
-            self._update_flow_rules_to_peer(datapath, port.peer)
+            self._update_flow_rules_to_peer(
+                datapath, port.peer, reason="Received pendant update"
+            )
             return
         # case (rcvd_frb.frb_type == FloodRouteBound.FRB_BRDCST)
         inner_pkt = packet.Packet(payload)
