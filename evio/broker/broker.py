@@ -126,6 +126,7 @@ class Broker:
             metavar="config_string",
         )
         args = parser.parse_args()
+        cfg = {}
         if args.config_file:
             while not os.path.isfile(args.config_file):
                 print("Waiting on config file ", args.config_file, file=sys.stderr)
@@ -133,30 +134,19 @@ class Broker:
             # load the configuration file
             with open(args.config_file, encoding="utf-8") as cfg_file:
                 cfg = json.load(cfg_file)
-            for key in cfg:
-                if key in self._config:
-                    if key == "Broker":
-                        ctrls = deepcopy(self._config[key]["Controllers"])
-                        ctrls.update(cfg[key].get("Controllers", {}))
-                        self._config[key].update(cfg[key])
-                        self._config[key]["Controllers"] = ctrls
-                    else:
-                        self._config[key].update(cfg[key])
-                else:
-                    self._config[key] = cfg[key]
         if args.config_string:
             cfg = json.loads(args.config_string)
-            for key in cfg:
-                if key in self._config:
-                    if key == "Broker":
-                        ctrls = deepcopy(self._config[key]["Controllers"])
-                        ctrls.update(cfg[key].get("Controllers", {}))
-                        self._config[key].update(cfg[key])
-                        self._config[key]["Controllers"] = ctrls
-                    else:
-                        self._config[key].update(cfg[key])
+        for key, val in cfg.items():
+            if key in self._config:
+                if key == "Broker":
+                    ctrls = deepcopy(self._config[key]["Controllers"])
+                    ctrls.update(cfg[key].get("Controllers", {}))
+                    self._config[key].update(cfg[key])
+                    self._config[key]["Controllers"] = ctrls
                 else:
-                    self._config[key] = cfg[key]
+                    self._config[key].update(cfg[key])
+            else:
+                self._config[key] = cfg[key]
 
     def _setup_logging(self):
         self._parse_config()
@@ -289,14 +279,32 @@ class Broker:
     def build_load_order(self):
         # create the controller load order based on their dependencies
         controllers = self.cfg_controllers
-        for ctrl, cfg in controllers.items():
-            if cfg.get("Enabled", True):
-                self.add_dependencies(ctrl)
+        for ctrl_cls_name, cfg in controllers.items():
+            ctrl_config = self._config.get(ctrl_cls_name)
+
+            if ctrl_config is None:
+                ctrl_config = {"Overlays": {}}
+            elif "Overlays" not in ctrl_config:
+                ctrl_config["Overlays"] = {}
+            for olid in self.cfg_overlays:
+                if olid not in ctrl_config["Overlays"]:
+                    ctrl_config["Overlays"] = {olid: {}}
+                self._config[ctrl_cls_name] = ctrl_config
+
+            cfg["Enabled"] = self._config[ctrl_cls_name].get("Enabled", True)
+
+        for ctrl_cls_name, cfg in controllers.items():
+            if cfg["Enabled"]:
+                self.add_dependencies(ctrl_cls_name)
 
     def add_dependencies(self, ctrl_cls_name: str):
         controllers = self.cfg_controllers
         dependencies = controllers[ctrl_cls_name].get("Dependencies", {})
         for dep in dependencies:
+            if not controllers[dep]["Enabled"]:
+                raise ConfigurationError(
+                    f"{ctrl_cls_name} cannot be loaded, its dependency {dep} is disabled"
+                )
             if dep not in self._load_order:
                 self.add_dependencies(dep)
         if ctrl_cls_name not in self._load_order:
@@ -308,9 +316,10 @@ class Broker:
         specific module implementations to override the default by attempting
         to load them first.
         """
-        assert (
-            ctrl_cls_name != "Broker"
-        ), "Invalid attempt to load the Broker as a controller module"
+        if ctrl_cls_name == "Broker":
+            raise ConfigurationError(
+                "Invalid configuration is loading the Broker as a controller module"
+            )
         mod_name = self.cfg_controllers[ctrl_cls_name]["Module"]
         if self.model:
             fqn = f"modules/{self.model}/{mod_name}.py"
@@ -323,19 +332,10 @@ class Broker:
 
         # get the controller class from the class name
         ctrl_class = getattr(module, ctrl_cls_name)
-        timer_interval = self.cfg_controllers[ctrl_cls_name].get(
+        timer_interval = self._config[ctrl_cls_name].get(
             "TimerInterval", CM_TIMER_EVENT_INTERVAL
         )
         nexus = Nexus(self, timer_interval=timer_interval)
-        ctrl_config = self._config.get(ctrl_cls_name)
-        if ctrl_config is None:
-            ctrl_config = {"Overlays": {}}
-        elif "Overlays" not in ctrl_config:
-            ctrl_config["Overlays"] = {}
-        for olid in self.cfg_overlays:
-            if olid not in ctrl_config["Overlays"]:
-                ctrl_config["Overlays"] = {olid: {}}
-        self._config[ctrl_cls_name] = ctrl_config
         ctrl_obj = ctrl_class(nexus, self._config[ctrl_cls_name])
         nexus.controller = ctrl_obj
         # keep a map of controller name -> Nexus object
