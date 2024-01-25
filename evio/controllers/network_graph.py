@@ -333,10 +333,6 @@ class ConnEdgeAdjacenctList(MutableMapping):
     def update_edge(self, new_conn_edge: ConnectionEdge):
         ce = self._conn_edges.get(new_conn_edge.peer_id)
         if ce:
-            if ce.role != CONNECTION_ROLE.Initiator:
-                raise ValueError(
-                    "Existing ConnectionEdge's role is not an initiator, ce=%s", ce
-                )
             self._decr_edge_type_count(ce.edge_type)
             ce.edge_type = new_conn_edge.edge_type
             self._incr_edge_type_count(ce.edge_type)
@@ -457,6 +453,8 @@ class GraphTransformation:
                     self._edits.append(op)
 
         for peer_id in current:
+            if current[peer_id].role == CONNECTION_ROLE.Target:
+                continue  # take no action on incoming links
             if peer_id not in target:
                 # Op Remove
                 if current[peer_id].edge_type == EDGE_TYPE_OUT.OnDemand:

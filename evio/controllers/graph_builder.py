@@ -150,9 +150,9 @@ class GraphBuilder:
         adj_list: ConnEdgeAdjacenctList,
         transition_adj_list: ConnEdgeAdjacenctList,
     ):
-        ldlnks = {}
         if 2 * self._min_successors > len(self._peers):
             return  # not enough peers to build LDL
+        ldlnks = {}
         if not self._relink:
             ldlnks = transition_adj_list.select_edges(
                 edge_type=EDGE_TYPE_OUT.LongDistance
@@ -260,21 +260,6 @@ class GraphBuilder:
         )
         self._build_static(adj_list)
         if not self._manual_topo:
-            # Preserve existing incoming links
-            inlnks = transition_adj_list.select_incoming_edges()
-            for ce in inlnks.values():
-                if (
-                    ce.edge_state
-                    in (
-                        EDGE_STATES.Initialized,
-                        EDGE_STATES.PreAuth,
-                        EDGE_STATES.Authorized,
-                        EDGE_STATES.Created,
-                        EDGE_STATES.Connected,
-                    )
-                    and ce.peer_id not in adj_list
-                ):
-                    adj_list[ce.peer_id] = ce
             self._build_successors(adj_list, transition_adj_list)
             self._build_long_dist_links(adj_list, transition_adj_list)
             self._build_ondemand_links(adj_list, transition_adj_list, request_list)
