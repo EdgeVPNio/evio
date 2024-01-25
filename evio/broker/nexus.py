@@ -26,7 +26,6 @@ import time
 from . import CM_TIMER_EVENT_INTERVAL, TIMER_EVENT_PERIOD
 from .cbt import CBT
 from .process_proxy import ProxyMsg
-from .timed_transactions import Transaction
 
 
 class Nexus:
@@ -151,16 +150,18 @@ class Nexus:
             finally:
                 self._cm_queue.task_done()
 
-    def on_cbt_expired(self, cbt: CBT, time_expired: float):
+    def on_cbt_expired(self, cbt: CBT):
         """Callback from the TimedTransaction to indicate a CBT has expired.
         The CBT must be in a pending state, ie., it has not already been expired or completed
         """
+        if cbt.is_completed or cbt.is_expired:
+            return
         if cbt.request.initiator != self._controller.name:
             raise RuntimeWarning(
                 f"Invalid Operation: Attemptng to expire a CBT that is not own by this controller {self._controller.name} {cbt}"
             )
         if cbt.is_pending:
-            cbt.time_expired = time_expired
+            cbt.time_expired = time.time()
             self.work_queue.put(cbt)
         else:
             self._controller.logger.info(
@@ -204,16 +205,6 @@ class Nexus:
     def end_subscription(self, publisher_name, subscription_name):
         self._broker.end_subscription(
             publisher_name, subscription_name, self._controller
-        )
-
-    def register_timed_transaction(self, obj, is_completed, on_expired, lifespan):
-        self._broker.register_timed_transaction(
-            Transaction(
-                item=obj,
-                is_completed=is_completed,
-                on_expired=on_expired,
-                lifespan=lifespan,
-            )
         )
 
     def register_deferred_call(self, delay, call, params):

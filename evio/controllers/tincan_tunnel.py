@@ -30,7 +30,7 @@ from copy import deepcopy
 from threading import Event
 
 import broker
-from broker import TC_PRCS_CHK_INTERVAL
+from broker import TC_PRCS_CHK_INTERVAL, TC_REQUEST_TIMEOUT
 from broker.cbt import CBT
 from broker.controller_module import ControllerModule
 from broker.process_proxy import ProxyMsg
@@ -148,11 +148,10 @@ class TincanTunnel(ControllerModule):
             req["IgnoredNetInterfaces"] = msg.get("IgnoredNetInterfaces")
             tc_proc = self._tc_proc_tbl[tnlid]
             self._tnl_cbts[cbt.tag] = cbt
-            self.register_timed_transaction(
-                cbt.tag,
-                self.is_tc_req_cmpl,
+            self.register_deferred_call(
+                TC_REQUEST_TIMEOUT,
                 self.on_tc_req_expire,
-                60,
+                (cbt.tag,),
             )
             self.send_control(tc_proc.ipc_id, json.dumps(ctl))
         except Exception:
@@ -198,11 +197,10 @@ class TincanTunnel(ControllerModule):
             req["IgnoredNetInterfaces"] = msg.get("IgnoredNetInterfaces")
             tc_proc = self._tc_proc_tbl[tnlid]
             self._tnl_cbts[cbt.tag] = cbt
-            self.register_timed_transaction(
-                cbt.tag,
-                self.is_tc_req_cmpl,
+            self.register_deferred_call(
+                TC_REQUEST_TIMEOUT,
                 self.on_tc_req_expire,
-                60,
+                (cbt.tag,),
             )
             self.send_control(tc_proc.ipc_id, json.dumps(ctl))
         except Exception:
@@ -223,11 +221,10 @@ class TincanTunnel(ControllerModule):
             ctl["Request"]["TunnelId"] = tnlid
             tc_proc = self._tc_proc_tbl[tnlid]
             self._tnl_cbts[cbt.tag] = cbt
-            self.register_timed_transaction(
-                cbt.tag,
-                self.is_tc_req_cmpl,
+            self.register_deferred_call(
+                TC_REQUEST_TIMEOUT,
                 self.on_tc_req_expire,
-                60,
+                (cbt.tag,),
             )
             self.send_control(tc_proc.ipc_id, json.dumps(ctl))
         except Exception:
@@ -248,11 +245,10 @@ class TincanTunnel(ControllerModule):
             ctl["TransactionId"] = cbt.tag
             ctl["Request"]["TunnelId"] = tnlid
             self._tnl_cbts[cbt.tag] = cbt
-            self.register_timed_transaction(
-                cbt.tag,
-                self.is_tc_req_cmpl,
+            self.register_deferred_call(
+                TC_REQUEST_TIMEOUT,
                 self.on_tc_req_expire,
-                60,
+                (cbt.tag,),
             )
             self.send_control(tc_proc.ipc_id, json.dumps(ctl))
         except Exception as excep:
@@ -372,7 +368,9 @@ class TincanTunnel(ControllerModule):
         cbt.set_response(rmv, True)
         self.complete_cbt(cbt)
 
-    def on_tc_req_expire(self, tag: int, timeout: float):
+    def on_tc_req_expire(self, tag: int, timeout: float = None):
+        if self.is_tc_req_cmpl(tag):
+            return
         self.logger.info("Tincan request expired %s", tag)
         cbt: CBT = self._tnl_cbts.pop(tag, None)
         if cbt and cbt.is_pending:

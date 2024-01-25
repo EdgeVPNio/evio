@@ -164,11 +164,10 @@ class LinkManager(ControllerModule):
                 dataplane=DATAPLANE_TYPES.Tincan,
             )
             self._tunnels[tnlid] = tnl
-            self.register_timed_transaction(
-                tnl,
-                self.is_tnl_online,
-                self.on_tnl_timeout,
+            self.register_deferred_call(
                 LINK_SETUP_TIMEOUT,
+                self.on_tnl_timeout,
+                (tnl,),
             )
             self.logger.debug(
                 "Tunnel %s authorized for peer %s.", tnlid[:7], peer_id[:7]
@@ -663,7 +662,9 @@ class LinkManager(ControllerModule):
                 )
         self.free_cbt(cbt)
 
-    def on_tnl_timeout(self, tnl: Tunnel, timeout: float):
+    def on_tnl_timeout(self, tnl: Tunnel):
+        if tnl.is_tnl_online():
+            return
         self._rollback_link_creation_changes(tnl.tnlid)
 
     def _register_abort_handlers(self):
@@ -724,9 +725,6 @@ class LinkManager(ControllerModule):
         # add the overlay specifc list
         ign_netinf |= self._ignored_net_interfaces[overlay_id]
         return ign_netinf
-
-    def is_tnl_online(self, tnl: Tunnel) -> bool:
-        return tnl.is_tnl_online()
 
     def _remove_link_from_tunnel(self, tnlid):
         tnl = self._tunnels.get(tnlid)
@@ -860,11 +858,10 @@ class LinkManager(ControllerModule):
         )
         tnl.fpr = None
         if not tnl.is_tnl_online():
-            self.register_timed_transaction(
-                tnl,
-                self.is_tnl_online,
-                self.on_tnl_timeout,
+            self.register_deferred_call(
                 LINK_SETUP_TIMEOUT,
+                self.on_tnl_timeout,
+                (tnl,),
             )
 
     def _complete_link_endpt_request(self, cbt: CBT):

@@ -60,7 +60,7 @@ from .controller_module import ControllerModule
 from .nexus import Nexus
 from .process_proxy import ProcessProxy, ProxyMsg
 from .subscription import Subscription
-from .timed_transactions import TimedTransactions, Transaction
+from .timed_transactions import TimedTransactions
 
 
 class Broker:
@@ -453,18 +453,13 @@ class Broker:
         if cbt.is_response:
             recipient = cbt.response.recipient
 
-        def is_cmplt(x: CBT):
-            return x.is_completed or x.is_expired
-
         with self._nexus_lock:
             nexus = self._nexus_map[recipient]
             nexus.work_queue.put(cbt)
             if cbt.is_pending:
                 initiator = cbt.request.initiator
                 owner = self._nexus_map[initiator]
-                self._timers.register(
-                    Transaction(cbt, is_cmplt, owner.on_cbt_expired, cbt.lifespan)
-                )
+                self._timers.register_dpc(cbt.lifespan, owner.on_cbt_expired, (cbt,))
 
     # Caller is the subscription source
     def publish_subscription(self, publisher_name, subscription_name, publisher):
@@ -517,9 +512,6 @@ class Broker:
         sub = self.find_subscription(publisher_name, subscription_name)
         if sub is not None:
             sub.remove_subscriber(sink)
-
-    def register_timed_transaction(self, entry: Transaction):
-        self._timers.register(entry)
 
     def register_dpc(self, delay, call, params=()):
         self._timers.register_dpc(delay, call, params)

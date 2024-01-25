@@ -252,12 +252,9 @@ class ControllerModule:
     def end_subscription(self, publisher_name, subscription_name):
         self._nexus.end_subscription(publisher_name, subscription_name)
 
-    def register_timed_transaction(self, obj, is_completed, on_expired, lifespan):
-        if is_completed(obj):
-            raise ValueError(f"Object already marked as completed {obj}")
-        self._nexus.register_timed_transaction(obj, is_completed, on_expired, lifespan)
-
-    def register_deferred_call(self, delay, call, params=()):
+    def register_deferred_call(self, delay, call, params=None):
+        if params is None:
+            params = ()
         self._nexus.register_deferred_call(delay, call, params)
 
     @abstractmethod
