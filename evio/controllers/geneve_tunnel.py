@@ -73,16 +73,10 @@ class GeneveTunnel(ControllerModule):
     def _deauth_tnl(self, tnl: Tunnel):
         self._tunnels.pop(tnl.tnlid, None)
         self.logger.info("Deauthorizing expired tunnel %s", tnl)
-        param = {
-            "UpdateType": TUNNEL_EVENTS.AuthExpired,
-            "OverlayId": tnl.overlay_id,
-            "PeerId": tnl.peer_id,
-            "TunnelId": tnl.tnlid,
-            "TapName": tnl.tap_name,
-        }
-        self._gnv_updates_publisher.post_update(param)
 
     def _rollback_tnl(self, tnl: Tunnel):
+        if tnl.tnlid not in self._tunnels:
+            return
         self.logger.info("Removing expired tunnel %s", tnl)
         self._tunnels.pop(tnl.tnlid, None)
         self._remove_tunnel(tnl.tap_name)
@@ -185,11 +179,10 @@ class GeneveTunnel(ControllerModule):
                 DATAPLANE_TYPES.Geneve,
             )
             self._tunnels[tnlid] = tnl
-            self.register_timed_transaction(
-                tnl,
-                self.is_tnl_completed,
-                self.on_tnl_timeout,
+            self.register_deferred_call(
                 GENEVE_SETUP_TIMEOUT,
+                self.on_tnl_timeout,
+                (tnl,),
             )
             self.logger.debug(
                 "TunnelId:%s authorization for Peer:%s completed",
@@ -197,13 +190,6 @@ class GeneveTunnel(ControllerModule):
                 peer_id[:7],
             )
             cbt.set_response({"Message": "Geneve tunnel authorization completed"}, True)
-            event_param = {
-                "UpdateType": TUNNEL_EVENTS.Authorized,
-                "OverlayId": olid,
-                "PeerId": peer_id,
-                "TunnelId": tnlid,
-            }
-            self._gnv_updates_publisher.post_update(event_param)
         self.complete_cbt(cbt)
 
     def req_handler_create_tunnel(self, cbt: CBT):
@@ -468,7 +454,9 @@ class GeneveTunnel(ControllerModule):
     def is_tnl_completed(self, tnl: Tunnel) -> bool:
         return bool(tnl.state == TUNNEL_STATES.ONLINE)
 
-    def on_tnl_timeout(self, tnl: Tunnel, timeout: float):
+    def on_tnl_timeout(self, tnl: Tunnel):
+        if self.is_tnl_completed(tnl):
+            return
         if tnl.state == TUNNEL_STATES.AUTHORIZED:
             self._deauth_tnl(tnl)
         else:

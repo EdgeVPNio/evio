@@ -32,7 +32,7 @@ from typing import Optional
 
 import broker
 from broker import (  # PEER_DISCOVERY_COALESCE,
-    CBT_DFLT_TIMEOUT,
+    EDGE_CONNECTED_TIMEOUT,
     MAX_CONCURRENT_OPS,
     MAX_ON_DEMAND_EDGES,
     MAX_SUCCESSIVE_FAILS,
@@ -381,26 +381,13 @@ class Topology(ControllerModule):
         peer_id = update["PeerId"]
         overlay_id = update["OverlayId"]
         ovl = self._net_ovls[overlay_id]
-        if event == TUNNEL_EVENTS.Authorized:
-            """Role B"""
-            ce = ovl.adjacency_list[peer_id]
-            if ce.edge_state != EDGE_STATES.PreAuth:
-                raise RuntimeError(f"Invalid edge state {ce}")
-            ce.edge_state = EDGE_STATES.Authorized
-        elif event == TUNNEL_EVENTS.AuthExpired:
-            """Role B"""
-            ce = ovl.adjacency_list[peer_id]
-            if ce.edge_state != EDGE_STATES.Authorized:
-                raise RuntimeError(f"Invalid edge state {ce}")
-            ce.edge_state = EDGE_STATES.Deleting
-            ovl.adjacency_list.pop(peer_id, None)
-            if peer_id in ovl.known_peers:
-                ovl.known_peers[peer_id].exclude()
-        elif event == TUNNEL_EVENTS.Connected:
+        if event == TUNNEL_EVENTS.Connected:
             """Roles A & B"""
             ce = ovl.adjacency_list[peer_id]
             if ce.edge_state != EDGE_STATES.Authorized:
-                raise RuntimeError(f"Invalid edge state {ce}")
+                self.logger.warning(
+                    "Tunnel connct event is inconsistent with current edge state %s", ce
+                )
             ce.edge_state = EDGE_STATES.Connected
             ce.connected_time = update["ConnectedTimestamp"]
             ovl.known_peers[peer_id].restore()
@@ -417,8 +404,9 @@ class Topology(ControllerModule):
         elif event == TUNNEL_EVENTS.Disconnected:
             ce = ovl.adjacency_list[peer_id]
             if ce.edge_state != EDGE_STATES.Connected:
-                raise RuntimeError(
-                    f"Tunnel disconnected event is invalid for edge state {ce}"
+                self.logger.warning(
+                    "Tunnel disconnected event is inconsistent with current edge state %s",
+                    ce,
                 )
             # the local topology did not request removal of the connection
             if (
@@ -440,8 +428,9 @@ class Topology(ControllerModule):
             self._remove_tunnel(ovl, ce.dataplane, peer_id, ce.edge_id, ce.edge_type)
         elif event == TUNNEL_EVENTS.Removed:
             """The removed event is also generated for tincan process failure"""
-            ce = ovl.adjacency_list.pop(peer_id, None)
+            ce: ConnectionEdge = ovl.adjacency_list.pop(peer_id, None)
             if ce:
+                ce.edge_state = EDGE_STATES.Deleting
                 self.logger.info("Edge %s removed from adjacency list", ce.edge_id)
         else:
             self.logger.warning("Invalid UpdateType specified for event %s", event)
@@ -541,11 +530,10 @@ class Topology(ControllerModule):
             )
             ce.edge_state = EDGE_STATES.PreAuth
             net_ovl.adjacency_list[ce.peer_id] = ce
-            self.register_timed_transaction(
-                (ce, olid),
-                self._is_connedge_connected,
+            self.register_deferred_call(
+                EDGE_CONNECTED_TIMEOUT,
                 self._on_connedge_timeout,
-                CBT_DFLT_TIMEOUT,
+                (ce, olid),
             )
             self.logger.info(
                 "Authorizing EdgeRequest %s/%s<-%s (%s)",
@@ -599,6 +587,7 @@ class Topology(ControllerModule):
             olid = cbt.request.params["OverlayId"]
             peer_id = cbt.request.params["PeerId"]
             ce = self._net_ovls[olid].adjacency_list[peer_id]
+            ce.edge_state = EDGE_STATES.Authorized
             perfd.record(
                 {
                     "ReportedBy": self.name,
@@ -661,11 +650,10 @@ class Topology(ControllerModule):
             self.free_cbt(cbt)
             ce = ovl.adjacency_list.get(peer_id)
             if ce.edge_state != EDGE_STATES.Connected:
-                self.register_timed_transaction(
-                    (ce, olid),
-                    self._is_connedge_connected,
+                self.register_deferred_call(
+                    EDGE_CONNECTED_TIMEOUT,
                     self._on_connedge_timeout,
-                    30,
+                    (ce, olid),
                 )
 
     def resp_handler_remove_tnl(self, cbt: CBT):
@@ -674,11 +662,8 @@ class Topology(ControllerModule):
         ovl = self._net_ovls[olid]
         peer_id = params["PeerId"]
         ce = ovl.adjacency_list.pop(peer_id, None)
-        if not cbt.response.status:
-            self.logger.warning(
-                "Failed to remove topology edge. Reason: %s", cbt.response.data
-            )
-        else:
+        if ce is not None:
+            ce.edge_state = EDGE_STATES.Deleting
             # record tunnel terminated on successful removal of the tunnel
             perfd.record(
                 {
@@ -690,13 +675,6 @@ class Topology(ControllerModule):
                 }
             )
         self.free_cbt(cbt)
-        ce_state = ""
-        if ce:
-            ce_state = ce.edge_state
-            ce.edge_state = EDGE_STATES.Deleting
-            del ce
-        if ce_state == EDGE_STATES.Connected:
-            self._process_next_transition(ovl)
 
     ################################################################################################
 
@@ -775,6 +753,7 @@ class Topology(ControllerModule):
                 if net_ovl.acquire():
                     tns = net_ovl.transformation.pop_head()
                     if tns.operation == OP_TYPE.Add:
+                        net_ovl.transformation.clear()  # force regenerating graph
                         self._initiate_negotiate_edge(net_ovl, tns.conn_edge)
                     elif tns.operation == OP_TYPE.Remove:
                         self._initiate_remove_edge(net_ovl, tns.conn_edge.peer_id)
@@ -1114,15 +1093,20 @@ class Topology(ControllerModule):
         if peer_id in net_ovl.known_peers:
             net_ovl.known_peers[peer_id].exclude()
 
-    def _is_connedge_connected(self, ce: tuple[ConnectionEdge, str]) -> bool:
-        return bool(
-            ce[0].edge_state == EDGE_STATES.Connected and ce[0].connected_time != 0.0
-        )
+    def _is_connedge_connected(self, ce: ConnectionEdge) -> bool:
+        return bool(ce.edge_state == EDGE_STATES.Connected and ce.connected_time != 0.0)
 
-    def _on_connedge_timeout(self, ce: tuple[ConnectionEdge, str], timeout: float):
-        ce, olid = ce
+    def _on_connedge_timeout(self, ce: ConnectionEdge, olid: str):
+        if self._is_connedge_connected(ce):
+            return
         ovl = self._net_ovls[olid]
         ce.edge_state = EDGE_STATES.Deleting
-        ovl.adjacency_list.pop(ce.peer_id, None)
-        if ce.peer_id in ovl.known_peers:
-            ovl.known_peers[ce.peer_id].exclude()
+        # necessary to check the edge_id as the conn edge could have been
+        # recreated during the expiration period
+        if (
+            ce.peer_id in ovl.adjacency_list
+            and ovl.adjacency_list[ce.peer_id].edge_id == ce.edge_id
+        ):
+            ovl.adjacency_list.pop(ce.peer_id, None)
+            if ce.peer_id in ovl.known_peers:
+                ovl.known_peers[ce.peer_id].exclude()

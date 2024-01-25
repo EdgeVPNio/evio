@@ -28,11 +28,8 @@ from pyroute2 import IPRoute  # type: ignore
 
 TunnelEvents = namedtuple(
     "TUNNEL_EVENTS",
-    ["Authorized", "AuthExpired", "Created", "Connected", "Disconnected", "Removed"],
+    ["Connected", "Disconnected", "Removed"],
     defaults=[
-        "LnkEvAuthorized",
-        "LnkEvAuthExpired",
-        "LnkEvCreated",
         "LnkEvConnected",
         "LnkEvDisconnected",
         "LnkEvRemoved",
@@ -42,7 +39,7 @@ TUNNEL_EVENTS = TunnelEvents()
 
 TunnelStates = namedtuple(
     "TUNNEL_STATES",
-    ["AUTHORIZED", "CREATING", "QUERYING", "ONLINE", "OFFLINE", "FAILED"],
+    ["AUTHORIZED", "CREATING", "QUERYING", "ONLINE", "OFFLINE", "FAILED", "ABORTED"],
     defaults=[
         "TNL_AUTHORIZED",
         "TNL_CREATING",
@@ -50,6 +47,7 @@ TunnelStates = namedtuple(
         "TNL_ONLINE",
         "TNL_OFFLINE",
         "TNL_FAILED",
+        "TNL_ABORTED",
     ],
 )
 TUNNEL_STATES = TunnelStates()

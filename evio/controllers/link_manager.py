@@ -176,14 +176,7 @@ class LinkManager(ControllerModule):
             cbt.set_response(
                 "Authorization completed, TunnelId:{0}".format(tnlid[:7]), True
             )
-            lnkupd_param = {
-                "UpdateType": TUNNEL_EVENTS.Authorized,
-                "OverlayId": olid,
-                "PeerId": peer_id,
-                "TunnelId": tnlid,
-            }
             self.complete_cbt(cbt)
-            self._link_updates_publisher.post_update(lnkupd_param)
 
     def req_handler_create_tunnel(self, cbt: CBT):
         """Create Link: Phase 1 Node A
@@ -435,25 +428,19 @@ class LinkManager(ControllerModule):
             olid = cbt.request.params["OverlayId"]
             peer_id = cbt.request.params["PeerId"]
             tnlid = cbt.request.params["TunnelId"]
-            if tnlid not in self._tunnels:
+            tnl = self._tunnels.get(tnlid, None)
+            if tnl is None:
                 cbt.set_response("No record", True)
                 self.complete_cbt(cbt)
-            elif (
-                self._tunnels[tnlid].tunnel_state == TUNNEL_STATES.AUTHORIZED
-                or self._tunnels[tnlid].tunnel_state == TUNNEL_STATES.ONLINE
-                or self._tunnels[tnlid].tunnel_state == TUNNEL_STATES.OFFLINE
-            ):
-                tn = self._tunnels[tnlid].tap_name
+            else:
+                tnl.tunnel_state = TUNNEL_STATES.ABORTED
                 params = {
                     "OverlayId": olid,
                     "TunnelId": tnlid,
                     "PeerId": peer_id,
-                    "TapName": tn,
+                    "TapName": tnl.tap_name,
                 }
                 self.register_cbt("TincanTunnel", "TCI_REMOVE_TUNNEL", params, cbt)
-            else:
-                cbt.set_response("Tunnel busy, retry operation", False)
-                self.complete_cbt(cbt)
         except KeyError as err:
             cbt.set_response(f"Insufficient parameters {err}", False)
             self.complete_cbt(cbt)
@@ -1001,14 +988,6 @@ class LinkManager(ControllerModule):
         if not tnl:
             return
         self.logger.info("Deauthorizing tunnel %s", tnlid)
-        param = {
-            "UpdateType": TUNNEL_EVENTS.AuthExpired,
-            "OverlayId": tnl.overlay_id,
-            "PeerId": tnl.peer_id,
-            "TunnelId": tnlid,
-            "TapName": tnl.tap_name,
-        }
-        self._link_updates_publisher.post_update(param)
         self._cleanup_failed_tunnel_data(tnl)
 
     def _rollback_link_creation_changes(self, tnlid):

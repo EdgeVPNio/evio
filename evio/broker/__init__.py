@@ -90,6 +90,7 @@ __all__ = [
     "delim_mac_str",
     "statement_false",
     "TC_REQUEST_TIMEOUT",
+    "EDGE_CONNECTED_TIMEOUT",
 ]
 EVIO_VER_REL: str = f"{EVIO_VER_MJR}.{EVIO_VER_MNR}.{EVIO_VER_REV}.{EVIO_VER_BLD}"
 LOG_DIRECTORY = "/var/log/evio/"
@@ -124,16 +125,16 @@ CM_TIMER_EVENT_INTERVAL = 30
 PRESENCE_UPDATE_INTERVAL = 30
 PEER_EXCLUSION_INTERVAL = 60
 TRIM_CHECK_INTERVAL = 300
-TC_PRCS_CHK_INTERVAL = 5  # tincan process checks
+TC_PRCS_CHK_INTERVAL = 10  # tincan process checks
 CACHE_ENTRY_TIMEOUT = 60
 PEER_CHKIN_TIMEOUT = 7200  # 2 hrs
 CBT_DFLT_TIMEOUT = 160
 JID_RESOLUTION_TIMEOUT = 15
 GENEVE_SETUP_TIMEOUT = 90
 LINK_SETUP_TIMEOUT = 130
-TC_REQUEST_TIMEOUT = 30  # exipry of a req to tincan
+TC_REQUEST_TIMEOUT = 40  # exipry of a req to tincan
+EDGE_CONNECTED_TIMEOUT = 140
 
-# perfd = None
 perfd = PerformanceData()
 
 CONFIG = {
