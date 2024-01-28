@@ -532,6 +532,11 @@ class BridgeController(ControllerModule):
                 self,
                 **br_cfg,
             )
+            self.logger.info(
+                "%s net device created: %s",
+                br_cfg.get("BridgeProvider", DEFAULT_BRIDGE_PROVIDER),
+                self._ovl_net[olid].name,
+            )
             if "AppBridge" in br_cfg:
                 br_cfg["AppBridge"]["AutoDelete"] = br_cfg["AppBridge"].get(
                     "AutoDelete", BRIDGE_AUTO_DELETE
@@ -655,6 +660,11 @@ class BridgeController(ControllerModule):
             self,
             **abr_cfg,
         )
+        self.logger.info(
+            "%s net device created: %s",
+            abr_cfg.get("BridgeProvider", DEFAULT_BRIDGE_PROVIDER),
+            gbr.name,
+        )
 
         gbr.add_patch_port(self._ovl_net[olid].patch_port_name)
         self._ovl_net[olid].add_patch_port(gbr.patch_port_name)
@@ -718,6 +728,7 @@ class BridgeController(ControllerModule):
             "controllers/bounded_flood.py",
         ]
         self._bf_proc = subprocess.Popen(cmd)
+        self.logger.info("BoundedFlood started")
 
     def _stop_bf_module(self, wt: int = 1.15):
         if self._bf_proc is not None:

@@ -913,7 +913,7 @@ class Topology(ControllerModule):
                 edge_resp = EdgeResponse(is_accepted=False, message=msg, dataplane=None)
             else:
                 msg = (
-                    f"E7 - An existing {conn_edge.edge_state} edge with id "
+                    f"E7 - An existing {conn_edge.edge_type} edge with id "
                     f"{conn_edge.edge_id[:7]} already exist"
                 )
                 edge_resp = EdgeResponse(is_accepted=False, message=msg, dataplane=None)

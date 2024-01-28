@@ -235,7 +235,7 @@ class EvioPortal:
             except ConnectionRefusedError as err:
                 if attempts < 3:
                     self._logger.warning(
-                        "Attempt %i failed to connect to evio portal: %s",
+                        "Attempt %d failed to connect to evio portal: %s",
                         attempts,
                         str(err),
                     )
@@ -670,7 +670,7 @@ class EvioSwitch:
         else:
             port.dataplane_type = DATAPLANE_TYPES.Patch
         self.logger.info(
-            "Categorized port %s:%s, port_no=%i, dp=%s",
+            "Categorized port %s:%s, port_no=%d, dp=%s",
             self.name,
             port.name,
             port.port_no,
@@ -687,14 +687,14 @@ class EvioSwitch:
         self._port_tbl[port.port_no] = port
         self._uncategorized_ports.add(port.port_no)
         self.logger.debug(
-            "Added uncategorized port_no: %s:%s/%i", self.name, port.name, port.port_no
+            "Added uncategorized port_no: %s:%s/%d", self.name, port.name, port.port_no
         )
 
     def delete_port(self, port_no):
         port = self._port_tbl.pop(port_no, None)
         if port:
             self.logger.info(
-                "Removed port %s:%s/%i", self.name, port.name, port.port_no
+                "Removed port %s:%s/%d", self.name, port.name, port.port_no
             )
             if port.rmt_nd_type == NodeTypes.PEER:
                 self._deregister_peer(port.peer_data)

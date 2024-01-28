@@ -109,7 +109,7 @@ class GeneveTunnel(ControllerModule):
 
     def _remove_tunnel(self, tap_name: str):
         try:
-            self.logger.info("Removing Geneve TAP %s", tap_name)
+            self.logger.info("Removing Geneve tunnel %s", tap_name)
             with IPRoute() as ipr:
                 idx = ipr.link_lookup(ifname=tap_name)
                 if len(idx) > 0:

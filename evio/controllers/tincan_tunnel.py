@@ -433,8 +433,8 @@ class TincanTunnel(ControllerModule):
         )
         self._pids[sub_proc.pid] = tnlid
         self._tc_proc_tbl[tnlid] = TincanProcess(tnlid=tnlid, proc=sub_proc)
-        self.logger.info(
-            "New Tincan session %s started for tunnel %s", sub_proc.pid, tnlid[:7]
+        self.logger.debug(
+            "New Tincan process %d started for tunnel %s", sub_proc.pid, tnlid[:7]
         )
 
     def _stop_tincan(self, tc_proc: TincanProcess, wt: int = 5.15):
@@ -501,10 +501,10 @@ class TincanTunnel(ControllerModule):
                 req = ctl["Request"]
                 if req["Command"] == "RegisterDataplane":
                     pid = req["SessionId"]
-                    self.logger.info(
-                        "Received Tincan dataplane registration for session: %s", pid
-                    )
                     tnlid = self._pids[pid]
+                    self.logger.info(
+                        "Tincan process %d registered tunnel %s", pid, tnlid[:7]
+                    )
                     self._tc_proc_tbl[tnlid].ipc_id = msg.fileno
                     cbt = self._tnl_cbts.pop(tnlid)
                     create_tnl = cbt.pop_context("OnRegister")
