@@ -431,7 +431,13 @@ class Topology(ControllerModule):
             ce: ConnectionEdge = ovl.adjacency_list.pop(peer_id, None)
             if ce:
                 ce.edge_state = EDGE_STATES.Deleting
-                self.logger.info("Edge %s removed from adjacency list", ce.edge_id)
+                self.logger.info(
+                    "Edge %s/%s<->%s (%s) was removed",
+                    ovl.overlay_id[:7],
+                    ce.edge_id[:7],
+                    peer_id[:7],
+                    ce.edge_type,
+                )
         else:
             self.logger.warning("Invalid UpdateType specified for event %s", event)
 
@@ -603,13 +609,21 @@ class Topology(ControllerModule):
 
     def resp_handler_remote_action(self, cbt: CBT):
         """Role Node A, initiate edge creation on successful neogtiation"""
-        rem_act = cbt.response.data
+        rem_act: RemoteAction = cbt.response.data
         olid = rem_act.overlay_id
         ovl = self._net_ovls[olid]
+        peer_id = rem_act.recipient_id
         self.free_cbt(cbt)
         if not cbt.response.status and isinstance(rem_act.data, str):
-            self.logger.info("The remote action expired %s", rem_act)
-            peer_id = rem_act.recipient_id
+            self.logger.info(
+                "Remote Action expired %s/%s->%s (%s). %s",
+                olid[:7],
+                rem_act.params["edge_id"][:7],
+                peer_id[:7],
+                rem_act.action,
+                rem_act.data,
+            )
+
             del ovl.adjacency_list[peer_id]
             ovl.known_peers[peer_id].exclude()
             self._process_next_transition(ovl)
@@ -1030,7 +1044,6 @@ class Topology(ControllerModule):
                 )  # succ threshold -> at/below the min required
             ):
                 raise ValueError("Successor threshold not met")
-            self.logger.debug("Removing edge %s", ce)
             self._remove_tunnel(
                 net_ovl, ce.dataplane, ce.peer_id, ce.edge_id, ce.edge_type
             )
