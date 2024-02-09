@@ -91,6 +91,7 @@ __all__ = [
     "statement_false",
     "TC_REQUEST_TIMEOUT",
     "EDGE_CONNECTED_TIMEOUT",
+    "NET_CHECK_HOSTNAME",
 ]
 EVIO_VER_REL: str = f"{EVIO_VER_MJR}.{EVIO_VER_MNR}.{EVIO_VER_REV}.{EVIO_VER_BLD}"
 LOG_DIRECTORY = "/var/log/evio/"
@@ -134,6 +135,7 @@ GENEVE_SETUP_TIMEOUT = 90
 LINK_SETUP_TIMEOUT = 130
 TC_REQUEST_TIMEOUT = 40  # exipry of a req to tincan
 EDGE_CONNECTED_TIMEOUT = 140
+NET_CHECK_HOSTNAME = "stun.l.google.com"
 
 perfd = PerformanceData()
 

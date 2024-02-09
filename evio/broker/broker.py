@@ -43,7 +43,6 @@ from . import (
     CONSOLE_LEVEL,
     DEVICE,
     EVIO_VER_REL,
-    JID_RESOLUTION_TIMEOUT,
     KEEP_LOGS_ON_START,
     LOG_DIRECTORY,
     LOG_LEVEL,
@@ -409,18 +408,9 @@ class Broker:
                 val = self.model
             elif param_name == "DebugCBTs":
                 val = self._config["Broker"].get("DebugCBTs", False)
-            elif param_name == "JidResolutionTimeout":
-                val = self._config["Broker"].get(
-                    "JidResolutionTimeout", JID_RESOLUTION_TIMEOUT
-                )
             elif param_name == "LogConfig":
-                broker_log_level = self._config["Broker"].get(
-                    "BrokerLogLevel", BROKER_LOG_LEVEL
-                )
                 val = {
-                    "Level": self._config["Broker"].get(
-                        "TincanLogLevel", broker_log_level
-                    ),
+                    "Level": self._config["Broker"].get("LogLevel", LOG_LEVEL),
                     "TincanLevel": self._config["Broker"].get(
                         "TincanLogLevel", TINCAN_LOG_LEVEL
                     ),

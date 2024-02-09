@@ -39,7 +39,12 @@ from typing import Optional, Tuple, Union
 
 import broker
 import slixmpp
-from broker import CACHE_ENTRY_TIMEOUT, PRESENCE_UPDATE_INTERVAL
+from broker import (
+    CACHE_ENTRY_TIMEOUT,
+    JID_RESOLUTION_TIMEOUT,
+    NET_CHECK_HOSTNAME,
+    PRESENCE_UPDATE_INTERVAL,
+)
 from broker.cbt import CBT
 from broker.controller_module import ControllerModule
 from broker.remote_action import RemoteAction
@@ -204,7 +209,9 @@ class XmppTransport(slixmpp.ClientXMPP):
         return xport
 
     def handle_no_connection(self, event):
-        self.logger.warning("No XMPP network, reattempting new connection to server.")
+        self.logger.warning(
+            "No XMPP network, reattempting new connection to server. %s", event
+        )
         self.on_net_fail(self._overlay_id)
 
     def handle_failed_auth_event(self, event):
@@ -353,7 +360,7 @@ class XmppTransport(slixmpp.ClientXMPP):
         except RuntimeError as rte:
             self.logger.exception("XMPP send message failed, msg=%s", msg)
             if str(rte) == "Event loop is closed":
-                self.handle_no_connection()  # restart xmpp transport
+                self.handle_no_connection(str(rte))  # restart xmpp transport
 
     def send_presence_safe(self, pstatus):
         try:
@@ -368,7 +375,7 @@ class XmppTransport(slixmpp.ClientXMPP):
         except RuntimeError as rte:
             self.logger.exception("XMPP send presence failed")
             if str(rte) == "Event loop is closed":
-                self.handle_no_connection()  # restart xmpp transport
+                self.handle_no_connection(str(rte))  # restart xmpp transport
 
     def _check_server(self) -> bool:
         # handle boot time start where the network is not yet available
@@ -506,11 +513,13 @@ class Signal(ControllerModule):
         self._presence_publisher: Subscription = None
         self._circles: dict[str, XmppCircle] = {}
         self._recv_remote_acts_invk_locally: dict[str, RemoteAction] = {}
-        self._cbts_pending_remote_resp: dict[
-            str, CBT
-        ] = {}  # use to track the cbt to be completed when the rem act returns
+        self._cbts_pending_remote_resp: dict[str, CBT] = (
+            {}
+        )  # use to track the cbt to be completed when the rem act returns
         self._lck = threading.Lock()
-        self._jid_resolution_timeout = self._nexus.query_param("JidResolutionTimeout")
+        self._jid_resolution_timeout = self.config.get(
+            "JidResolutionTimeout", JID_RESOLUTION_TIMEOUT
+        )
 
     def initialize(self):
         self._presence_publisher = self.publish_subscription("SIG_PEER_PRESENCE_NOTIFY")
@@ -756,11 +765,7 @@ class Signal(ControllerModule):
                 tag = remact[1].action_tag
                 cbt = self._cbts_pending_remote_resp.pop(tag, None)
                 if cbt:
-                    remact[
-                        1
-                    ].data = (
-                        "Failed to transmit remote action as the peer JID lookup failed"
-                    )
+                    remact[1].data = "Peer JID lookup failed"
                     remact[1].status = False
                     cbt.set_response(remact[1], False)
                     self.complete_cbt(cbt)
@@ -786,7 +791,8 @@ class Signal(ControllerModule):
         # handle boot time start where the network is not yet available
         res = []
         try:
-            res = socket.getaddrinfo("stun.l.google.com", 19302, 0, socket.SOCK_STREAM)
+            remote_host = self.config.get("NetCheckHostName", NET_CHECK_HOSTNAME)
+            res = socket.getaddrinfo(remote_host, 19302, 0, socket.SOCK_STREAM)
         except socket.gaierror as err:
             self.logger.warning("Check network failed. %s", err)
         return bool(res)
