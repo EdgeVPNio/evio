@@ -24,7 +24,7 @@ bibliography: paper.bib
 
 # Summary
 
-This paper describes the `EdgeVPN.io` [@subratie_edgevpnioevio_2024] software, a novel technique that enables virtual private Ethernet networks that span edge and cloud resources – including those constrained by NAT and firewall. `EdgeVPN.io` has been implemented as an open-source virtual network software solution, and experiments with the software have demonstrated its functionality and scalability. The design and evaluation are discussed further in the paper EdgeVPN: Self-organizing layer-2 virtual edge networks [@subratie_edgevpn_2023].
+This paper describes the `EdgeVPN.io` [@subratie_edgevpnioevio_2024] software, a novel technique that enables virtual private Ethernet networks that span edge and cloud resources – including those constrained by NATs and firewalls. `EdgeVPN.io` has been implemented as an open-source virtual network software solution, and experiments with the software have demonstrated its functionality and scalability. The design and evaluation are discussed further in [@subratie_edgevpn_2023].
 
 # Statement of need
 
