@@ -1,5 +1,5 @@
 ---
-title: 'EdgeVPN.io: Seamless SDN-based Layer 2 Virtual Networking for Edge Computing'
+title: 'EdgeVPN.io: Seamless Software-defined Layer 2 Virtual Networking for Edge Computing'
 tags:
   - SDN
   - NFV
@@ -7,6 +7,7 @@ tags:
   - Edge Networks
   - Fog Computing
   - IoT
+  - P2P
 authors:
   - name: Kensworth Subratie
     orcid: 0000-0001-8248-2856
@@ -27,7 +28,7 @@ This paper describes the `EdgeVPN.io` [@subratie_edgevpnioevio_2024] software, a
 
 # Statement of need
 
-The advent of virtualization and cloud computing has fundamentally changed how distributed applications and services are deployed and managed. Emerging IoT and smart-spaces applications exhibit requirements that are difficult to meet using existing cloud computing models [5]. With the proliferation of IoT and mobile devices, virtualized systems akin to those offered by cloud providers are increasingly needed geographically near the network’s edge to perform processing tasks in proximity to the data sources and sinks. Latency-sensitive, bandwidth-intensive applications can be decomposed into workflows that leverage resources at the edge – a model referred to as fog computing - to bring compute and short-term storage closer to the data sources and sinks. This eliminates the latency and throughput penalties from moving data across large geographic distances and through high contention, bandwidth-limited links. However, it introduces an operation and management problem: it is necessary to interconnect all widely distributed components to create a virtualized computing environment. Unfortunately, software and methodologies designed for the data center are typically poorly suited for fog computing operations along the Internet’s edge due to Internet Protocol (IP) constraints.
+The advent of virtualization and cloud computing has fundamentally changed how distributed applications and services are deployed and managed. Emerging IoT and smart-spaces applications exhibit requirements that are difficult to meet using existing cloud computing models [@zhang2015cloud]. With the proliferation of IoT and mobile devices, virtualized systems akin to those offered by cloud providers are increasingly needed geographically near the network’s edge to perform processing tasks in proximity to the data sources and sinks. Latency-sensitive, bandwidth-intensive applications can be decomposed into workflows that leverage resources at the edge – a model referred to as fog computing - to bring compute and short-term storage closer to the data sources and sinks. This eliminates the latency and throughput penalties from moving data across large geographic distances and through high contention, bandwidth-limited links. However, it introduces an operation and management problem: it is necessary to interconnect all widely distributed components to create a virtualized computing environment. Unfortunately, software and methodologies designed for the data center are typically poorly suited for fog computing operations along the Internet’s edge due to Internet Protocol (IP) constraints.
 Network virtualization stands at a unique point to address these challenges. While existing Virtual Private Networks (VPNs) can mitigate hurdles such as endpoint addressing and secure communication, current models are infeasible for operation and management at the proposed scale of future IoT applications. A decentralized, scalable system that supports dynamic membership, virtualizes addressable endpoints and provides secure communication is needed. 
 
 An illustrative use case of `EdgeVPN.io` is a software service that improves safety and effectiveness during multi-agency emergency response operations by enabling data-driven strategic and tactical decision-making. The networking core, web services, and applications facilitate the definition, deployment, and creation of ad hoc overlay networks. These virtual networks will span multiple organizations collaborating towards a specific goal, regardless of location, providing the necessary connectivity and confidentiality for intra-group communication across the public Internet. The `EdgeVPN.io` virtual network aggregates and integrates heterogeneous resources such as IoT sensors and actuators, analytic compute engines, and operation personnel via their client devices (tablets, laptops, phones, etc.) across multiple organizations' networks for seamless connectivity and interactions.
