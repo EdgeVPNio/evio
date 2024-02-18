@@ -12,11 +12,14 @@ authors:
   - name: Kensworth Subratie
     orcid: 0000-0001-8248-2856
     equal-contrib: true
-    affiliation: "University of Florida"
+    affiliation: 1
   - name: Renato Figueiredo
     orcid: 0000-0001-9841-6060
     equal-contrib: true
-    affiliation: "University of Florida"
+    affiliation: 1
+affiliations:
+ - name: University of Florida, Gainesville, FL, USA
+   index: 1
 date: 01 February 2024
 bibliography: paper.bib
 
