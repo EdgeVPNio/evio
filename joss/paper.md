@@ -27,7 +27,7 @@ bibliography: paper.bib
 
 # Summary
 
-This paper describes the `EdgeVPN.io` [@evio_v24] software, a novel technique that enables virtual private Ethernet networks that span edge and cloud resources – including those constrained by NATs and firewalls. `EdgeVPN.io` has been implemented as an open-source virtual network software solution, and experiments with the software have demonstrated its functionality and scalability. The design and evaluation are discussed further in [@subratie2023edgevpn].
+This paper describes the `EdgeVPN.io` software [@evio_v24], a novel technique that enables virtual private Ethernet networks that span edge and cloud resources – including those constrained by NATs and firewalls. `EdgeVPN.io` has been implemented as an open-source virtual network software solution, and experiments with the software have demonstrated its functionality and scalability. The design and evaluation are discussed further in @subratie2023edgevpn.
 
 # Statement of need
 
@@ -58,7 +58,7 @@ The `EdgeVPN.io` software integrates the following features:
 The goal of EdgeVPN.io is to deliver scalable layer 2 forwarding for dynamic edge and cloud network environments where the peer nodes act as software-defined bridges. `EdgeVPN.io` integrates a Symphony (1-D Kleinberg routable small-world network [@manku2003symphony]) topology and a decentralized layer-2 switching into a network fabric. Each node runs three components as depicted in \autoref{fig:sysov}: (1) the topology controller creates and maintains the overlay, while (2) the OpenFlow layer 2 controller programs the corresponding switching rules, and (3) Tincan, the default datapath. While each node is parameterized to be independently tuned, they are true peers with identical functional capabilities, and each is independently maintained by its local controllers. While there are no centralized components for overlay management and SDN-programmed switching, it uses XMPP [@rfc3920] for peer authentication and messaging, and ICE for endpoint discovery and tunnel bootstrapping.
 
 # Source Code and Packaging
-`EdgeVPN.io` is available as an MIT-licensed open-source project hosted on [Github](https://github.com/EdgeVPNio). The two primary repositories are [EdgeVPNio/evio](https://github.com/EdgeVPNio/evio) and [EdgeVPNio/tincan](https://github.com/EdgeVPNio/tincan).  
+`EdgeVPN.io` is available as an MIT-licensed open-source project hosted on [GitHub](https://github.com/EdgeVPNio). The two primary repositories are [EdgeVPNio/evio](https://github.com/EdgeVPNio/evio) and [EdgeVPNio/tincan](https://github.com/EdgeVPNio/tincan).  
 
 Evio is the Python implementation of SDN controllers for topology, layer 2 switching, and other auxillary functions. Tincan is the `EdgeVPN.io` default datapath. It is implemented in C++ and creates the fundamental tunnel abstraction consisting of a Linux TAP device and a WebRTC data link. Tincan requires WebRTC source code or prebuilt libraries for compiling. The tools repo provides several scripts that assist with building and packaging. 
 
